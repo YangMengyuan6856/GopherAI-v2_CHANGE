@@ -32,5 +32,11 @@ func InitRouter() *gin.Engine {
 		FileRouter(FileGroup)
 	}
 
+	{
+		SkillGroup := enterRouter.Group("/skill")
+		SkillGroup.Use(jwt.Auth())
+		SkillRouter(SkillGroup)
+	}
+
 	return r
 }

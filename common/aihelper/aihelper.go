@@ -2,9 +2,11 @@ package aihelper
 
 import (
 	"GopherAI/common/rabbitmq"
+	"GopherAI/common/skill"
 	"GopherAI/model"
 	"GopherAI/utils"
 	"context"
+	"fmt"
 	"sync"
 )
 
@@ -62,8 +64,64 @@ func (a *AIHelper) GetMessages() []*model.Message {
 	return out
 }
 
+// trySkill 检测 /skill 命令并执行，返回 (结果消息, 是否命中)
+func (a *AIHelper) trySkill(ctx context.Context, userName, userQuestion string) (*model.Message, bool) {
+	if !skill.IsSkillCommand(userQuestion) {
+		return nil, false
+	}
+
+	code, args, ok := skill.ParseCommand(userQuestion)
+	if !ok {
+		return nil, false
+	}
+
+	registry := skill.GetRegistry()
+	s, exists := registry.Get(code)
+	if !exists {
+		msg := &model.Message{
+			SessionID: a.SessionID,
+			UserName:  userName,
+			Content:   fmt.Sprintf("技能 [%s] 不存在，可通过 GET /api/v1/skill/list 查看可用技能列表。", code),
+			IsUser:    false,
+		}
+		return msg, true
+	}
+
+	req := &skill.ExecuteRequest{
+		UserName:  userName,
+		SessionID: a.SessionID,
+		RawInput:  userQuestion,
+		Args:      args,
+	}
+
+	result, err := skill.GetInvoker().Invoke(ctx, s, req)
+	if err != nil {
+		msg := &model.Message{
+			SessionID: a.SessionID,
+			UserName:  userName,
+			Content:   fmt.Sprintf("技能 [%s] 执行失败：%v", code, err),
+			IsUser:    false,
+		}
+		return msg, true
+	}
+
+	msg := &model.Message{
+		SessionID: a.SessionID,
+		UserName:  userName,
+		Content:   result.Output,
+		IsUser:    false,
+	}
+	return msg, true
+}
+
 // 同步生成
 func (a *AIHelper) GenerateResponse(userName string, ctx context.Context, userQuestion string) (*model.Message, error) {
+	// 优先检测是否为技能命令（/skill <code> <args>）
+	if skillMsg, handled := a.trySkill(ctx, userName, userQuestion); handled {
+		a.AddMessage(userQuestion, userName, true, true)
+		a.AddMessage(skillMsg.Content, userName, false, true)
+		return skillMsg, nil
+	}
 
 	//调用存储函数
 	a.AddMessage(userQuestion, userName, true, true)
@@ -90,6 +148,14 @@ func (a *AIHelper) GenerateResponse(userName string, ctx context.Context, userQu
 
 // 流式生成
 func (a *AIHelper) StreamResponse(userName string, ctx context.Context, cb StreamCallback, userQuestion string) (*model.Message, error) {
+	// 优先检测是否为技能命令（/skill <code> <args>）
+	if skillMsg, handled := a.trySkill(ctx, userName, userQuestion); handled {
+		a.AddMessage(userQuestion, userName, true, true)
+		a.AddMessage(skillMsg.Content, userName, false, true)
+		// 技能结果通过流式回调一次性发送给前端
+		cb(skillMsg.Content)
+		return skillMsg, nil
+	}
 
 	//调用存储函数
 	a.AddMessage(userQuestion, userName, true, true)

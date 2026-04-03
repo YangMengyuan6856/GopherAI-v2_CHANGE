@@ -5,7 +5,9 @@ import (
 	"GopherAI/common/mysql"
 	"GopherAI/common/rabbitmq"
 	"GopherAI/common/redis"
+	"GopherAI/common/skill"
 	"GopherAI/config"
+	daoskill "GopherAI/dao/skill"
 	"GopherAI/dao/message"
 	"GopherAI/router"
 	"fmt"
@@ -49,6 +51,20 @@ func readDataFromDB() error {
 	return nil
 }
 
+// initSkills 注册所有内置技能并注入调用日志器
+func initSkills(conf *config.Config) {
+	registry := skill.GetRegistry()
+
+	// 注册内置天气技能（复用 MCP 服务）
+	mcpBaseURL := "http://localhost:8081/mcp"
+	registry.Register(skill.NewWeatherSkill(mcpBaseURL))
+	log.Printf("skill [weather] registered, mcp=%s", mcpBaseURL)
+
+	// 注入 DB 日志器（异步写，不阻塞执行链路）
+	skill.GetInvoker().SetLogger(&daoskill.DBLogger{})
+	log.Println("skill invocation logger initialized")
+}
+
 func main() {
 	conf := config.GetConfig()
 	host := conf.MainConfig.Host
@@ -60,6 +76,10 @@ func main() {
 	}
 	//初始化AIHelperManager
 	readDataFromDB()
+
+	//初始化 Skill 注册中心
+	initSkills(conf)
+	log.Println("skill registry init success")
 
 	//初始化redis
 	redis.Init()
