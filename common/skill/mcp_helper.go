@@ -84,16 +84,16 @@ func (h *MCPHelper) DiscoverTools(ctx context.Context) ([]ToolInfo, error) {
 
 		info.Parameters = make(map[string]string)
 
-		if props, ok := t.InputSchema.Properties.(map[string]interface{}); ok {
-			for pName, pVal := range props {
-				desc := ""
-				if pMap, ok2 := pVal.(map[string]interface{}); ok2 {
-					if d, ok3 := pMap["description"].(string); ok3 {
-						desc = d
-					}
+		// 直接遍历 t.InputSchema.Properties，不再进行类型断言
+		for pName, pVal := range t.InputSchema.Properties {
+			desc := ""
+			// 这里的 pVal 依然是 interface{}，所以需要断言
+			if pMap, ok2 := pVal.(map[string]interface{}); ok2 {
+				if d, ok3 := pMap["description"].(string); ok3 {
+					desc = d
 				}
-				info.Parameters[pName] = desc
 			}
+			info.Parameters[pName] = desc
 		}
 
 		if t.InputSchema.Required != nil {
