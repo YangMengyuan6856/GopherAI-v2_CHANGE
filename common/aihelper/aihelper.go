@@ -7,6 +7,7 @@ import (
 	"GopherAI/utils"
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -87,6 +88,17 @@ func (a *AIHelper) trySkill(ctx context.Context, userName, userQuestion string) 
 		return msg, true
 	}
 
+	invoker := skill.GetInvoker()
+	if !invoker.IsEnabledForUser(userName, code) {
+		msg := &model.Message{
+			SessionID: a.SessionID,
+			UserName:  userName,
+			Content:   fmt.Sprintf("技能 [%s] 未启用，请先在技能管理中启用该技能。", code),
+			IsUser:    false,
+		}
+		return msg, true
+	}
+
 	req := &skill.ExecuteRequest{
 		UserName:  userName,
 		SessionID: a.SessionID,
@@ -94,7 +106,7 @@ func (a *AIHelper) trySkill(ctx context.Context, userName, userQuestion string) 
 		Args:      args,
 	}
 
-	result, err := skill.GetInvoker().Invoke(ctx, s, req)
+	result, err := invoker.Invoke(ctx, s, req)
 	if err != nil {
 		msg := &model.Message{
 			SessionID: a.SessionID,
@@ -153,7 +165,7 @@ func (a *AIHelper) StreamResponse(userName string, ctx context.Context, cb Strea
 		a.AddMessage(userQuestion, userName, true, true)
 		a.AddMessage(skillMsg.Content, userName, false, true)
 		// 技能结果通过流式回调一次性发送给前端
-		cb(skillMsg.Content)
+	        cb(strings.ReplaceAll(skillMsg.Content, "\n", "<br>"))
 		return skillMsg, nil
 	}
 

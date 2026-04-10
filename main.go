@@ -7,9 +7,10 @@ import (
 	"GopherAI/common/redis"
 	"GopherAI/common/skill"
 	"GopherAI/config"
-	daoskill "GopherAI/dao/skill"
 	"GopherAI/dao/message"
+	daoskill "GopherAI/dao/skill"
 	"GopherAI/router"
+	skillsvc "GopherAI/service/skill"
 	"fmt"
 	"log"
 )
@@ -60,9 +61,34 @@ func initSkills(conf *config.Config) {
 	registry.Register(skill.NewWeatherSkill(mcpBaseURL))
 	log.Printf("skill [weather] registered, mcp=%s", mcpBaseURL)
 
+	// 注册日期时间技能
+	registry.Register(skill.NewDateTimeSkill())
+	log.Println("skill [datetime] registered")
+
+	// 注册计算器技能
+	registry.Register(skill.NewCalculatorSkill())
+	log.Println("skill [calculator] registered")
+
+	// 注册翻译助手技能
+	registry.Register(skill.NewTranslateSkill())
+	log.Println("skill [translate] registered")
+
+	// 注册文本摘要技能
+	registry.Register(skill.NewSummarizeSkill())
+	log.Println("skill [summarize] registered")
+
+	invoker := skill.GetInvoker()
+
 	// 注入 DB 日志器（异步写，不阻塞执行链路）
-	skill.GetInvoker().SetLogger(&daoskill.DBLogger{})
+	invoker.SetLogger(&daoskill.DBLogger{})
 	log.Println("skill invocation logger initialized")
+
+	// 注入用户技能启用状态检查器
+	invoker.SetChecker(skillsvc.IsSkillEnabledForUser)
+	log.Println("skill user checker initialized")
+
+	// 同步技能元数据到数据库
+	skillsvc.SyncSkillsToDB()
 }
 
 func main() {

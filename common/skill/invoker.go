@@ -12,8 +12,9 @@ import (
 
 // Invoker 技能执行器，负责调用技能并自动完成计时和日志记录
 type Invoker struct {
-	mu     sync.RWMutex
-	logger InvocationLogger
+	mu      sync.RWMutex
+	logger  InvocationLogger
+	checker UserSkillChecker
 }
 
 var globalInvoker = &Invoker{}
@@ -28,6 +29,25 @@ func (inv *Invoker) SetLogger(logger InvocationLogger) {
 	inv.mu.Lock()
 	defer inv.mu.Unlock()
 	inv.logger = logger
+}
+
+// SetChecker 注入用户技能启用状态检查函数
+func (inv *Invoker) SetChecker(checker UserSkillChecker) {
+	inv.mu.Lock()
+	defer inv.mu.Unlock()
+	inv.checker = checker
+}
+
+// IsEnabledForUser 检查用户是否启用了某技能（未注入 checker 时默认允许）
+func (inv *Invoker) IsEnabledForUser(userName, skillCode string) bool {
+	inv.mu.RLock()
+	checker := inv.checker
+	inv.mu.RUnlock()
+
+	if checker == nil {
+		return true
+	}
+	return checker(userName, skillCode)
 }
 
 // Invoke 执行技能，自动记录调用耗时和日志

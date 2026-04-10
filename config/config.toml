@@ -8,7 +8,7 @@ authcode = "your authcode "
 email = "your qq email"
 
 [redisConfig]
-host = "127.0.0.1"
+host = "redis-vector"
 port = 6379
 password = ""
 db = 0

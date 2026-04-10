@@ -34,3 +34,7 @@ type Skill interface {
 type InvocationLogger interface {
 	Log(traceID, userName, sessionID, skillCode, inputJSON, outputJSON, status string, latencyMs int64, errMsg string)
 }
+
+// UserSkillChecker 用户技能启用状态检查函数类型
+// 通过函数注入，避免 common 层依赖 service/dao 层
+type UserSkillChecker func(userName, skillCode string) bool

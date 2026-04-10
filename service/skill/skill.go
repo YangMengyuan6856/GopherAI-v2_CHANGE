@@ -5,6 +5,7 @@ import (
 	daoskill "GopherAI/dao/skill"
 	"GopherAI/model"
 	"fmt"
+	"log"
 )
 
 const defaultInvocationLimit = 50
@@ -59,4 +60,32 @@ func DisableUserSkill(userName, skillCode string) error {
 // GetUserInvocations 获取用户最近 N 条技能调用日志
 func GetUserInvocations(userName string) ([]model.SkillInvocation, error) {
 	return daoskill.GetUserInvocations(userName, defaultInvocationLimit)
+}
+
+// IsSkillEnabledForUser 检查用户是否启用了指定技能
+func IsSkillEnabledForUser(userName, skillCode string) bool {
+	enabled, err := daoskill.IsUserSkillEnabled(userName, skillCode)
+	if err != nil {
+		log.Printf("[Skill] check user skill enabled failed: user=%s code=%s err=%v", userName, skillCode, err)
+		return false
+	}
+	return enabled
+}
+
+// SyncSkillsToDB 将注册中心中的所有技能元数据同步到 DB
+func SyncSkillsToDB() {
+	skills := skillpkg.GetRegistry().All()
+	for _, s := range skills {
+		skillModel := &model.Skill{
+			Code:        s.Code(),
+			Name:        s.Name(),
+			Description: s.Description(),
+			Type:        "local",
+			Status:      1,
+		}
+		if err := daoskill.UpsertSkill(skillModel); err != nil {
+			log.Printf("[Skill] sync skill to DB failed: code=%s err=%v", s.Code(), err)
+		}
+	}
+	log.Printf("[Skill] synced %d skills to DB", len(skills))
 }

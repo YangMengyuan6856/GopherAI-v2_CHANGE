@@ -55,6 +55,36 @@ func SaveInvocation(inv *model.SkillInvocation) error {
 	return mysql.DB.Create(inv).Error
 }
 
+// UpsertSkill 注册或更新技能元数据到 DB（按 code 去重）
+func UpsertSkill(s *model.Skill) error {
+	var existing model.Skill
+	result := mysql.DB.Where("code = ?", s.Code).First(&existing)
+	if result.Error != nil {
+		return mysql.DB.Create(s).Error
+	}
+	return mysql.DB.Model(&existing).Updates(map[string]interface{}{
+		"name":        s.Name,
+		"description": s.Description,
+		"type":        s.Type,
+		"status":      s.Status,
+		"config_json": s.ConfigJSON,
+		"tags":        s.Tags,
+	}).Error
+}
+
+// IsUserSkillEnabled 检查某用户是否启用了指定技能
+func IsUserSkillEnabled(userName, skillCode string) (bool, error) {
+	var us model.UserSkill
+	result := mysql.DB.Where("username = ? AND skill_code = ? AND enabled = ?", userName, skillCode, true).First(&us)
+	if result.Error != nil {
+		if result.RowsAffected == 0 {
+			return false, nil
+		}
+		return false, result.Error
+	}
+	return true, nil
+}
+
 // DBLogger 实现 skill.InvocationLogger 接口，将调用日志异步写入数据库
 type DBLogger struct{}
 

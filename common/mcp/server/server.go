@@ -2,11 +2,13 @@ package mcp
 
 import (
 	"context"
+        "crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"time"
 	"strconv"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -60,8 +62,14 @@ func (c *WeatherAPIClient) GetWeather(ctx context.Context, city string) (*Weathe
 	if err != nil {
 		return nil, fmt.Errorf("create request failed: %w", err)
 	}
+	req.Header.Set("User-Agent", "curl/7.88.1")
 
-	client := &http.Client{}
+	client := &http.Client{
+	Timeout: 15 * time.Second,
+	Transport: &http.Transport{
+	TLSNextProto: make(map[string]func(string, *tls.Conn) http.RoundTripper),
+	},	
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("http request failed: %w", err)
