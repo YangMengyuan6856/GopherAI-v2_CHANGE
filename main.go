@@ -77,6 +77,10 @@ func initSkills(conf *config.Config) {
 	registry.Register(skill.NewSummarizeSkill())
 	log.Println("skill [summarize] registered")
 
+	// 注册智能 Agent 技能（自主调用 MCP 工具）
+	registry.Register(skill.NewAgentSkill(mcpBaseURL))
+	log.Printf("skill [agent] registered, mcp=%s", mcpBaseURL)
+
 	invoker := skill.GetInvoker()
 
 	// 注入 DB 日志器（异步写，不阻塞执行链路）

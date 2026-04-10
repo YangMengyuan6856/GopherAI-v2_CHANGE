@@ -2,14 +2,19 @@ package mcp
 
 import (
 	"context"
-        "crypto/tls"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"log"
+	"math"
 	"net/http"
-	"time"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -174,7 +179,145 @@ func NewMCPServer() *server.MCPServer {
 		},
 	)
 
+	// ── get_time 工具 ──
+	mcpServer.AddTool(
+		mcp.NewTool(
+			"get_time",
+			mcp.WithDescription("获取指定时区的当前时间，默认 Asia/Shanghai"),
+			mcp.WithString(
+				"timezone",
+				mcp.Description("IANA 时区名称，如 Asia/Shanghai、America/New_York、Europe/London"),
+			),
+		),
+		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			args := request.GetArguments()
+			tzName := "Asia/Shanghai"
+			if tz, ok := args["timezone"].(string); ok && tz != "" {
+				tzName = tz
+			}
+
+			loc, err := time.LoadLocation(tzName)
+			if err != nil {
+				return nil, fmt.Errorf("无效时区 %q: %w", tzName, err)
+			}
+
+			now := time.Now().In(loc)
+			weekdayCN := [...]string{"日", "一", "二", "三", "四", "五", "六"}
+
+			resultText := fmt.Sprintf(
+				"时区: %s\n日期: %s\n时间: %s\n星期: 星期%s\nUnix时间戳: %d",
+				tzName,
+				now.Format("2006-01-02"),
+				now.Format("15:04:05"),
+				weekdayCN[now.Weekday()],
+				now.Unix(),
+			)
+
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{
+					mcp.TextContent{Type: "text", Text: resultText},
+				},
+			}, nil
+		},
+	)
+
+	// ── calculate 工具 ──
+	mcpServer.AddTool(
+		mcp.NewTool(
+			"calculate",
+			mcp.WithDescription("计算数学表达式，支持 +、-、*、/、() 和浮点数"),
+			mcp.WithString(
+				"expression",
+				mcp.Description("数学表达式，如 (1+2)*3、3.14*10*10"),
+				mcp.Required(),
+			),
+		),
+		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			args := request.GetArguments()
+			expr, ok := args["expression"].(string)
+			if !ok || expr == "" {
+				return nil, fmt.Errorf("请提供数学表达式")
+			}
+
+			expr = strings.ReplaceAll(expr, "×", "*")
+			expr = strings.ReplaceAll(expr, "÷", "/")
+			expr = strings.ReplaceAll(expr, "（", "(")
+			expr = strings.ReplaceAll(expr, "）", ")")
+
+			result, err := mcpEvalExpr(expr)
+			if err != nil {
+				return nil, fmt.Errorf("计算失败: %w", err)
+			}
+
+			formatted := strconv.FormatFloat(result, 'f', -1, 64)
+
+			resultText := fmt.Sprintf("%s = %s", expr, formatted)
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{
+					mcp.TextContent{Type: "text", Text: resultText},
+				},
+			}, nil
+		},
+	)
+
 	return mcpServer
+}
+
+// ── calculate 辅助函数 ──
+
+func mcpEvalExpr(expr string) (float64, error) {
+	node, err := parser.ParseExpr(expr)
+	if err != nil {
+		return 0, fmt.Errorf("表达式语法错误: %w", err)
+	}
+	return mcpEvalNode(node)
+}
+
+func mcpEvalNode(node ast.Expr) (float64, error) {
+	switch n := node.(type) {
+	case *ast.BasicLit:
+		if n.Kind == token.INT || n.Kind == token.FLOAT {
+			return strconv.ParseFloat(n.Value, 64)
+		}
+		return 0, fmt.Errorf("不支持的字面量: %s", n.Value)
+	case *ast.ParenExpr:
+		return mcpEvalNode(n.X)
+	case *ast.UnaryExpr:
+		val, err := mcpEvalNode(n.X)
+		if err != nil {
+			return 0, err
+		}
+		if n.Op == token.SUB {
+			return -val, nil
+		}
+		return val, nil
+	case *ast.BinaryExpr:
+		left, err := mcpEvalNode(n.X)
+		if err != nil {
+			return 0, err
+		}
+		right, err := mcpEvalNode(n.Y)
+		if err != nil {
+			return 0, err
+		}
+		switch n.Op {
+		case token.ADD:
+			return left + right, nil
+		case token.SUB:
+			return left - right, nil
+		case token.MUL:
+			return left * right, nil
+		case token.QUO:
+			if math.Abs(right) < 1e-15 {
+				return 0, fmt.Errorf("除数不能为零")
+			}
+			return left / right, nil
+		default:
+			return 0, fmt.Errorf("不支持的运算符: %s", n.Op)
+		}
+	default:
+		return 0, fmt.Errorf("不支持的表达式类型")
+	}
 }
 
 // StartServer 启动MCP服务器

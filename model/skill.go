@@ -24,8 +24,8 @@ type Skill struct {
 // UserSkill 用户技能开关表，记录某用户是否启用了某技能
 type UserSkill struct {
 	ID        uint      `gorm:"primaryKey;autoIncrement" json:"id"`
-	UserName  string    `gorm:"index;type:varchar(64);not null" json:"username"`
-	SkillCode string    `gorm:"type:varchar(64);not null" json:"skill_code"`
+	UserName  string    `gorm:"uniqueIndex:idx_user_skill;type:varchar(64);not null" json:"username"`
+	SkillCode string    `gorm:"uniqueIndex:idx_user_skill;type:varchar(64);not null" json:"skill_code"`
 	Enabled   bool      `gorm:"default:true" json:"enabled"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

@@ -20,17 +20,20 @@ func GetAllActiveSkills() ([]model.Skill, error) {
 // GetUserEnabledSkills 查询某用户已启用的技能列表
 func GetUserEnabledSkills(userName string) ([]model.UserSkill, error) {
 	var us []model.UserSkill
-	err := mysql.DB.Where("username = ? AND enabled = ?", userName, true).Find(&us).Error
+	err := mysql.DB.Where("user_name = ? AND enabled = ?", userName, true).Find(&us).Error
 	return us, err
 }
 
 // EnableUserSkill 为用户启用一个技能，若记录已存在则更新，否则新建
 func EnableUserSkill(userName, skillCode string) error {
 	var us model.UserSkill
-	result := mysql.DB.Where("username = ? AND skill_code = ?", userName, skillCode).First(&us)
+	result := mysql.DB.Where("user_name = ? AND skill_code = ?", userName, skillCode).First(&us)
 	if result.Error != nil {
-		us = model.UserSkill{UserName: userName, SkillCode: skillCode, Enabled: true}
-		return mysql.DB.Create(&us).Error
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			us = model.UserSkill{UserName: userName, SkillCode: skillCode, Enabled: true}
+			return mysql.DB.Create(&us).Error
+		}
+		return result.Error
 	}
 	return mysql.DB.Model(&us).Update("enabled", true).Error
 }
@@ -38,7 +41,7 @@ func EnableUserSkill(userName, skillCode string) error {
 // DisableUserSkill 为用户禁用一个技能
 func DisableUserSkill(userName, skillCode string) error {
 	return mysql.DB.Model(&model.UserSkill{}).
-		Where("username = ? AND skill_code = ?", userName, skillCode).
+		Where("user_name = ? AND skill_code = ?", userName, skillCode).
 		Update("enabled", false).Error
 }
 
@@ -46,7 +49,7 @@ func DisableUserSkill(userName, skillCode string) error {
 func GetUserInvocations(userName string, limit int) ([]model.SkillInvocation, error) {
 	var invocations []model.SkillInvocation
 	err := mysql.DB.
-		Where("username = ?", userName).
+		Where("user_name = ?", userName).
 		Order("created_at DESC").
 		Limit(limit).
 		Find(&invocations).Error
@@ -81,7 +84,7 @@ func UpsertSkill(s *model.Skill) error {
 // IsUserSkillEnabled 检查某用户是否启用了指定技能
 func IsUserSkillEnabled(userName, skillCode string) (bool, error) {
 	var us model.UserSkill
-	result := mysql.DB.Where("username = ? AND skill_code = ? AND enabled = ?", userName, skillCode, true).First(&us)
+	result := mysql.DB.Where("user_name = ? AND skill_code = ? AND enabled = ?", userName, skillCode, true).First(&us)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return false, nil
