@@ -3,8 +3,11 @@ package skill
 import (
 	"GopherAI/common/mysql"
 	"GopherAI/model"
+	"errors"
 	"log"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 // GetAllActiveSkills 查询所有状态为启用的技能定义
@@ -60,7 +63,10 @@ func UpsertSkill(s *model.Skill) error {
 	var existing model.Skill
 	result := mysql.DB.Where("code = ?", s.Code).First(&existing)
 	if result.Error != nil {
-		return mysql.DB.Create(s).Error
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return mysql.DB.Create(s).Error
+		}
+		return result.Error
 	}
 	return mysql.DB.Model(&existing).Updates(map[string]interface{}{
 		"name":        s.Name,
@@ -77,7 +83,7 @@ func IsUserSkillEnabled(userName, skillCode string) (bool, error) {
 	var us model.UserSkill
 	result := mysql.DB.Where("username = ? AND skill_code = ? AND enabled = ?", userName, skillCode, true).First(&us)
 	if result.Error != nil {
-		if result.RowsAffected == 0 {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return false, nil
 		}
 		return false, result.Error

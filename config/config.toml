@@ -2,6 +2,7 @@
 appName = "GopherAI"
 host = "0.0.0.0"
 port = 9090
+contextTokenBudget = 8192  # 上下文窗口 token 预算，0 表示不限制（发送全部历史）
 
 [emailConfig]
 authcode = "your authcode "

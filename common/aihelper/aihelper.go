@@ -135,15 +135,17 @@ func (a *AIHelper) GenerateResponse(userName string, ctx context.Context, userQu
 		return skillMsg, nil
 	}
 
-	//调用存储函数
 	a.AddMessage(userQuestion, userName, true, true)
 
 	a.mu.RLock()
-	//将model.Message转化成schema.Message
-	messages := utils.ConvertToSchemaMessages(a.messages)
+	// 按 token 预算截取上下文（只保留最近 N 条，全量历史仍在 a.messages 中）
+	contextMsgs := a.messages
+	if budget := GetContextTokenBudget(); budget > 0 {
+		contextMsgs = TruncateByTokenBudget(a.messages, budget)
+	}
+	messages := utils.ConvertToSchemaMessages(contextMsgs)
 	a.mu.RUnlock()
 
-	//调用模型生成回复
 	schemaMsg, err := a.model.GenerateResponse(ctx, messages)
 	if err != nil {
 		return nil, err
@@ -169,11 +171,15 @@ func (a *AIHelper) StreamResponse(userName string, ctx context.Context, cb Strea
 		return skillMsg, nil
 	}
 
-	//调用存储函数
 	a.AddMessage(userQuestion, userName, true, true)
 
 	a.mu.RLock()
-	messages := utils.ConvertToSchemaMessages(a.messages)
+	// 按 token 预算截取上下文（只保留最近 N 条，全量历史仍在 a.messages 中）
+	contextMsgs := a.messages
+	if budget := GetContextTokenBudget(); budget > 0 {
+		contextMsgs = TruncateByTokenBudget(a.messages, budget)
+	}
+	messages := utils.ConvertToSchemaMessages(contextMsgs)
 	a.mu.RUnlock()
 
 	content, err := a.model.StreamResponse(ctx, messages, cb)
