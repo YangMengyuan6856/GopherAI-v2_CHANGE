@@ -64,8 +64,12 @@ func (f *AIModelFactory) registerCreators() {
 		}
 		return NewOllamaModel(ctx, baseURL, modelName)
 	}
-	// 阿里百炼 mcp 模型
 
+	// ReAct 推理循环模型
+	f.creators["5"] = func(ctx context.Context, config map[string]interface{}) (AIModel, error) {
+		username, _ := config["username"].(string)
+		return NewReActModel(ctx, username)
+	}
 }
 
 // CreateAIModel 根据类型创建 AI 模型

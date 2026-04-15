@@ -62,6 +62,11 @@ type VoiceServiceConfig struct {
 	VoiceServiceSecretKey string `toml:"voiceServiceSecretKey"`
 }
 
+type ReactConfig struct {
+	MaxIterations int    `toml:"maxIterations"`
+	McpBaseURL    string `toml:"mcpBaseURL"`
+}
+
 type Config struct {
 	EmailConfig        `toml:"emailConfig"`
 	RedisConfig        `toml:"redisConfig"`
@@ -71,6 +76,7 @@ type Config struct {
 	Rabbitmq           `toml:"rabbitmqConfig"`
 	RagModelConfig     `toml:"ragModelConfig"`
 	VoiceServiceConfig `toml:"voiceServiceConfig"`
+	ReactConfig        `toml:"reactConfig"`
 }
 
 type RedisKeyConfig struct {

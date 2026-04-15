@@ -45,3 +45,7 @@ charset =  "utf8mb4"
   [voiceServiceConfig]
   voiceServiceApiKey = "baiduApiKey"
   voiceServiceSecretKey ="baiduSecretKey"
+
+  [reactConfig]
+  maxIterations = 10          # ReAct 最大推理迭代次数
+  mcpBaseURL = "http://localhost:8081/mcp"  # MCP 服务地址

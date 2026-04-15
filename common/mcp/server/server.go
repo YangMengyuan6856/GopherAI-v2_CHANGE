@@ -260,6 +260,81 @@ func NewMCPServer() *server.MCPServer {
 		},
 	)
 
+	// ── web_search 工具 ──
+	mcpServer.AddTool(
+		mcp.NewTool(
+			"web_search",
+			mcp.WithDescription("联网搜索，通过搜索引擎查询实时信息、新闻、攻略、百科等任何互联网内容"),
+			mcp.WithString(
+				"query",
+				mcp.Description("搜索关键词，如「杭州旅游攻略」「2024年诺贝尔奖」"),
+				mcp.Required(),
+			),
+			mcp.WithNumber(
+				"max_results",
+				mcp.Description("返回结果条数，默认 5，最大 10"),
+			),
+		),
+		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			args := request.GetArguments()
+			query, ok := args["query"].(string)
+			if !ok || query == "" {
+				return nil, fmt.Errorf("请提供搜索关键词")
+			}
+
+			maxResults := 5
+			if mr, ok := args["max_results"].(float64); ok && int(mr) > 0 {
+				maxResults = int(mr)
+				if maxResults > 10 {
+					maxResults = 10
+				}
+			}
+
+			results, err := DuckDuckGoSearch(ctx, query, maxResults)
+			if err != nil {
+				return nil, fmt.Errorf("搜索失败: %w", err)
+			}
+
+			resultText := FormatSearchResults(results)
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{
+					mcp.TextContent{Type: "text", Text: resultText},
+				},
+			}, nil
+		},
+	)
+
+	// ── fetch_url 工具 ──
+	mcpServer.AddTool(
+		mcp.NewTool(
+			"fetch_url",
+			mcp.WithDescription("读取指定网页的内容，提取正文文本。可用于深入阅读搜索结果中感兴趣的页面"),
+			mcp.WithString(
+				"url",
+				mcp.Description("要读取的网页地址，如 https://example.com/article"),
+				mcp.Required(),
+			),
+		),
+		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			args := request.GetArguments()
+			rawURL, ok := args["url"].(string)
+			if !ok || rawURL == "" {
+				return nil, fmt.Errorf("请提供网页地址")
+			}
+
+			content, err := FetchURLContent(ctx, rawURL, 4000)
+			if err != nil {
+				return nil, fmt.Errorf("网页读取失败: %w", err)
+			}
+
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{
+					mcp.TextContent{Type: "text", Text: content},
+				},
+			}, nil
+		},
+	)
+
 	return mcpServer
 }
 
