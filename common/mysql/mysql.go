@@ -67,6 +67,8 @@ func migration() error {
 		new(model.Skill),
 		new(model.UserSkill),
 		new(model.SkillInvocation),
+		new(model.ConversationSummary),
+		new(model.MemoryEntry),
 	)
 }
 

@@ -22,29 +22,25 @@ func StartServer(addr string, port int) error {
 	return r.Run(fmt.Sprintf("%s:%d", addr, port))
 }
 
-// 从数据库加载消息并初始化 AIHelperManager
+// readDataFromDB 从数据库加载消息并初始化 AIHelperManager（含记忆系统恢复）
 func readDataFromDB() error {
 	manager := aihelper.GetGlobalManager()
-	// 从数据库读取所有消息
 	msgs, err := message.GetAllMessages()
 	if err != nil {
 		return err
 	}
-	// 遍历数据库消息
+
 	for i := range msgs {
 		m := &msgs[i]
-		//默认openai模型
 		modelType := "1"
-		config := make(map[string]interface{})
+		cfg := make(map[string]interface{})
 
-		// 创建对应的 AIHelper
-		helper, err := manager.GetOrCreateAIHelper(m.UserName, m.SessionID, modelType, config)
+		helper, err := manager.GetOrCreateAIHelper(m.UserName, m.SessionID, modelType, cfg)
 		if err != nil {
 			log.Printf("[readDataFromDB] failed to create helper for user=%s session=%s: %v", m.UserName, m.SessionID, err)
 			continue
 		}
 		log.Println("readDataFromDB init:  ", helper.SessionID)
-		// 添加消息到内存中(不开启存储功能)
 		helper.AddMessage(m.Content, m.UserName, m.IsUser, false)
 	}
 

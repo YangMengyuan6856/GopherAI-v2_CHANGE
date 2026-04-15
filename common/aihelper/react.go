@@ -531,3 +531,11 @@ func (r *ReActModel) directStream(ctx context.Context, messages []*schema.Messag
 }
 
 func (r *ReActModel) GetModelType() string { return "5" }
+
+func (r *ReActModel) GenerateForSummary(ctx context.Context, messages []*schema.Message) (string, error) {
+	resp, err := r.llm.Generate(ctx, messages)
+	if err != nil {
+		return "", err
+	}
+	return resp.Content, nil
+}

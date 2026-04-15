@@ -67,6 +67,15 @@ type ReactConfig struct {
 	McpBaseURL    string `toml:"mcpBaseURL"`
 }
 
+type MemoryConfig struct {
+	EnableSummary           bool    `toml:"enableSummary"`
+	EnableLongTermMemory    bool    `toml:"enableLongTermMemory"`
+	SummaryTriggerRatio     float64 `toml:"summaryTriggerRatio"`
+	SummaryMaxTokens        int     `toml:"summaryMaxTokens"`
+	LongTermMemoryMaxEntries int    `toml:"longTermMemoryMaxEntries"`
+	SystemPrompt            string  `toml:"systemPrompt"`
+}
+
 type Config struct {
 	EmailConfig        `toml:"emailConfig"`
 	RedisConfig        `toml:"redisConfig"`
@@ -77,6 +86,7 @@ type Config struct {
 	RagModelConfig     `toml:"ragModelConfig"`
 	VoiceServiceConfig `toml:"voiceServiceConfig"`
 	ReactConfig        `toml:"reactConfig"`
+	MemoryConfig       `toml:"memoryConfig"`
 }
 
 type RedisKeyConfig struct {

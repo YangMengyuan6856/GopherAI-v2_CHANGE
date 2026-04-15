@@ -49,3 +49,11 @@ charset =  "utf8mb4"
   [reactConfig]
   maxIterations = 10          # ReAct 最大推理迭代次数
   mcpBaseURL = "http://localhost:8081/mcp"  # MCP 服务地址
+
+  [memoryConfig]
+  enableSummary = true              # 是否启用摘要记忆（超出上下文时自动压缩旧消息）
+  enableLongTermMemory = true       # 是否启用长期记忆（跨会话记住用户偏好/事实）
+  summaryTriggerRatio = 0.7         # 摘要触发阈值（已用 token / 预算），超过此比例开始摘要
+  summaryMaxTokens = 500            # 摘要文本的最大 token 数
+  longTermMemoryMaxEntries = 50     # 每用户最大长期记忆条目数
+  systemPrompt = "你是 GopherAI 智能助手，一个功能强大、友善且专业的 AI 对话伙伴。请根据用户的需求提供准确、有帮助的回答。"

@@ -87,6 +87,15 @@ func (o *OpenAIModel) StreamResponse(ctx context.Context, messages []*schema.Mes
 
 func (o *OpenAIModel) GetModelType() string { return "1" }
 
+// GenerateForSummary 实现 SummaryLLM 接口，用于摘要生成和记忆提取
+func (o *OpenAIModel) GenerateForSummary(ctx context.Context, messages []*schema.Message) (string, error) {
+	resp, err := o.llm.Generate(ctx, messages)
+	if err != nil {
+		return "", err
+	}
+	return resp.Content, nil
+}
+
 // =================== Ollama 实现 ===================
 
 // OllamaModel Ollama模型实现
@@ -137,6 +146,14 @@ func (o *OllamaModel) StreamResponse(ctx context.Context, messages []*schema.Mes
 }
 
 func (o *OllamaModel) GetModelType() string { return "4" }
+
+func (o *OllamaModel) GenerateForSummary(ctx context.Context, messages []*schema.Message) (string, error) {
+	resp, err := o.llm.Generate(ctx, messages)
+	if err != nil {
+		return "", err
+	}
+	return resp.Content, nil
+}
 
 // =================== RAG 实现 ===================
 type AliRAGModel struct {
@@ -304,6 +321,14 @@ func (o *AliRAGModel) streamWithoutRAG(ctx context.Context, messages []*schema.M
 }
 
 func (o *AliRAGModel) GetModelType() string { return "2" }
+
+func (o *AliRAGModel) GenerateForSummary(ctx context.Context, messages []*schema.Message) (string, error) {
+	resp, err := o.llm.Generate(ctx, messages)
+	if err != nil {
+		return "", err
+	}
+	return resp.Content, nil
+}
 
 // =================== MCP 实现 ===================
 
@@ -639,6 +664,14 @@ func (m *MCPModel) extractCityFromResponse(response string) string {
 
 // GetModelType 获取模型类型
 func (m *MCPModel) GetModelType() string { return "3" }
+
+func (m *MCPModel) GenerateForSummary(ctx context.Context, messages []*schema.Message) (string, error) {
+	resp, err := m.llm.Generate(ctx, messages)
+	if err != nil {
+		return "", err
+	}
+	return resp.Content, nil
+}
 
 // Close 关闭MCP客户端
 func (m *MCPModel) Close() {

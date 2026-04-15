@@ -20,7 +20,7 @@ func NewAIHelperManager() *AIHelperManager {
 	}
 }
 
-// 获取或创建AIHelper
+// GetOrCreateAIHelper 获取或创建AIHelper，自动初始化记忆系统
 func (m *AIHelperManager) GetOrCreateAIHelper(userName string, sessionID string, modelType string, config map[string]interface{}) (*AIHelper, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -44,6 +44,9 @@ func (m *AIHelperManager) GetOrCreateAIHelper(userName string, sessionID string,
 	if err != nil {
 		return nil, err
 	}
+
+	// 初始化记忆系统
+	helper.InitMemory(userName)
 
 	userHelpers[sessionID] = helper
 	return helper, nil

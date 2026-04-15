@@ -49,9 +49,35 @@ func ConvertToModelMessage(sessionID string, userName string, msg *schema.Messag
 	}
 }
 
-// 将数据库消息转换为 schema 消息（供 AI 使用）
+// ConvertToSchemaMessages 将数据库消息转换为 schema 消息（供 AI 使用）
 func ConvertToSchemaMessages(msgs []*model.Message) []*schema.Message {
 	schemaMsgs := make([]*schema.Message, 0, len(msgs))
+	for _, m := range msgs {
+		role := schema.Assistant
+		if m.IsUser {
+			role = schema.User
+		}
+		schemaMsgs = append(schemaMsgs, &schema.Message{
+			Role:    role,
+			Content: m.Content,
+		})
+	}
+	return schemaMsgs
+}
+
+// ConvertToSchemaMessagesWithSystem 在消息列表头部插入 System 消息后，再转换用户/助手消息
+func ConvertToSchemaMessagesWithSystem(systemPrompt string, msgs []*model.Message) []*schema.Message {
+	capacity := len(msgs)
+	if systemPrompt != "" {
+		capacity++
+	}
+	schemaMsgs := make([]*schema.Message, 0, capacity)
+	if systemPrompt != "" {
+		schemaMsgs = append(schemaMsgs, &schema.Message{
+			Role:    schema.System,
+			Content: systemPrompt,
+		})
+	}
 	for _, m := range msgs {
 		role := schema.Assistant
 		if m.IsUser {
