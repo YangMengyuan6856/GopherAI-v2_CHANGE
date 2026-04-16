@@ -15,16 +15,17 @@ import (
 
 // AIHelper AI助手结构体，包含消息历史、AI模型和多层记忆系统
 type AIHelper struct {
-	model    AIModel
-	messages []*model.Message
-	mu       sync.RWMutex
-	SessionID string
-	saveFunc  func(*model.Message) (*model.Message, error)
+	model         AIModel
+	messages      []*model.Message
+	mu            sync.RWMutex
+	SessionID     string
+	saveFunc      func(*model.Message) (*model.Message, error)
+	historyLoaded bool
 
-	summary       *SummaryMemory
-	longTermMem   *LongTermMemoryManager
-	userName      string
-	messageCount  int // 本次会话累计消息数，用于触发长期记忆提取
+	summary      *SummaryMemory
+	longTermMem  *LongTermMemoryManager
+	userName     string
+	messageCount int // 本次会话累计消息数，用于触发长期记忆提取
 }
 
 // NewAIHelper 创建新的AIHelper实例
@@ -51,6 +52,9 @@ func (a *AIHelper) InitMemory(userName string) {
 
 // addMessage 添加消息到内存中并调用自定义存储函数
 func (a *AIHelper) AddMessage(Content string, UserName string, IsUser bool, Save bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	userMsg := model.Message{
 		SessionID: a.SessionID,
 		Content:   Content,
@@ -67,6 +71,24 @@ func (a *AIHelper) AddMessage(Content string, UserName string, IsUser bool, Save
 // SaveMessage 保存消息到数据库（通过回调函数避免循环依赖）
 func (a *AIHelper) SetSaveFunc(saveFunc func(*model.Message) (*model.Message, error)) {
 	a.saveFunc = saveFunc
+}
+
+func (a *AIHelper) IsHistoryLoaded() bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.historyLoaded
+}
+
+func (a *AIHelper) MarkHistoryLoaded() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.historyLoaded = true
+}
+
+func (a *AIHelper) SetModel(model AIModel) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.model = model
 }
 
 // GetMessages 获取所有消息历史
@@ -198,14 +220,19 @@ func (a *AIHelper) triggerLongTermExtraction() {
 	if a.longTermMem == nil {
 		return
 	}
-	if a.messageCount > 0 && a.messageCount%20 == 0 {
-		if adapter, ok := a.model.(SummaryLLM); ok {
-			a.mu.RLock()
-			msgs := make([]*model.Message, len(a.messages))
-			copy(msgs, a.messages)
-			a.mu.RUnlock()
-			a.longTermMem.ExtractAndStore(context.Background(), msgs, a.SessionID, adapter)
-		}
+
+	a.mu.RLock()
+	shouldExtract := a.messageCount > 0 && a.messageCount%20 == 0
+	modelInstance := a.model
+	msgs := make([]*model.Message, len(a.messages))
+	copy(msgs, a.messages)
+	a.mu.RUnlock()
+
+	if !shouldExtract {
+		return
+	}
+	if adapter, ok := modelInstance.(SummaryLLM); ok {
+		a.longTermMem.ExtractAndStore(context.Background(), msgs, a.SessionID, adapter)
 	}
 }
 
@@ -221,9 +248,10 @@ func (a *AIHelper) GenerateResponse(userName string, ctx context.Context, userQu
 
 	a.mu.RLock()
 	messages := a.buildContextMessages()
+	modelInstance := a.model
 	a.mu.RUnlock()
 
-	schemaMsg, err := a.model.GenerateResponse(ctx, messages)
+	schemaMsg, err := modelInstance.GenerateResponse(ctx, messages)
 	if err != nil {
 		return nil, err
 	}
@@ -254,9 +282,10 @@ func (a *AIHelper) StreamResponse(userName string, ctx context.Context, cb Strea
 
 	a.mu.RLock()
 	messages := a.buildContextMessages()
+	modelInstance := a.model
 	a.mu.RUnlock()
 
-	content, err := a.model.StreamResponse(ctx, messages, cb)
+	content, err := modelInstance.StreamResponse(ctx, messages, cb)
 	if err != nil {
 		return nil, err
 	}
@@ -276,5 +305,7 @@ func (a *AIHelper) StreamResponse(userName string, ctx context.Context, cb Strea
 
 // GetModelType 获取模型类型
 func (a *AIHelper) GetModelType() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	return a.model.GetModelType()
 }

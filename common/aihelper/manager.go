@@ -35,6 +35,16 @@ func (m *AIHelperManager) GetOrCreateAIHelper(userName string, sessionID string,
 	// 检查会话是否已存在
 	helper, exists := userHelpers[sessionID]
 	if exists {
+		if helper.GetModelType() == modelType {
+			return helper, nil
+		}
+
+		factory := GetGlobalFactory()
+		model, err := factory.CreateAIModel(ctx, modelType, config)
+		if err != nil {
+			return nil, err
+		}
+		helper.SetModel(model)
 		return helper, nil
 	}
 

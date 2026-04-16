@@ -1,13 +1,11 @@
 package main
 
 import (
-	"GopherAI/common/aihelper"
 	"GopherAI/common/mysql"
 	"GopherAI/common/rabbitmq"
 	"GopherAI/common/redis"
 	"GopherAI/common/skill"
 	"GopherAI/config"
-	"GopherAI/dao/message"
 	daoskill "GopherAI/dao/skill"
 	"GopherAI/router"
 	skillsvc "GopherAI/service/skill"
@@ -20,32 +18,6 @@ func StartServer(addr string, port int) error {
 	//服务器静态资源路径映射关系，这里目前不需要
 	// r.Static(config.GetConfig().HttpFilePath, config.GetConfig().MusicFilePath)
 	return r.Run(fmt.Sprintf("%s:%d", addr, port))
-}
-
-// readDataFromDB 从数据库加载消息并初始化 AIHelperManager（含记忆系统恢复）
-func readDataFromDB() error {
-	manager := aihelper.GetGlobalManager()
-	msgs, err := message.GetAllMessages()
-	if err != nil {
-		return err
-	}
-
-	for i := range msgs {
-		m := &msgs[i]
-		modelType := "1"
-		cfg := make(map[string]interface{})
-
-		helper, err := manager.GetOrCreateAIHelper(m.UserName, m.SessionID, modelType, cfg)
-		if err != nil {
-			log.Printf("[readDataFromDB] failed to create helper for user=%s session=%s: %v", m.UserName, m.SessionID, err)
-			continue
-		}
-		log.Println("readDataFromDB init:  ", helper.SessionID)
-		helper.AddMessage(m.Content, m.UserName, m.IsUser, false)
-	}
-
-	log.Println("AIHelperManager init success ")
-	return nil
 }
 
 // initSkills 注册所有内置技能并注入调用日志器
@@ -104,9 +76,6 @@ func main() {
 		log.Println("InitMysql error , " + err.Error())
 		return
 	}
-	//初始化AIHelperManager
-	readDataFromDB()
-
 	//初始化 Skill 注册中心
 	initSkills(conf)
 	log.Println("skill registry init success")
