@@ -71,6 +71,10 @@ func main() {
 	conf := config.GetConfig()
 	host := conf.MainConfig.Host
 	port := conf.MainConfig.Port
+	if err := StartPprofServer(conf); err != nil {
+		log.Println("StartPprofServer error , " + err.Error())
+		return
+	}
 	//初始化mysql
 	if err := mysql.InitMysql(); err != nil {
 		log.Println("InitMysql error , " + err.Error())

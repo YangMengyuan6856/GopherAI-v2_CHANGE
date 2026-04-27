@@ -68,12 +68,20 @@ type ReactConfig struct {
 }
 
 type MemoryConfig struct {
-	EnableSummary           bool    `toml:"enableSummary"`
-	EnableLongTermMemory    bool    `toml:"enableLongTermMemory"`
-	SummaryTriggerRatio     float64 `toml:"summaryTriggerRatio"`
-	SummaryMaxTokens        int     `toml:"summaryMaxTokens"`
-	LongTermMemoryMaxEntries int    `toml:"longTermMemoryMaxEntries"`
-	SystemPrompt            string  `toml:"systemPrompt"`
+	EnableSummary            bool    `toml:"enableSummary"`
+	EnableLongTermMemory     bool    `toml:"enableLongTermMemory"`
+	SummaryTriggerRatio      float64 `toml:"summaryTriggerRatio"`
+	SummaryMaxTokens         int     `toml:"summaryMaxTokens"`
+	LongTermMemoryMaxEntries int     `toml:"longTermMemoryMaxEntries"`
+	SystemPrompt             string  `toml:"systemPrompt"`
+}
+
+type PprofConfig struct {
+	Enabled             bool   `toml:"enabled"`
+	Host                string `toml:"host"`
+	Port                int    `toml:"port"`
+	ReadTimeoutSeconds  int    `toml:"readTimeoutSeconds"`
+	WriteTimeoutSeconds int    `toml:"writeTimeoutSeconds"`
 }
 
 type Config struct {
@@ -87,6 +95,7 @@ type Config struct {
 	VoiceServiceConfig `toml:"voiceServiceConfig"`
 	ReactConfig        `toml:"reactConfig"`
 	MemoryConfig       `toml:"memoryConfig"`
+	PprofConfig        `toml:"pprofConfig"`
 }
 
 type RedisKeyConfig struct {
