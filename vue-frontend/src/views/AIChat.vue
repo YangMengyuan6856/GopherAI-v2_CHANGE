@@ -23,11 +23,7 @@
       <div class="top-bar">
         <button class="back-btn" @click="$router.push('/menu')">← 返回</button>
         <button class="sync-btn" @click="syncHistory" :disabled="!currentSessionId || tempSession">同步历史数据</button>
-        <label for="modelType">选择模型：</label>
-        <select id="modelType" v-model="selectedModel" class="model-select">
-          <option value="1">阿里百炼</option>
-          <option value="2">阿里百炼 RAG</option>
-        </select>
+		<span class="route-mode" title="系统会根据问题自动选择意图、策略与 Agent">✨ 智能路由</span>
         <label for="streamingMode" style="margin-left: 20px;">
           <input type="checkbox" id="streamingMode" v-model="isStreaming" />
           流式响应
@@ -54,6 +50,9 @@
             <span v-if="message.meta && message.meta.status === 'streaming'" class="streaming-indicator"> ··</span>
           </div>
           <div class="message-content" v-html="renderMarkdown(message.content)"></div>
+		  <div v-if="message.role === 'assistant' && message.meta && message.meta.traceId" class="routing-meta">
+			自动路由 · {{ message.meta.strategy }} · {{ message.meta.policyVersion }} · Trace {{ message.meta.traceId.slice(0, 8) }}
+		  </div>
         </div>
       </div>
 
@@ -100,7 +99,6 @@ export default {
     const loading = ref(false)
     const messagesRef = ref(null)
     const messageInput = ref(null)
-    const selectedModel = ref('1')
     const isStreaming = ref(false)
     const uploading = ref(false)
     const fileInput = ref(null)
@@ -309,128 +307,103 @@ export default {
 
 
     async function handleStreaming(question) {
-
       const aiMessage = {
         role: 'assistant',
         content: '',
-        meta: { status: 'streaming' } // mark streaming
+		meta: { status: 'streaming', strategy: '自动选择', policyVersion: '加载中', traceId: '' }
       }
-
-
       const aiMessageIndex = currentMessages.value.length
       currentMessages.value.push(aiMessage)
 
       if (!tempSession.value && currentSessionId.value && sessions.value[currentSessionId.value]) {
         if (!sessions.value[currentSessionId.value].messages) sessions.value[currentSessionId.value].messages = []
+		sessions.value[currentSessionId.value].messages.push({ role: 'user', content: question })
         sessions.value[currentSessionId.value].messages.push({ role: 'assistant', content: '' })
       }
-
-
-      const url = tempSession.value
-        ? '/api/AI/chat/send-stream-new-session'  
-        : '/api/AI/chat/send-stream'           
 
       const headers = {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
       }
-
-      const body = tempSession.value
-        ? { question: question, modelType: selectedModel.value }
-        : { question: question, modelType: selectedModel.value, sessionId: currentSessionId.value }
+	  const body = { message: question }
+	  if (!tempSession.value) body.session_id = currentSessionId.value
 
       try {
-        // 创建 fetch 连接读取 SSE 流
-        const response = await fetch(url, {
+		const response = await fetch('/api/chat/auto/stream', {
           method: 'POST',
           headers,
           body: JSON.stringify(body)
         })
 
         if (!response.ok) {
-          loading.value = false
-          throw new Error('Network response was not ok')
+		  const errorBody = await response.json().catch(() => ({}))
+		  throw new Error(errorBody.message || 'Network response was not ok')
         }
 
         const reader = response.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
 
-        // 读取流数据
+		const processEventBlock = (block) => {
+		  let eventType = 'message'
+		  const dataLines = []
+		  block.split('\n').forEach(line => {
+			if (line.startsWith('event:')) eventType = line.slice(6).trim()
+			if (line.startsWith('data:')) dataLines.push(line.slice(5).trim())
+		  })
+		  if (!dataLines.length) return
+		  let payload
+		  try {
+			payload = JSON.parse(dataLines.join('\n'))
+		  } catch {
+			throw new Error('服务端返回了无法识别的流式事件')
+		  }
+
+		  const message = currentMessages.value[aiMessageIndex]
+		  if (eventType === 'meta') {
+			message.meta = {
+			  status: 'streaming',
+			  traceId: payload.trace_id || '',
+			  strategy: payload.strategy || '自动选择',
+			  policyVersion: payload.policy_version || ''
+			}
+			if (payload.session_id && tempSession.value) {
+			  const newSessionId = String(payload.session_id)
+			  sessions.value[newSessionId] = {
+				id: newSessionId,
+				name: question.slice(0, 30) || '新会话',
+				messages: currentMessages.value
+			  }
+			  currentSessionId.value = newSessionId
+			  tempSession.value = false
+			}
+		  } else if (eventType === 'delta') {
+			message.content += payload.text || ''
+		  } else if (eventType === 'citation') {
+			message.meta.citations = [...(message.meta.citations || []), payload.citation]
+		  } else if (eventType === 'final') {
+			message.meta.status = 'done'
+		  } else if (eventType === 'error') {
+			throw new Error(payload.error?.message || '流式生成失败')
+		  }
+		  currentMessages.value = [...currentMessages.value]
+		}
+
         // eslint-disable-next-line no-constant-condition
         while (true) {
           const { done, value } = await reader.read()
           if (done) break
-
-          const chunk = decoder.decode(value, { stream: true })
-          buffer += chunk
-
-          // 按行分割
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || '' // 保留未完成的行
-
-          for (const line of lines) {
-            const trimmedLine = line.trim()
-            if (!trimmedLine) continue
-
-            // 处理 SSE 格式：data: <content>
-            if (trimmedLine.startsWith('data:')) {
-              const data = trimmedLine.slice(5).trim()
-              console.log('[SSE] Received:', data) // 调试日志
-
-              if (data === '[DONE]') {
-                // 流结束
-                console.log('[SSE] Stream done')
-                loading.value = false
-                currentMessages.value[aiMessageIndex].meta = { status: 'done' }
-                currentMessages.value = [...currentMessages.value]
-              } else if (data.startsWith('{')) {
-                // 尝试解析 JSON（如 sessionId）
-                try {
-                  const parsed = JSON.parse(data)
-                  if (parsed.sessionId) {
-                    const newSid = String(parsed.sessionId)
-                    console.log('[SSE] Session ID:', newSid)
-                    if (tempSession.value) {
-                      sessions.value[newSid] = {
-                        id: newSid,
-                        name: '新会话',
-                        messages: [...currentMessages.value]
-                      }
-                      currentSessionId.value = newSid
-                      tempSession.value = false
-                    }
-                  }
-                } catch (e) {
-                  // 不是 JSON，当作普通文本处理
-                  currentMessages.value[aiMessageIndex].content += data
-                  console.log('[SSE] Content updated:', currentMessages.value[aiMessageIndex].content.length)
-                }
-              } else {
-                // 普通文本数据，直接追加
-                // 使用数组索引直接更新，强制 Vue 响应式系统检测变化
-                currentMessages.value[aiMessageIndex].content += data
-                console.log('[SSE] Content updated:', currentMessages.value[aiMessageIndex].content.length)
-              }
-
-              // 每收到一条数据就立即更新 DOM
-              // 强制更新整个数组以触发响应式
-              currentMessages.value = [...currentMessages.value]
-              
-              // 使用 requestAnimationFrame 强制浏览器重排
-              await new Promise(resolve => {
-                requestAnimationFrame(() => {
-                  scrollToBottom()
-                  resolve()
-                })
-              })
-            }
-          }
+		  buffer = (buffer + decoder.decode(value, { stream: true })).replace(/\r\n/g, '\n')
+		  const blocks = buffer.split('\n\n')
+		  buffer = blocks.pop() || ''
+		  blocks.filter(Boolean).forEach(processEventBlock)
+		  await nextTick()
+		  scrollToBottom()
         }
+		if (buffer.trim()) processEventBlock(buffer.trim())
 
-        // 流读取完成后的处理
         loading.value = false
-        currentMessages.value[aiMessageIndex].meta = { status: 'done' }
+		currentMessages.value[aiMessageIndex].meta.status = 'done'
         currentMessages.value = [...currentMessages.value]
 
         // 同步到 sessions 存储
@@ -446,37 +419,37 @@ export default {
       } catch (err) {
         console.error('Stream error:', err)
         loading.value = false
-        currentMessages.value[aiMessageIndex].meta = { status: 'error' }
+		currentMessages.value[aiMessageIndex].meta.status = 'error'
         currentMessages.value = [...currentMessages.value]
-        ElMessage.error('流式传输出错')
+		ElMessage.error(err.message || '流式传输出错')
       }
     }
 
 
     async function handleNormal(question) {
       if (tempSession.value) {
-
-        const response = await api.post('/AI/chat/send-new-session', {
-          question: question,
-          modelType: selectedModel.value
-        })
-        if (response.data && response.data.status_code === 1000) {
-          const sessionId = String(response.data.sessionId)
-          const aiMessage = {
-            role: 'assistant',
-            content: response.data.Information || ''
-          }
+		const response = await api.post('/chat/auto', { message: question })
+		if (response.data && response.data.session_id) {
+		  const sessionId = String(response.data.session_id)
+		  const aiMessage = {
+			role: 'assistant',
+			content: response.data.message || '',
+			meta: {
+			  status: 'done', traceId: response.data.trace_id || '',
+			  strategy: response.data.strategy || '自动选择', policyVersion: response.data.policy_version || ''
+			}
+		  }
 
           sessions.value[sessionId] = {
             id: sessionId,
-            name: '新会话',
+			name: question.slice(0, 30) || '新会话',
             messages: [ { role: 'user', content: question }, aiMessage ]
           }
           currentSessionId.value = sessionId
           tempSession.value = false
           currentMessages.value = [...sessions.value[sessionId].messages]
         } else {
-          ElMessage.error(response.data?.status_msg || '发送失败')
+		  ElMessage.error(response.data?.message || '发送失败')
 
           currentMessages.value.pop()
         }
@@ -486,17 +459,20 @@ export default {
 
         sessionMsgs.push({ role: 'user', content: question })
 
-        const response = await api.post('/AI/chat/send', {
-          question: question,
-          modelType: selectedModel.value,
-          sessionId: currentSessionId.value
-        })
-        if (response.data && response.data.status_code === 1000) {
-          const aiMessage = { role: 'assistant', content: response.data.Information || '' }
+		const response = await api.post('/chat/auto', { message: question, session_id: currentSessionId.value })
+		if (response.data && response.data.session_id) {
+		  const aiMessage = {
+			role: 'assistant',
+			content: response.data.message || '',
+			meta: {
+			  status: 'done', traceId: response.data.trace_id || '',
+			  strategy: response.data.strategy || '自动选择', policyVersion: response.data.policy_version || ''
+			}
+		  }
           sessionMsgs.push(aiMessage)
           currentMessages.value = [...sessionMsgs]
         } else {
-          ElMessage.error(response.data?.status_msg || '发送失败')
+		  ElMessage.error(response.data?.message || '发送失败')
           sessionMsgs.pop() // rollback
           currentMessages.value.pop()
         }
@@ -577,7 +553,6 @@ export default {
       loading,
       messagesRef,
       messageInput,
-      selectedModel,
       isStreaming,
       uploading,
       fileInput,
@@ -774,16 +749,21 @@ export default {
   cursor: not-allowed;
 }
 
-.model-select {
+.route-mode {
   margin-left: 6px;
-  padding: 6px 10px;
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  border-radius: 8px;
-  background: white;
-  color: #2c3e50;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: rgba(64, 158, 255, 0.1);
+  color: #337ecc;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.routing-meta {
+  margin-top: 9px;
+  color: #8492a6;
+  font-size: 11px;
+  letter-spacing: 0.01em;
 }
 
 .upload-btn {

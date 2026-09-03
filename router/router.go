@@ -2,6 +2,7 @@ package router
 
 import (
 	"GopherAI/middleware/jwt"
+	"GopherAI/middleware/requestid"
 
 	"github.com/gin-gonic/gin"
 )
@@ -19,6 +20,11 @@ func InitRouter() *gin.Engine {
 		AIGroup := enterRouter.Group("/AI")
 		AIGroup.Use(jwt.Auth())
 		AIRouter(AIGroup)
+	}
+	{
+		ChatGroup := enterRouter.Group("/chat")
+		ChatGroup.Use(requestid.Attach(), jwt.Auth())
+		ChatRouter(ChatGroup)
 	}
 
 	{

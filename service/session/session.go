@@ -14,8 +14,6 @@ import (
 	"github.com/google/uuid"
 )
 
-var ctx = context.Background()
-
 func GetUserSessionsByUserName(userName string) ([]model.SessionInfo, error) {
 	sessions, err := sessiondao.GetSessionsByUserName(userName)
 	if err != nil {
@@ -70,6 +68,10 @@ func ensureSessionHelper(userName, sessionID, modelType string, config map[strin
 }
 
 func CreateSessionAndSendMessage(userName string, userQuestion string, modelType string) (string, string, code.Code) {
+	return CreateSessionAndSendMessageContext(context.Background(), userName, userQuestion, modelType)
+}
+
+func CreateSessionAndSendMessageContext(requestContext context.Context, userName string, userQuestion string, modelType string) (string, string, code.Code) {
 	//1：创建一个新的会话
 	newSession := &model.Session{
 		ID:       uuid.New().String(),
@@ -93,7 +95,7 @@ func CreateSessionAndSendMessage(userName string, userQuestion string, modelType
 	}
 
 	//3：生成AI回复
-	aiResponse, err_ := helper.GenerateResponse(userName, ctx, userQuestion)
+	aiResponse, err_ := helper.GenerateResponse(userName, requestContext, userQuestion)
 	if err_ != nil {
 		log.Println("CreateSessionAndSendMessage GenerateResponse error:", err_)
 		return "", "", code.AIModelFail
@@ -124,42 +126,61 @@ func StreamMessageToExistingSession(userName string, sessionID string, userQuest
 		return code.CodeServerBusy
 	}
 
-	config := map[string]interface{}{
-		"apiKey":   "your-api-key", // TODO: 从配置中获取
-		"username": userName,       // 用于 RAG 模型获取用户文档
-	}
-	helper, err := ensureSessionHelper(userName, sessionID, modelType, config)
-	if err != nil {
-		log.Println("StreamMessageToExistingSession GetOrCreateAIHelper error:", err)
-		return code.AIModelFail
-	}
-
-	cb := func(msg string) {
-		// 直接发送数据，不转义
-		// SSE 格式：data: <content>\n\n
-		log.Printf("[SSE] Sending chunk: %s (len=%d)\n", msg, len(msg))
-		_, err := writer.Write([]byte("data: " + msg + "\n\n"))
-		if err != nil {
-			log.Println("[SSE] Write error:", err)
-			return
+	code_ := StreamMessageToExistingSessionContext(context.Background(), userName, sessionID, userQuestion, modelType, func(msg string) error {
+		if _, err := writer.Write([]byte("data: " + msg + "\n\n")); err != nil {
+			return err
 		}
-		flusher.Flush() //  每次必须 flush
-		log.Println("[SSE] Flushed")
+		flusher.Flush()
+		return nil
+	})
+	if code_ != code.CodeSuccess {
+		return code_
 	}
 
-	_, err_ := helper.StreamResponse(userName, ctx, cb, userQuestion)
-	if err_ != nil {
-		log.Println("StreamMessageToExistingSession StreamResponse error:", err_)
-		return code.AIModelFail
-	}
-
-	_, err = writer.Write([]byte("data: [DONE]\n\n"))
+	_, err := writer.Write([]byte("data: [DONE]\n\n"))
 	if err != nil {
 		log.Println("StreamMessageToExistingSession write DONE error:", err)
 		return code.AIModelFail
 	}
 	flusher.Flush()
 
+	return code.CodeSuccess
+}
+
+func StreamMessageToExistingSessionContext(requestContext context.Context, userName string, sessionID string, userQuestion string, modelType string, emit func(string) error) code.Code {
+	config := map[string]interface{}{
+		"apiKey":   "your-api-key",
+		"username": userName,
+	}
+	helper, err := ensureSessionHelper(userName, sessionID, modelType, config)
+	if err != nil {
+		log.Println("StreamMessageToExistingSessionContext GetOrCreateAIHelper error:", err)
+		return code.AIModelFail
+	}
+
+	streamContext, cancel := context.WithCancel(requestContext)
+	defer cancel()
+	var emitErr error
+	callback := func(message string) {
+		if emitErr != nil {
+			return
+		}
+		if err := emit(message); err != nil {
+			emitErr = err
+			cancel()
+		}
+	}
+	if _, err := helper.StreamResponse(userName, streamContext, callback, userQuestion); err != nil {
+		if emitErr != nil {
+			log.Println("StreamMessageToExistingSessionContext emit error:", emitErr)
+			return code.CodeServerBusy
+		}
+		log.Println("StreamMessageToExistingSessionContext StreamResponse error:", err)
+		return code.AIModelFail
+	}
+	if emitErr != nil {
+		return code.CodeServerBusy
+	}
 	return code.CodeSuccess
 }
 
@@ -180,6 +201,10 @@ func CreateStreamSessionAndSendMessage(userName string, userQuestion string, mod
 }
 
 func ChatSend(userName string, sessionID string, userQuestion string, modelType string) (string, code.Code) {
+	return ChatSendContext(context.Background(), userName, sessionID, userQuestion, modelType)
+}
+
+func ChatSendContext(requestContext context.Context, userName string, sessionID string, userQuestion string, modelType string) (string, code.Code) {
 	config := map[string]interface{}{
 		"username": userName, // 用于 RAG 模型获取用户文档（若当前用户选择了RAG模型，该字段将会被用到）
 	}
@@ -190,7 +215,7 @@ func ChatSend(userName string, sessionID string, userQuestion string, modelType 
 	}
 
 	//2：生成AI回复
-	aiResponse, err_ := helper.GenerateResponse(userName, ctx, userQuestion)
+	aiResponse, err_ := helper.GenerateResponse(userName, requestContext, userQuestion)
 	if err_ != nil {
 		log.Println("ChatSend GenerateResponse error:", err_)
 		return "", code.AIModelFail

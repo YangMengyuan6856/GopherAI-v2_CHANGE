@@ -412,6 +412,28 @@ wait_backend_health() {
   return "$health_result"
 }
 
+wait_frontend_ready() {
+  port="$1"; timeout_seconds="$2"; log_file="$project_path/vue-frontend/frontend.log"
+  deadline=$((SECONDS + timeout_seconds)); last_code="000"
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if [ -f "$log_file" ] && grep -q 'Compiled successfully' "$log_file"; then
+      if command -v curl >/dev/null 2>&1; then
+        last_code="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 3 "http://127.0.0.1:$port/ai-chat" 2>/dev/null || true)"
+        [ "$last_code" = "200" ] && { echo "frontend compile and HTTP check passed"; return 0; }
+      elif (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
+        exec 3>&- 3<&-; echo "frontend compile and TCP check passed"; return 0
+      fi
+    fi
+    if grep -Eq 'Failed to compile|ERROR in ' "$log_file" 2>/dev/null; then
+      echo "frontend compilation failed" >&2; tail -n 80 "$log_file" >&2; return 1
+    fi
+    sleep 2
+  done
+  echo "frontend readiness timeout on port $port (last HTTP $last_code)" >&2
+  tail -n 80 "$log_file" >&2 2>/dev/null || true
+  return 1
+}
+
 backend_port() {
   awk '/^\[mainConfig\]/ { active=1; next } /^\[/ { if (active) exit } active && /^[[:space:]]*port[[:space:]]*=/ { split($0,v,"="); gsub(/[[:space:]]/,"",v[2]); print v[2]; exit }' "$project_path/config/config.toml"
 }
@@ -434,7 +456,7 @@ start_release() {
   port="$(backend_port)"; [ -n "$port" ] || port=9090
   wait_backend_health "$port"
   wait_tcp 127.0.0.1 8081 60
-  [ "$skip_frontend" = "true" ] || wait_tcp 127.0.0.1 8080 120
+  [ "$skip_frontend" = "true" ] || wait_frontend_ready 8080 180
 }
 
 move_runtime_dir() {

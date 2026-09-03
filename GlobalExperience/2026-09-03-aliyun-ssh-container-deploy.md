@@ -232,6 +232,9 @@ Deployment scripts should follow these rules:
 - Switch `/root/GopherAI-` only after preparation succeeds.
 - Keep one or more `.__previous_*` rollback directories until the new release
   has been verified.
+- Treat the frontend as ready only after `frontend.log` contains
+  `Compiled successfully` and an HTTP request to `/ai-chat` returns 200. A
+  listening port alone is not proof that webpack compiled the new source.
 
 ## 9. Next Action
 
