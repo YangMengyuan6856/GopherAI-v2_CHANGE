@@ -157,7 +157,9 @@ $branch = (& git -C $repoRoot branch --show-current).Trim()
 if ([string]::IsNullOrWhiteSpace($branch)) { $branch = "detached" }
 $gitSha = (& git -C $repoRoot rev-parse HEAD).Trim()
 $shortSha = $gitSha.Substring(0, [Math]::Min(12, $gitSha.Length))
-$dirty = -not [string]::IsNullOrWhiteSpace((& git -C $repoRoot status --porcelain --untracked-files=normal | Out-String))
+$statusLines = & git -C $repoRoot status --porcelain --untracked-files=all
+$relevantStatusLines = $statusLines | Where-Object { $_ -notmatch '^\?\? \.claude(?:/|\\)' }
+$dirty = -not [string]::IsNullOrWhiteSpace(($relevantStatusLines | Out-String))
 $releaseId = "$timestamp-$shortSha"
 if ($dirty) { $releaseId += "-dirty" }
 $safeBranch = $branch -replace '[^A-Za-z0-9_.-]', '_'
