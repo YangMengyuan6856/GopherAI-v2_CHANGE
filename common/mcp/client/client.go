@@ -43,8 +43,8 @@ func (m *MCPClient) Initialize(ctx context.Context) (*mcp.InitializeResult, erro
 	initRequest := mcp.InitializeRequest{}
 	initRequest.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
 	initRequest.Params.ClientInfo = mcp.Implementation{
-		Name:    "MCP-Go Weather Client",
-		Version: "1.0.0",
+		Name:    "GopherAI DevSupport MCP Adapter",
+		Version: "2.0.0",
 	}
 	initRequest.Params.Capabilities = mcp.ClientCapabilities{}
 
@@ -77,27 +77,6 @@ func (m *MCPClient) CallTool(ctx context.Context, toolName string, args map[stri
 		Params: mcp.CallToolParams{
 			Name:      toolName,
 			Arguments: args,
-		},
-	}
-
-	result, err := m.c.CallTool(ctx, callToolRequest)
-	if err != nil {
-		return nil, fmt.Errorf("调用工具失败: %w", err)
-	}
-
-	return result, nil
-}
-
-// CallWeatherTool 调用get_weather工具
-func (m *MCPClient) CallWeatherTool(ctx context.Context, city string) (*mcp.CallToolResult, error) {
-	fmt.Printf("正在查询城市 %s 的天气...\n", city)
-
-	callToolRequest := mcp.CallToolRequest{
-		Params: mcp.CallToolParams{
-			Name: "get_weather",
-			Arguments: map[string]any{
-				"city": city,
-			},
 		},
 	}
 
