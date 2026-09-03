@@ -42,7 +42,6 @@
           style="display: none"
           @change="handleFileUpload"
         />
-        <button class="skill-btn" @click="toggleSkillPanel">🛠 技能管理</button>
       </div>
 
       <div class="chat-messages" ref="messagesRef">
@@ -64,25 +63,12 @@
         <div class="input-wrapper">
           <textarea
             v-model="inputMessage"
-            placeholder="请输入你的问题...  输入 /skill 查看可用技能"
+            placeholder="请输入项目问题、报错信息或排障目标..."
             @keydown.enter.exact.prevent="sendMessage"
-            @input="onInputChange"
             :disabled="loading"
             ref="messageInput"
             rows="1"
           ></textarea>
-          <div v-if="showSkillHint && skillSuggestions.length" class="skill-hint-popup">
-            <div class="skill-hint-title">可用技能（输入 /skill &lt;code&gt; 使用）</div>
-            <div
-              v-for="s in skillSuggestions"
-              :key="s.code"
-              class="skill-hint-item"
-              @click="insertSkillCommand(s.code)"
-            >
-              <span class="skill-hint-code">/skill {{ s.code }}</span>
-              <span class="skill-hint-desc">{{ s.description }}</span>
-            </div>
-          </div>
         </div>
         <button
           type="button"
@@ -94,40 +80,6 @@
         </button>
       </div>
     </div>
-
-    <!-- 技能管理侧边面板 -->
-    <transition name="slide">
-      <div v-if="skillPanelVisible" class="skill-panel">
-        <div class="skill-panel-header">
-          <h3>技能管理</h3>
-          <button class="skill-panel-close" @click="toggleSkillPanel">✕</button>
-        </div>
-        <div class="skill-panel-body">
-          <div v-if="skillsLoading" class="skill-loading">加载中...</div>
-          <div v-else-if="allSkills.length === 0" class="skill-empty">暂无可用技能</div>
-          <div v-else>
-            <div v-for="s in allSkills" :key="s.code" class="skill-card">
-              <div class="skill-card-info">
-                <div class="skill-card-name">{{ s.name }}</div>
-                <div class="skill-card-code">/skill {{ s.code }}</div>
-                <div class="skill-card-desc">{{ s.description }}</div>
-              </div>
-              <label class="skill-toggle">
-                <input
-                  type="checkbox"
-                  :checked="enabledSkillCodes.includes(s.code)"
-                  @change="toggleSkill(s.code, $event.target.checked)"
-                />
-                <span class="skill-toggle-slider"></span>
-              </label>
-            </div>
-          </div>
-        </div>
-        <div class="skill-panel-footer">
-          <button class="skill-refresh-btn" @click="loadSkillData">刷新</button>
-        </div>
-      </div>
-    </transition>
   </div>
 </template>
 
@@ -154,14 +106,6 @@ export default {
     const isStreaming = ref(false)
     const uploading = ref(false)
     const fileInput = ref(null)
-
-    // 技能管理相关
-    const skillPanelVisible = ref(false)
-    const allSkills = ref([])
-    const enabledSkillCodes = ref([])
-    const skillsLoading = ref(false)
-    const showSkillHint = ref(false)
-    const skillSuggestions = ref([])
 
     const renderMarkdown = (text) => {
       if (!text && text !== '') return ''
@@ -621,88 +565,6 @@ export default {
       }
     }
 
-    // ---- 技能管理方法 ----
-
-    const toggleSkillPanel = () => {
-      skillPanelVisible.value = !skillPanelVisible.value
-      if (skillPanelVisible.value) {
-        loadSkillData()
-      }
-    }
-
-    const loadSkillData = async () => {
-      skillsLoading.value = true
-      try {
-        const [listRes, userRes] = await Promise.all([
-          api.get('/skill/list'),
-          api.get('/skill/user')
-        ])
-        if (listRes.data && listRes.data.status_code === 1000) {
-          allSkills.value = listRes.data.skills || []
-        }
-        if (userRes.data && userRes.data.status_code === 1000) {
-          enabledSkillCodes.value = userRes.data.skill_codes || []
-        }
-      } catch (err) {
-        console.error('Load skills error:', err)
-        ElMessage.error('加载技能列表失败')
-      } finally {
-        skillsLoading.value = false
-      }
-    }
-
-    const toggleSkill = async (code, enabled) => {
-      try {
-        const url = enabled ? '/skill/enable' : '/skill/disable'
-        const res = await api.post(url, { skill_code: code })
-        if (res.data && res.data.status_code === 1000) {
-          if (enabled) {
-            if (!enabledSkillCodes.value.includes(code)) {
-              enabledSkillCodes.value.push(code)
-            }
-          } else {
-            enabledSkillCodes.value = enabledSkillCodes.value.filter(c => c !== code)
-          }
-          ElMessage.success(enabled ? `已启用技能 [${code}]` : `已禁用技能 [${code}]`)
-        } else {
-          ElMessage.error(res.data?.status_msg || '操作失败')
-          await loadSkillData()
-        }
-      } catch (err) {
-        console.error('Toggle skill error:', err)
-        ElMessage.error('操作失败')
-        await loadSkillData()
-      }
-    }
-
-    const onInputChange = () => {
-      const val = inputMessage.value.trim()
-      if (val === '/skill' || val === '/skill ') {
-        showSkillHint.value = true
-        skillSuggestions.value = allSkills.value.length > 0
-          ? allSkills.value
-          : []
-        if (allSkills.value.length === 0) {
-          api.get('/skill/list').then(res => {
-            if (res.data && res.data.status_code === 1000) {
-              allSkills.value = res.data.skills || []
-              skillSuggestions.value = allSkills.value
-            }
-          })
-        }
-      } else {
-        showSkillHint.value = false
-      }
-    }
-
-    const insertSkillCommand = (code) => {
-      inputMessage.value = `/skill ${code} `
-      showSkillHint.value = false
-      nextTick(() => {
-        if (messageInput.value) messageInput.value.focus()
-      })
-    }
-
     onMounted(() => {
       loadSessions()
     })
@@ -721,12 +583,6 @@ export default {
       isStreaming,
       uploading,
       fileInput,
-      skillPanelVisible,
-      allSkills,
-      enabledSkillCodes,
-      skillsLoading,
-      showSkillHint,
-      skillSuggestions,
       renderMarkdown,
       playTTS,
       createNewSession,
@@ -734,12 +590,7 @@ export default {
       syncHistory,
       sendMessage,
       triggerFileUpload,
-      handleFileUpload,
-      toggleSkillPanel,
-      loadSkillData,
-      toggleSkill,
-      onInputChange,
-      insertSkillCommand
+      handleFileUpload
     }
   }
 }
@@ -1127,216 +978,6 @@ export default {
   cursor: not-allowed;
 }
 
-/* 技能管理按钮 */
-.skill-btn {
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-  color: white;
-  padding: 8px 14px;
-  border: none;
-  border-radius: 10px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
-  transition: all 0.2s ease;
-}
-
-.skill-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.3);
-}
-
-/* 技能管理侧边面板 */
-.skill-panel {
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 340px;
-  height: 100vh;
-  background: rgba(255, 255, 255, 0.98);
-  backdrop-filter: blur(15px);
-  box-shadow: -4px 0 30px rgba(0, 0, 0, 0.12);
-  display: flex;
-  flex-direction: column;
-  z-index: 100;
-  border-left: 1px solid rgba(0, 0, 0, 0.06);
-}
-
-.slide-enter-active,
-.slide-leave-active {
-  transition: transform 0.3s ease;
-}
-.slide-enter-from,
-.slide-leave-to {
-  transform: translateX(100%);
-}
-
-.skill-panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px 24px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.06) 0%, rgba(139, 92, 246, 0.06) 100%);
-}
-
-.skill-panel-header h3 {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 700;
-  color: #2c3e50;
-}
-
-.skill-panel-close {
-  background: none;
-  border: none;
-  font-size: 18px;
-  cursor: pointer;
-  color: #999;
-  padding: 4px 8px;
-  border-radius: 6px;
-  transition: all 0.2s ease;
-}
-
-.skill-panel-close:hover {
-  background: rgba(0, 0, 0, 0.06);
-  color: #333;
-}
-
-.skill-panel-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px;
-}
-
-.skill-loading,
-.skill-empty {
-  text-align: center;
-  color: #999;
-  padding: 40px 0;
-  font-size: 14px;
-}
-
-.skill-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px;
-  margin-bottom: 12px;
-  background: white;
-  border-radius: 12px;
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-  transition: all 0.2s ease;
-}
-
-.skill-card:hover {
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
-  transform: translateY(-1px);
-}
-
-.skill-card-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.skill-card-name {
-  font-weight: 600;
-  font-size: 15px;
-  color: #2c3e50;
-  margin-bottom: 4px;
-}
-
-.skill-card-code {
-  font-family: 'Courier New', monospace;
-  font-size: 12px;
-  color: #6366f1;
-  background: rgba(99, 102, 241, 0.08);
-  padding: 2px 8px;
-  border-radius: 4px;
-  display: inline-block;
-  margin-bottom: 6px;
-}
-
-.skill-card-desc {
-  font-size: 12px;
-  color: #7f8c8d;
-  line-height: 1.4;
-}
-
-/* 开关样式 */
-.skill-toggle {
-  position: relative;
-  display: inline-block;
-  width: 44px;
-  height: 24px;
-  flex-shrink: 0;
-  margin-left: 12px;
-}
-
-.skill-toggle input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.skill-toggle-slider {
-  position: absolute;
-  cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: #ccc;
-  border-radius: 24px;
-  transition: 0.3s;
-}
-
-.skill-toggle-slider::before {
-  content: '';
-  position: absolute;
-  height: 18px;
-  width: 18px;
-  left: 3px;
-  bottom: 3px;
-  background: white;
-  border-radius: 50%;
-  transition: 0.3s;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-}
-
-.skill-toggle input:checked + .skill-toggle-slider {
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-}
-
-.skill-toggle input:checked + .skill-toggle-slider::before {
-  transform: translateX(20px);
-}
-
-.skill-panel-footer {
-  padding: 16px;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
-}
-
-.skill-refresh-btn {
-  width: 100%;
-  padding: 10px;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-  color: white;
-  border: none;
-  border-radius: 10px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
-}
-
-.skill-refresh-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.3);
-}
-
 /* 输入框包裹器 */
 .input-wrapper {
   position: relative;
@@ -1366,62 +1007,4 @@ export default {
   transform: translateY(-1px);
 }
 
-/* 技能提示弹出框 */
-.skill-hint-popup {
-  position: absolute;
-  bottom: 100%;
-  left: 0;
-  right: 0;
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.12);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  margin-bottom: 8px;
-  max-height: 260px;
-  overflow-y: auto;
-  z-index: 50;
-  animation: hintSlideUp 0.2s ease-out;
-}
-
-@keyframes hintSlideUp {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.skill-hint-title {
-  padding: 10px 16px;
-  font-size: 12px;
-  color: #999;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-  font-weight: 600;
-}
-
-.skill-hint-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 16px;
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-
-.skill-hint-item:hover {
-  background: rgba(99, 102, 241, 0.06);
-}
-
-.skill-hint-code {
-  font-family: 'Courier New', monospace;
-  font-size: 13px;
-  color: #6366f1;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.skill-hint-desc {
-  font-size: 12px;
-  color: #7f8c8d;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 </style>

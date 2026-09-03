@@ -2,12 +2,9 @@ package aihelper
 
 import (
 	"GopherAI/common/rabbitmq"
-	"GopherAI/common/skill"
 	"GopherAI/config"
 	"GopherAI/model"
 	"context"
-	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/cloudwego/eino/schema"
@@ -100,67 +97,6 @@ func (a *AIHelper) GetMessages() []*model.Message {
 	return out
 }
 
-// trySkill 检测 /skill 命令并执行，返回 (结果消息, 是否命中)
-func (a *AIHelper) trySkill(ctx context.Context, userName, userQuestion string) (*model.Message, bool) {
-	if !skill.IsSkillCommand(userQuestion) {
-		return nil, false
-	}
-
-	code, args, ok := skill.ParseCommand(userQuestion)
-	if !ok {
-		return nil, false
-	}
-
-	registry := skill.GetRegistry()
-	s, exists := registry.Get(code)
-	if !exists {
-		msg := &model.Message{
-			SessionID: a.SessionID,
-			UserName:  userName,
-			Content:   fmt.Sprintf("技能 [%s] 不存在，可通过 GET /api/v1/skill/list 查看可用技能列表。", code),
-			IsUser:    false,
-		}
-		return msg, true
-	}
-
-	invoker := skill.GetInvoker()
-	if !invoker.IsEnabledForUser(userName, code) {
-		msg := &model.Message{
-			SessionID: a.SessionID,
-			UserName:  userName,
-			Content:   fmt.Sprintf("技能 [%s] 未启用，请先在技能管理中启用该技能。", code),
-			IsUser:    false,
-		}
-		return msg, true
-	}
-
-	req := &skill.ExecuteRequest{
-		UserName:  userName,
-		SessionID: a.SessionID,
-		RawInput:  userQuestion,
-		Args:      args,
-	}
-
-	result, err := invoker.Invoke(ctx, s, req)
-	if err != nil {
-		msg := &model.Message{
-			SessionID: a.SessionID,
-			UserName:  userName,
-			Content:   fmt.Sprintf("技能 [%s] 执行失败：%v", code, err),
-			IsUser:    false,
-		}
-		return msg, true
-	}
-
-	msg := &model.Message{
-		SessionID: a.SessionID,
-		UserName:  userName,
-		Content:   result.Output,
-		IsUser:    false,
-	}
-	return msg, true
-}
-
 // buildContextMessages 使用三层记忆系统组装上下文
 func (a *AIHelper) buildContextMessages() []*schema.Message {
 	budget := GetContextTokenBudget()
@@ -238,12 +174,6 @@ func (a *AIHelper) triggerLongTermExtraction() {
 
 // GenerateResponse 同步生成
 func (a *AIHelper) GenerateResponse(userName string, ctx context.Context, userQuestion string) (*model.Message, error) {
-	if skillMsg, handled := a.trySkill(ctx, userName, userQuestion); handled {
-		a.AddMessage(userQuestion, userName, true, true)
-		a.AddMessage(skillMsg.Content, userName, false, true)
-		return skillMsg, nil
-	}
-
 	a.AddMessage(userQuestion, userName, true, true)
 
 	a.mu.RLock()
@@ -271,13 +201,6 @@ func (a *AIHelper) GenerateResponse(userName string, ctx context.Context, userQu
 
 // StreamResponse 流式生成
 func (a *AIHelper) StreamResponse(userName string, ctx context.Context, cb StreamCallback, userQuestion string) (*model.Message, error) {
-	if skillMsg, handled := a.trySkill(ctx, userName, userQuestion); handled {
-		a.AddMessage(userQuestion, userName, true, true)
-		a.AddMessage(skillMsg.Content, userName, false, true)
-		cb(strings.ReplaceAll(skillMsg.Content, "\n", "<br>"))
-		return skillMsg, nil
-	}
-
 	a.AddMessage(userQuestion, userName, true, true)
 
 	a.mu.RLock()

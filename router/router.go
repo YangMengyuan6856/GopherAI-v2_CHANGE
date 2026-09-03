@@ -21,21 +21,9 @@ func InitRouter() *gin.Engine {
 	}
 
 	{
-		ImageGroup := enterRouter.Group("/image")
-		ImageGroup.Use(jwt.Auth())
-		ImageRouter(ImageGroup)
-	}
-
-	{
 		FileGroup := enterRouter.Group("/file")
 		FileGroup.Use(jwt.Auth())
 		FileRouter(FileGroup)
-	}
-
-	{
-		SkillGroup := enterRouter.Group("/skill")
-		SkillGroup.Use(jwt.Auth())
-		SkillRouter(SkillGroup)
 	}
 
 	return r

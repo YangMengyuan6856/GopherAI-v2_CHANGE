@@ -1,18 +1,17 @@
 package aihelper
 
 import (
-	"GopherAI/common/skill"
+	"GopherAI/internal/toolruntime"
 	"context"
 	"fmt"
 	"log"
-	"strings"
 	"sync"
 )
 
 // ToolSource 工具来源抽象接口，ReAct 引擎通过此接口发现和执行工具
 type ToolSource interface {
 	SourceName() string
-	DiscoverTools(ctx context.Context) ([]skill.ToolInfo, error)
+	DiscoverTools(ctx context.Context) ([]toolruntime.ToolInfo, error)
 	ExecuteTool(ctx context.Context, toolName string, args map[string]interface{}) (string, error)
 }
 
@@ -20,17 +19,17 @@ type ToolSource interface {
 
 // MCPToolSource 通过 MCP Server 发现和执行远程工具
 type MCPToolSource struct {
-	helper *skill.MCPHelper
+	client *toolruntime.MCPClient
 }
 
 func NewMCPToolSource(mcpBaseURL string) *MCPToolSource {
-	return &MCPToolSource{helper: skill.NewMCPHelper(mcpBaseURL)}
+	return &MCPToolSource{client: toolruntime.NewMCPClient(mcpBaseURL)}
 }
 
 func (m *MCPToolSource) SourceName() string { return "MCP" }
 
-func (m *MCPToolSource) DiscoverTools(ctx context.Context) ([]skill.ToolInfo, error) {
-	tools, err := m.helper.DiscoverTools(ctx)
+func (m *MCPToolSource) DiscoverTools(ctx context.Context) ([]toolruntime.ToolInfo, error) {
+	tools, err := m.client.DiscoverTools(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("[MCP] discover tools failed: %w", err)
 	}
@@ -38,8 +37,8 @@ func (m *MCPToolSource) DiscoverTools(ctx context.Context) ([]skill.ToolInfo, er
 }
 
 func (m *MCPToolSource) ExecuteTool(ctx context.Context, toolName string, args map[string]interface{}) (string, error) {
-	calls := []skill.ToolCall{{Name: toolName, Arguments: args}}
-	results := m.helper.ExecuteToolCalls(ctx, calls)
+	calls := []toolruntime.ToolCall{{Name: toolName, Arguments: args}}
+	results := m.client.ExecuteToolCalls(ctx, calls)
 	if len(results) == 0 {
 		return "", fmt.Errorf("MCP 工具 %q 无返回结果", toolName)
 	}
@@ -50,116 +49,6 @@ func (m *MCPToolSource) ExecuteTool(ctx context.Context, toolName string, args m
 	return r.Output, nil
 }
 
-// =================== 本地 Skill 工具源 ===================
-
-// skillExcludeSet 需要从 ReAct 工具列表中排除的技能（防止递归调用等）
-var skillExcludeSet = map[string]bool{
-	"agent": true,
-}
-
-// SkillToolSource 将 skill.Registry 中注册的本地技能暴露给 ReAct
-type SkillToolSource struct {
-	userName  string
-	sessionID string
-}
-
-func NewSkillToolSource(userName, sessionID string) *SkillToolSource {
-	return &SkillToolSource{userName: userName, sessionID: sessionID}
-}
-
-func (s *SkillToolSource) SourceName() string { return "Skill" }
-
-func (s *SkillToolSource) DiscoverTools(_ context.Context) ([]skill.ToolInfo, error) {
-	registry := skill.GetRegistry()
-	allSkills := registry.All()
-
-	tools := make([]skill.ToolInfo, 0, len(allSkills))
-	for _, sk := range allSkills {
-		if skillExcludeSet[sk.Code()] {
-			continue
-		}
-		info := skill.ToolInfo{
-			Name:        "skill_" + sk.Code(),
-			Description: fmt.Sprintf("[本地技能] %s - %s", sk.Name(), sk.Description()),
-			Parameters:  buildSkillParams(sk.Code()),
-			Required:    buildSkillRequired(sk.Code()),
-		}
-		tools = append(tools, info)
-	}
-	return tools, nil
-}
-
-func (s *SkillToolSource) ExecuteTool(ctx context.Context, toolName string, args map[string]interface{}) (string, error) {
-	skillCode := strings.TrimPrefix(toolName, "skill_")
-
-	registry := skill.GetRegistry()
-	sk, exists := registry.Get(skillCode)
-	if !exists {
-		return "", fmt.Errorf("本地技能 %q 不存在", skillCode)
-	}
-
-	strArgs := make(map[string]string)
-	for k, v := range args {
-		strArgs[k] = fmt.Sprintf("%v", v)
-	}
-
-	req := &skill.ExecuteRequest{
-		UserName:  s.userName,
-		SessionID: s.sessionID,
-		RawInput:  fmt.Sprintf("/skill %s %s", skillCode, argsToString(args)),
-		Args:      strArgs,
-	}
-
-	invoker := skill.GetInvoker()
-	result, err := invoker.Invoke(ctx, sk, req)
-	if err != nil {
-		return "", fmt.Errorf("技能 %q 执行失败: %w", skillCode, err)
-	}
-	return result.Output, nil
-}
-
-// buildSkillParams 根据技能代码返回该技能接受的参数描述
-func buildSkillParams(code string) map[string]string {
-	switch code {
-	case "weather":
-		return map[string]string{"city": "城市名称，如 北京、Shanghai"}
-	case "calculator":
-		return map[string]string{"query": "数学表达式，如 (1+2)*3"}
-	case "translate":
-		return map[string]string{"query": "要翻译的文本（中英文互译）"}
-	case "summarize":
-		return map[string]string{"query": "要生成摘要的长文本"}
-	case "rag_query":
-		return map[string]string{"query": "要在用户知识库中检索的问题"}
-	case "datetime":
-		return map[string]string{}
-	default:
-		return map[string]string{"query": "输入内容"}
-	}
-}
-
-// buildSkillRequired 根据技能代码返回必填参数列表
-func buildSkillRequired(code string) []string {
-	switch code {
-	case "weather":
-		return []string{"city"}
-	case "calculator", "translate", "summarize", "rag_query":
-		return []string{"query"}
-	case "datetime":
-		return nil
-	default:
-		return []string{"query"}
-	}
-}
-
-func argsToString(args map[string]interface{}) string {
-	parts := make([]string, 0, len(args))
-	for k, v := range args {
-		parts = append(parts, fmt.Sprintf("%s=%v", k, v))
-	}
-	return strings.Join(parts, " ")
-}
-
 // =================== 自定义动态工具源 ===================
 
 // CustomToolFunc 自定义工具的执行函数签名
@@ -167,7 +56,7 @@ type CustomToolFunc func(ctx context.Context, args map[string]interface{}) (stri
 
 // CustomTool 一个动态注册的自定义工具
 type CustomTool struct {
-	Info    skill.ToolInfo
+	Info    toolruntime.ToolInfo
 	Handler CustomToolFunc
 }
 
@@ -188,7 +77,7 @@ func (c *CustomToolSource) RegisterTool(name, description string, params map[str
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.tools[name] = &CustomTool{
-		Info: skill.ToolInfo{
+		Info: toolruntime.ToolInfo{
 			Name:        name,
 			Description: description,
 			Parameters:  params,
@@ -207,11 +96,11 @@ func (c *CustomToolSource) UnregisterTool(name string) {
 	log.Printf("[CustomToolSource] unregistered tool: %s", name)
 }
 
-func (c *CustomToolSource) DiscoverTools(_ context.Context) ([]skill.ToolInfo, error) {
+func (c *CustomToolSource) DiscoverTools(_ context.Context) ([]toolruntime.ToolInfo, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	tools := make([]skill.ToolInfo, 0, len(c.tools))
+	tools := make([]toolruntime.ToolInfo, 0, len(c.tools))
 	for _, t := range c.tools {
 		tools = append(tools, t.Info)
 	}
@@ -246,11 +135,11 @@ func NewToolAggregator(sources ...ToolSource) *ToolAggregator {
 }
 
 // DiscoverAll 从所有来源发现工具并构建路由映射
-func (a *ToolAggregator) DiscoverAll(ctx context.Context) ([]skill.ToolInfo, error) {
+func (a *ToolAggregator) DiscoverAll(ctx context.Context) ([]toolruntime.ToolInfo, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	var allTools []skill.ToolInfo
+	var allTools []toolruntime.ToolInfo
 	a.routeMap = make(map[string]ToolSource)
 
 	for _, src := range a.sources {

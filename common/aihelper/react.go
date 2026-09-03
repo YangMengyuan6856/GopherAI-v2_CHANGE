@@ -1,8 +1,8 @@
 package aihelper
 
 import (
-	"GopherAI/common/skill"
 	"GopherAI/config"
+	"GopherAI/internal/toolruntime"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -36,7 +36,7 @@ type ReActParsed struct {
 }
 
 // ReActModel 基于 ReAct 循环的推理模型，实现 AIModel 接口。
-// 通过 ToolAggregator 聚合多种工具来源（MCP / 本地 Skill / 自定义工具）
+// 通过 ToolAggregator 聚合 MCP 和动态注册工具。
 type ReActModel struct {
 	llm           model.ToolCallingChatModel
 	aggregator    *ToolAggregator
@@ -44,12 +44,12 @@ type ReActModel struct {
 	maxIterations int
 
 	// 工具列表缓存，首次调用后填充
-	toolsCache []skill.ToolInfo
+	toolsCache []toolruntime.ToolInfo
 	toolsMu    sync.Mutex
 }
 
-// NewReActModel 创建 ReAct 推理模型，自动聚合 MCP + 本地 Skill + 自定义工具三种来源
-func NewReActModel(ctx context.Context, username string) (*ReActModel, error) {
+// NewReActModel 创建 ReAct 推理模型，聚合 MCP 与动态注册工具。
+func NewReActModel(ctx context.Context, _ string) (*ReActModel, error) {
 	key := os.Getenv("OPENAI_API_KEY")
 	conf := config.GetConfig()
 	modelName := conf.RagModelConfig.RagChatModelName
@@ -75,10 +75,9 @@ func NewReActModel(ctx context.Context, username string) (*ReActModel, error) {
 	}
 
 	mcpSource := NewMCPToolSource(mcpURL)
-	skillSource := NewSkillToolSource(username, "")
 	customSource := NewCustomToolSource()
 
-	aggregator := NewToolAggregator(mcpSource, skillSource, customSource)
+	aggregator := NewToolAggregator(mcpSource, customSource)
 
 	return &ReActModel{
 		llm:           llm,
@@ -98,7 +97,7 @@ func (r *ReActModel) RegisterCustomTool(name, description string, params map[str
 }
 
 // discoverTools 首次调用时从所有来源发现工具并缓存
-func (r *ReActModel) discoverTools(ctx context.Context) ([]skill.ToolInfo, error) {
+func (r *ReActModel) discoverTools(ctx context.Context) ([]toolruntime.ToolInfo, error) {
 	r.toolsMu.Lock()
 	defer r.toolsMu.Unlock()
 
@@ -115,11 +114,11 @@ func (r *ReActModel) discoverTools(ctx context.Context) ([]skill.ToolInfo, error
 }
 
 // buildSystemPrompt 构建包含所有工具描述和 ReAct 格式规范的 System Prompt
-func (r *ReActModel) buildSystemPrompt(tools []skill.ToolInfo) string {
-	toolDesc := skill.FormatToolsForLLM(tools)
+func (r *ReActModel) buildSystemPrompt(tools []toolruntime.ToolInfo) string {
+	toolDesc := toolruntime.FormatToolsForLLM(tools)
 
 	return fmt.Sprintf(`你是一个强大的智能助手，能够通过逐步推理和调用外部工具来解决复杂问题。
-你拥有来自多种来源的工具：MCP 远程服务工具、本地内置技能工具，以及动态注册的自定义工具。
+你可以使用经过系统注册的 MCP 远程工具和动态工具。
 
 ## 可用工具
 %s
