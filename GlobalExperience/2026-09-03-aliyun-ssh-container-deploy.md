@@ -233,8 +233,19 @@ Deployment scripts should follow these rules:
 - Keep one or more `.__previous_*` rollback directories until the new release
   has been verified.
 - Treat the frontend as ready only after `frontend.log` contains
-  `Compiled successfully` and an HTTP request to `/ai-chat` returns 200. A
+  `Compiled successfully` and an HTTP request to `/` returns 200. A
   listening port alone is not proof that webpack compiled the new source.
+
+The M2-A rollout established that the Vue development server can return 404
+for a direct `/ai-chat`
+probe even though client-side routing works after the index page loads. The
+release was correctly rolled back when ESLint found mixed tabs/spaces, but the
+first rollback wait was prolonged because the deep-link probe could never
+return 200. The reliable gate is therefore:
+
+1. `frontend.log` contains `Compiled successfully`.
+2. `http://127.0.0.1:8080/` returns HTTP 200.
+3. Any `Failed to compile` or `ERROR in` line fails the release immediately.
 
 ## 9. Next Action
 

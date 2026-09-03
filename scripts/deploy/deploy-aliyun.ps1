@@ -418,7 +418,7 @@ wait_frontend_ready() {
   while [ "$SECONDS" -lt "$deadline" ]; do
     if [ -f "$log_file" ] && grep -q 'Compiled successfully' "$log_file"; then
       if command -v curl >/dev/null 2>&1; then
-        last_code="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 3 "http://127.0.0.1:$port/ai-chat" 2>/dev/null || true)"
+        last_code="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 3 "http://127.0.0.1:$port/" 2>/dev/null || true)"
         [ "$last_code" = "200" ] && { echo "frontend compile and HTTP check passed"; return 0; }
       elif (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
         exec 3>&- 3<&-; echo "frontend compile and TCP check passed"; return 0
