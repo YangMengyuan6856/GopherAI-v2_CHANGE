@@ -9,6 +9,7 @@ import (
 func InitRouter() *gin.Engine {
 
 	r := gin.Default()
+	registerHealthRoutes(r)
 	enterRouter := r.Group("/api/v1")
 	{
 		RegisterUserRouter(enterRouter.Group("/user"))

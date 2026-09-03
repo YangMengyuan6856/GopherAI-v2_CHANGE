@@ -2,6 +2,8 @@ package rabbitmq
 
 import (
 	"GopherAI/config"
+	"context"
+	"errors"
 	"fmt"
 	"log"
 
@@ -11,6 +13,19 @@ import (
 // 全局connection对象
 // 所有RabbitMQ都会复用该对象
 var conn *amqp.Connection
+
+// Ping reports whether the shared AMQP connection is initialized and open.
+// The AMQP client does not expose a protocol-level ping, so readiness is based
+// on the connection's current state.
+func Ping(context.Context) error {
+	if conn == nil {
+		return errors.New("rabbitmq connection is not initialized")
+	}
+	if conn.IsClosed() {
+		return errors.New("rabbitmq connection is closed")
+	}
+	return nil
+}
 
 // 初始化connection
 func initConn() {

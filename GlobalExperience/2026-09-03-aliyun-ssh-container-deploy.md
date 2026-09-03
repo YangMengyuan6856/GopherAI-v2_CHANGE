@@ -375,3 +375,24 @@ paths were verified:
 The active project, successful bundle/checksum/manifest, all Docker
 containers/images, runtime data, and the successful release's
 `.__previous_*` rollback directory were retained.
+
+## 14. Health Gates Must Follow the Public Runtime Topology
+
+Port-open checks only prove that a process accepted a socket. The release gate
+now checks the finite backend endpoints in order:
+
+```text
+/health/live -> /health/ready
+```
+
+`live` must remain independent of downstream services so a temporary Redis or
+RabbitMQ issue does not create a restart loop. `ready` checks MySQL, Redis cache,
+Redis Vector capability, RabbitMQ, and required model configuration separately.
+It returns only stable status/error codes, never DSNs, credentials, or raw
+dependency errors.
+
+The public deployment exposes only Vue port 8080, so `vue.config.js` must proxy
+`/health` to backend port 9090 without the `/api/v1` rewrite used by application
+routes. The deployment script still accepts a TCP fallback only while rolling
+back to a historical release that returns 404 because it predates the health
+contract; current releases must pass both HTTP gates.

@@ -367,6 +367,51 @@ wait_tcp() {
   return 1
 }
 
+wait_http_health() {
+  endpoint="$1"; timeout_seconds="$2"; response_file="$run_path/health-response-$$.json"
+  last_code="000"; deadline=$((SECONDS + timeout_seconds))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    last_code="$(curl --silent --show-error --output "$response_file" --write-out '%{http_code}' --max-time 3 "$endpoint" 2>/dev/null || true)"
+    if [ "$last_code" = "200" ]; then
+      echo "health check passed: $endpoint"
+      cat "$response_file"; echo
+      rm -f -- "$response_file"
+      return 0
+    fi
+    if [ "$last_code" = "404" ]; then
+      rm -f -- "$response_file"
+      return 2
+    fi
+    sleep 1
+  done
+  echo "health check timeout: $endpoint (last HTTP $last_code)" >&2
+  cat "$response_file" >&2 2>/dev/null || true
+  rm -f -- "$response_file"
+  return 1
+}
+
+wait_backend_health() {
+  port="$1"
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "curl is unavailable; using TCP readiness for backend"
+    wait_tcp 127.0.0.1 "$port" 90
+    return
+  fi
+
+  if wait_http_health "http://127.0.0.1:$port/health/live" 90; then
+    wait_http_health "http://127.0.0.1:$port/health/ready" 90
+    return
+  else
+    health_result="$?"
+  fi
+  if [ "$health_result" = "2" ]; then
+    echo "health endpoints are absent in rollback release; using TCP readiness"
+    wait_tcp 127.0.0.1 "$port" 90
+    return
+  fi
+  return "$health_result"
+}
+
 backend_port() {
   awk '/^\[mainConfig\]/ { active=1; next } /^\[/ { if (active) exit } active && /^[[:space:]]*port[[:space:]]*=/ { split($0,v,"="); gsub(/[[:space:]]/,"",v[2]); print v[2]; exit }' "$project_path/config/config.toml"
 }
@@ -387,7 +432,7 @@ start_release() {
   fi
 
   port="$(backend_port)"; [ -n "$port" ] || port=9090
-  wait_tcp 127.0.0.1 "$port" 90
+  wait_backend_health "$port"
   wait_tcp 127.0.0.1 8081 60
   [ "$skip_frontend" = "true" ] || wait_tcp 127.0.0.1 8080 120
 }
