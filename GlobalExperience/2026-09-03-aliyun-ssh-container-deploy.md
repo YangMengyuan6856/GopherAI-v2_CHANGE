@@ -1312,3 +1312,9 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - Tool Definition 增加可审计的幂等、最大尝试次数、Cache TTL、熔断阈值和打开时间。Runtime 只对 `idempotent + retryable` 的瞬时失败重试，所有 attempt 共用父 Context 总超时；连续执行失败打开 circuit，窗口结束仅允许一个 half-open probe，成功才回到 closed。缓存键包含 tool/version/args hash 和 tenant/user hash，先重新经过 Schema/Auth/SideEffect/Budget 再取缓存，不能借缓存绕过治理或跨用户复用。
 - Release `20260905052421-fc5af02246b2`，bundle SHA-256 `e67a77b51f27824d0d971f9fe5bdec19f9789e3e5e597677f1336febaa119197`，四进程门通过。真实浏览器 Backend ready 返回 MySQL/RabbitMQ/Redis/Model Config 全部 up；同参数在 750ms 内第二次调用显示 `cached=true`。Worker ready 返回 HTTP 200/ready。MySQL 审计汇总为 fresh success `2`、cached success `1`；Prometheus 为 calls success `3`、cache miss `2`、hit `1`、accepted `3`、circuit closed `1`。
 - 线上没有为了展示熔断而故意停止唯一服务。retry/open/half-open/closed 使用可控时钟与故障 Tool 的确定性单测验证，并通过 Race；后续 30 条评测会把这些状态迁移整理为独立证据报告。短 TTL 缓存已完成，stale fallback 尚未实现，因此 M6-06 仍保持部分完成。
+
+## 46. 2026-09-05 有限规划 ToolAgent
+
+- 提交 `84ee3720` 上线 `bounded-tool-planner-v1`。它是可审计的控制面规划器，不输出隐藏思维链：只返回 `execute / answer_without_tool / refuse`、稳定 reason code、最多 2 个 allowlist 调用及固定参数。当前只选择部署清单和服务健康两类真实 DevSupport 工具；普通知识问题不调用工具，重启/删除/Shell/SQL 写入等请求在规划层直接拒绝。
+- Compound 查询“给出当前发布清单，并检查后端和 Worker 健康状态”会形成两步计划：`deployment_manifest_lookup {}` 与 `service_health_snapshot {service:all,probe:ready}`。每步仍重新进入统一 Runtime 的 Schema/Auth/SideEffect/Budget/Timeout/Audit/Metrics，不允许 Planner 直接调用 Adapter；调用预算按计划长度固定，第二步 `used_calls=1/max_calls=2`。
+- Release `20260905053234-84ee37209460`，bundle SHA-256 `27d8bb58907f1fafdac9a64d0dbc6aefbe1ba978eac5185d1dd5101600228ac4`，四进程门通过。线上页面 compound 计划两步均 success；“重启后端并删除旧日志”显示 `UNSAFE_ACTION_REQUESTED` 且零调用；“解释 Go interface”显示 `NO_SUPPORTED_TOOL` 且零调用。该版本的确定性 Planner 是安全基线，尚未宣称 LLM 自主规划；后续可让 LLM 只产生候选计划，再由同一 deterministic policy validator 裁决。
