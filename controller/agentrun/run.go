@@ -1,6 +1,7 @@
 package agentrun
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -17,7 +18,14 @@ import (
 const responseSchemaVersion = "agent-run-api-v1"
 
 type Handler struct {
-	workflow *diagnostic.Workflow
+	workflow Workflow
+}
+
+type Workflow interface {
+	Start(context.Context, diagnostic.StartCommand) (diagnostic.RunResponse, error)
+	Get(context.Context, string, string) (diagnostic.RunResponse, error)
+	Resume(context.Context, diagnostic.ResumeCommand) (diagnostic.RunResponse, error)
+	Cancel(context.Context, string, string) (diagnostic.RunResponse, error)
 }
 
 type StartRequest struct {
@@ -57,7 +65,7 @@ type ErrorResponse struct {
 	TraceID       string `json:"trace_id,omitempty"`
 }
 
-func NewHandler(workflow *diagnostic.Workflow) *Handler { return &Handler{workflow: workflow} }
+func NewHandler(workflow Workflow) *Handler { return &Handler{workflow: workflow} }
 
 func NewDefaultHandler() *Handler {
 	lifecycle, err := harness.NewObservedService(harness.NewGormRepository(mysql.DB), harness.SystemClock{}, harness.UUIDGenerator{}, observability.DefaultMetrics())
