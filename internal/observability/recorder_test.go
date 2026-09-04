@@ -61,6 +61,20 @@ func TestRecorderPersistsSanitizedRunAndMetrics(t *testing.T) {
 	if count := testutil.ToFloat64(metrics.requests.WithLabelValues("legacy", "legacy_chat", "success")); count != 1 {
 		t.Fatalf("expected request counter 1, got %v", count)
 	}
+	if count := testutil.ToFloat64(metrics.agentRuns.WithLabelValues("LegacyAdapter", "legacy_chat", "success")); count != 1 {
+		t.Fatalf("expected distinct agent and strategy labels, got %v", count)
+	}
+}
+
+func TestAgentForStrategyUsesStableLowCardinalityLabels(t *testing.T) {
+	for strategy, want := range map[string]string{
+		"rag_fast": "KnowledgeAgent", "legacy_chat": "LegacyAdapter",
+		"diagnosis_standard": "DiagnosticAgent", "tool_primary": "ToolAgent", "arbitrary-user-value": unknownLabel,
+	} {
+		if got := agentForStrategy(strategy); got != want {
+			t.Fatalf("strategy %q mapped to agent %q, want %q", strategy, got, want)
+		}
+	}
 }
 
 func TestRecorderClassifiesFailureWithoutLeakingInternalError(t *testing.T) {

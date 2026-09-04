@@ -72,6 +72,7 @@ func (recorder *Recorder) Record(output app.ChatOutput, requestError error) {
 func (metrics *Metrics) record(run model.AgentRun, confidence float64) {
 	intent := boundedLabel(run.Intent)
 	strategy := boundedLabel(run.Strategy)
+	agent := agentForStrategy(strategy)
 	stage := boundedLabel(run.FinalIntentStage)
 	status := boundedStatus(run.Status)
 	duration := float64(run.DurationMicros) / float64(time.Second/time.Microsecond)
@@ -79,8 +80,23 @@ func (metrics *Metrics) record(run model.AgentRun, confidence float64) {
 	metrics.requestDuration.WithLabelValues(intent, strategy).Observe(duration)
 	metrics.intentDecisions.WithLabelValues(intent, stage, status).Inc()
 	metrics.intentConfidence.WithLabelValues(intent, stage).Observe(clampConfidence(confidence))
-	metrics.agentRuns.WithLabelValues(strategy, strategy, status).Inc()
-	metrics.agentDuration.WithLabelValues(strategy, strategy).Observe(duration)
+	metrics.agentRuns.WithLabelValues(agent, strategy, status).Inc()
+	metrics.agentDuration.WithLabelValues(agent, strategy).Observe(duration)
+}
+
+func agentForStrategy(strategy string) string {
+	switch strategy {
+	case "rag_fast", "rag_deep":
+		return "KnowledgeAgent"
+	case "legacy_chat":
+		return "LegacyAdapter"
+	case "diagnosis_standard", "diagnosis_case_based", "diagnosis_collaborative", "diagnosis_fallback":
+		return "DiagnosticAgent"
+	case "tool_primary", "tool_secondary", "tool_cached", "tool_degraded":
+		return "ToolAgent"
+	default:
+		return unknownLabel
+	}
 }
 
 func (recorder *Recorder) writeLog(run model.AgentRun, persistenceStatus string) {
