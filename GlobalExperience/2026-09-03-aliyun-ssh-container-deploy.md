@@ -513,3 +513,17 @@ short-lived environment variable such as `MYSQL_PWD`. Do not print the parsed
 credential, include it in the command output, or copy it back to the local
 workspace. This check is diagnostic only and must not rewrite the deployed
 configuration.
+
+### 16.2 User acceptance evidence
+
+The user verified the four M3-A1 behaviors through the real public page:
+
+- a new Markdown document was accepted and shown as waiting for indexing;
+- a second distinct document increased the document count without deleting the
+  first;
+- uploading identical content reused the existing indexing task and did not
+  increase the count;
+- the document list and status remained visible after a browser refresh.
+
+This closes the M3-A1 user-acceptance gate. It does not close the later parser,
+worker, Redis indexing, retrieval, citation, or grounded-answer gates.
