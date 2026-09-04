@@ -53,27 +53,27 @@
         <span class="knowledge-latest">
           最近：{{ knowledgeDocuments[0].display_name }} · {{ documentStatusLabel(knowledgeDocuments[0].status) }}
         </span>
-		<div class="knowledge-version-controls">
-		  <select v-model="versionTargetDocumentId" title="选择要保留历史并更新版本的文档">
-			<option value="" disabled>选择活动文档</option>
-			<option v-for="document in indexedKnowledgeDocuments" :key="document.id" :value="document.id">
-			  {{ document.display_name }} · 当前 v{{ document.current_version }}
-			</option>
-		  </select>
-		  <button :disabled="uploadingVersion || !versionTargetDocumentId" @click="triggerVersionUpload">
-			{{ uploadingVersion ? '新版本上传中...' : '♻ 上传新版本' }}
-		  </button>
-		  <span v-if="pendingVersionJob" class="version-pending">
-			v{{ pendingVersionJob.version }} {{ jobStatusLabel(pendingVersionJob.status) }}；旧版本继续生效
-		  </span>
-		  <input
-			ref="versionFileInput"
-			type="file"
-			accept=".md,.txt,.json,.yaml,.yml,.go,text/markdown,text/plain,application/json,application/yaml"
-			style="display: none"
-			@change="handleVersionUpload"
-		  />
-		</div>
+    <div class="knowledge-version-controls">
+      <select v-model="versionTargetDocumentId" title="选择要保留历史并更新版本的文档">
+      <option value="" disabled>选择活动文档</option>
+      <option v-for="document in indexedKnowledgeDocuments" :key="document.id" :value="document.id">
+        {{ document.display_name }} · 当前 v{{ document.current_version }}
+      </option>
+      </select>
+      <button :disabled="uploadingVersion || !versionTargetDocumentId" @click="triggerVersionUpload">
+      {{ uploadingVersion ? '新版本上传中...' : '♻ 上传新版本' }}
+      </button>
+      <span v-if="pendingVersionJob" class="version-pending">
+      v{{ pendingVersionJob.version }} {{ jobStatusLabel(pendingVersionJob.status) }}；旧版本继续生效
+      </span>
+      <input
+      ref="versionFileInput"
+      type="file"
+      accept=".md,.txt,.json,.yaml,.yml,.go,text/markdown,text/plain,application/json,application/yaml"
+      style="display: none"
+      @change="handleVersionUpload"
+      />
+    </div>
       </div>
 
       <div v-if="knowledgeSearchOpen" class="knowledge-search-panel">
@@ -207,12 +207,12 @@ export default {
     const knowledgeRequired = ref(false)
     const uploading = ref(false)
     const fileInput = ref(null)
-	const versionFileInput = ref(null)
-	const uploadingVersion = ref(false)
-	const versionTargetDocumentId = ref('')
-	const pendingVersionJob = ref(null)
+  const versionFileInput = ref(null)
+  const uploadingVersion = ref(false)
+  const versionTargetDocumentId = ref('')
+  const pendingVersionJob = ref(null)
     const knowledgeDocuments = ref([])
-	const indexedKnowledgeDocuments = computed(() => knowledgeDocuments.value.filter(document => document.status === 'indexed'))
+  const indexedKnowledgeDocuments = computed(() => knowledgeDocuments.value.filter(document => document.status === 'indexed'))
     const knowledgeSearchOpen = ref(false)
     const knowledgeQuery = ref('')
     const searchingKnowledge = ref(false)
@@ -631,16 +631,16 @@ export default {
       return labels[status] || status
     }
 
-	const jobStatusLabel = (status) => {
-	  const labels = {
-		queued: '等待索引',
-		processing: '正在建立索引',
-		retrying: '索引重试中',
-		completed: '已切换为活动版本',
-		failed: '索引失败'
-	  }
-	  return labels[status] || status
-	}
+  const jobStatusLabel = (status) => {
+    const labels = {
+    queued: '等待索引',
+    processing: '正在建立索引',
+    retrying: '索引重试中',
+    completed: '已切换为活动版本',
+    failed: '索引失败'
+    }
+    return labels[status] || status
+  }
 
     const retrievalModeLabel = (mode) => {
       const labels = {
@@ -707,13 +707,13 @@ export default {
       try {
         const response = await api.get('/knowledge/documents')
         knowledgeDocuments.value = response.data?.documents || []
-		if (!indexedKnowledgeDocuments.value.some(document => document.id === versionTargetDocumentId.value)) {
-		  versionTargetDocumentId.value = indexedKnowledgeDocuments.value[0]?.id || ''
-		}
+    if (!indexedKnowledgeDocuments.value.some(document => document.id === versionTargetDocumentId.value)) {
+      versionTargetDocumentId.value = indexedKnowledgeDocuments.value[0]?.id || ''
+    }
         const hasPendingDocument = knowledgeDocuments.value.some(document =>
           document.status === 'uploaded' || document.status === 'parsing'
         )
-		if (hasPendingDocument || pendingVersionJob.value) {
+    if (hasPendingDocument || pendingVersionJob.value) {
           startKnowledgePolling()
         } else {
           stopKnowledgePolling()
@@ -725,10 +725,10 @@ export default {
 
     const startKnowledgePolling = () => {
       if (!knowledgePollTimer) {
-		knowledgePollTimer = window.setInterval(async () => {
-		  await pollPendingVersionJob()
-		  await loadKnowledgeDocuments()
-		}, 3000)
+    knowledgePollTimer = window.setInterval(async () => {
+      await pollPendingVersionJob()
+      await loadKnowledgeDocuments()
+    }, 3000)
       }
     }
 
@@ -787,66 +787,66 @@ export default {
       }
     }
 
-	const triggerVersionUpload = () => {
-	  if (!versionTargetDocumentId.value) {
-		ElMessage.warning('请先选择要更新的活动文档')
-		return
-	  }
-	  versionFileInput.value?.click()
-	}
+  const triggerVersionUpload = () => {
+    if (!versionTargetDocumentId.value) {
+    ElMessage.warning('请先选择要更新的活动文档')
+    return
+    }
+    versionFileInput.value?.click()
+  }
 
-	const pollPendingVersionJob = async () => {
-	  const job = pendingVersionJob.value
-	  if (!job?.id) return
-	  try {
-		const response = await api.get(`/knowledge/jobs/${job.id}`)
-		const latest = response.data?.job
-		if (!latest) return
-		pendingVersionJob.value = latest
-		if (latest.status === 'completed') {
-		  ElMessage.success(`文档 v${latest.version} 索引完成，活动版本已原子切换`)
-		  pendingVersionJob.value = null
-		} else if (latest.status === 'failed') {
-		  ElMessage.warning(`文档 v${latest.version} 索引失败，旧版本保持可用（${latest.last_error_code || 'UNKNOWN'}）`)
-		  pendingVersionJob.value = null
-		}
-	  } catch (error) {
-		console.error('Poll knowledge version job error:', error)
-	  }
-	}
+  const pollPendingVersionJob = async () => {
+    const job = pendingVersionJob.value
+    if (!job?.id) return
+    try {
+    const response = await api.get(`/knowledge/jobs/${job.id}`)
+    const latest = response.data?.job
+    if (!latest) return
+    pendingVersionJob.value = latest
+    if (latest.status === 'completed') {
+      ElMessage.success(`文档 v${latest.version} 索引完成，活动版本已原子切换`)
+      pendingVersionJob.value = null
+    } else if (latest.status === 'failed') {
+      ElMessage.warning(`文档 v${latest.version} 索引失败，旧版本保持可用（${latest.last_error_code || 'UNKNOWN'}）`)
+      pendingVersionJob.value = null
+    }
+    } catch (error) {
+    console.error('Poll knowledge version job error:', error)
+    }
+  }
 
-	const handleVersionUpload = async (event) => {
-	  const file = event.target.files[0]
-	  if (!file || !versionTargetDocumentId.value) return
-	  const fileName = file.name.toLowerCase()
-	  const allowedExtensions = ['.md', '.txt', '.json', '.yaml', '.yml', '.go']
-	  if (!allowedExtensions.some(extension => fileName.endsWith(extension))) {
-		ElMessage.error('支持 .md、.txt、.json、.yaml、.yml 和 .go 文件')
-		if (versionFileInput.value) versionFileInput.value.value = ''
-		return
-	  }
-	  try {
-		uploadingVersion.value = true
-		const formData = new FormData()
-		formData.append('file', file)
-		const response = await api.post(`/knowledge/documents/${versionTargetDocumentId.value}/versions`, formData, {
-		  headers: { 'Content-Type': 'multipart/form-data' }
-		})
-		pendingVersionJob.value = response.data?.job || null
-		if (response.data?.duplicate) {
-		  ElMessage.info(`该内容已存在于 v${response.data?.pending_version || response.data?.job?.version}`)
-		} else {
-		  ElMessage.success(`已接收 v${response.data?.pending_version}；v${response.data?.previous_version} 将持续生效直到新索引成功`)
-		}
-		startKnowledgePolling()
-	  } catch (error) {
-		console.error('Version upload error:', error)
-		ElMessage.error(error.response?.data?.message || '文档新版本上传失败')
-	  } finally {
-		uploadingVersion.value = false
-		if (versionFileInput.value) versionFileInput.value.value = ''
-	  }
-	}
+  const handleVersionUpload = async (event) => {
+    const file = event.target.files[0]
+    if (!file || !versionTargetDocumentId.value) return
+    const fileName = file.name.toLowerCase()
+    const allowedExtensions = ['.md', '.txt', '.json', '.yaml', '.yml', '.go']
+    if (!allowedExtensions.some(extension => fileName.endsWith(extension))) {
+    ElMessage.error('支持 .md、.txt、.json、.yaml、.yml 和 .go 文件')
+    if (versionFileInput.value) versionFileInput.value.value = ''
+    return
+    }
+    try {
+    uploadingVersion.value = true
+    const formData = new FormData()
+    formData.append('file', file)
+    const response = await api.post(`/knowledge/documents/${versionTargetDocumentId.value}/versions`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+    pendingVersionJob.value = response.data?.job || null
+    if (response.data?.duplicate) {
+      ElMessage.info(`该内容已存在于 v${response.data?.pending_version || response.data?.job?.version}`)
+    } else {
+      ElMessage.success(`已接收 v${response.data?.pending_version}；v${response.data?.previous_version} 将持续生效直到新索引成功`)
+    }
+    startKnowledgePolling()
+    } catch (error) {
+    console.error('Version upload error:', error)
+    ElMessage.error(error.response?.data?.message || '文档新版本上传失败')
+    } finally {
+    uploadingVersion.value = false
+    if (versionFileInput.value) versionFileInput.value.value = ''
+    }
+  }
 
     onMounted(() => {
       loadSessions()
@@ -871,11 +871,11 @@ export default {
       knowledgeRequired,
       uploading,
       fileInput,
-	  versionFileInput,
-	  uploadingVersion,
-	  versionTargetDocumentId,
-	  pendingVersionJob,
-	  indexedKnowledgeDocuments,
+    versionFileInput,
+    uploadingVersion,
+    versionTargetDocumentId,
+    pendingVersionJob,
+    indexedKnowledgeDocuments,
       knowledgeDocuments,
       knowledgeSearchOpen,
       knowledgeQuery,
@@ -885,7 +885,7 @@ export default {
       answeringKnowledge,
       knowledgeAnswer,
       documentStatusLabel,
-	  jobStatusLabel,
+    jobStatusLabel,
       retrievalModeLabel,
       renderMarkdown,
       playTTS,
@@ -895,8 +895,8 @@ export default {
       sendMessage,
       triggerFileUpload,
       handleFileUpload,
-	  triggerVersionUpload,
-	  handleVersionUpload,
+    triggerVersionUpload,
+    handleVersionUpload,
       toggleKnowledgeSearch,
       searchKnowledge,
       answerKnowledge,
@@ -1052,8 +1052,8 @@ export default {
 .knowledge-status {
   display: flex;
   justify-content: space-between;
-	align-items: center;
-	flex-wrap: wrap;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 16px;
   padding: 9px 24px;
   color: #36506c;
@@ -1063,38 +1063,38 @@ export default {
 }
 
 .knowledge-version-controls {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	min-width: 420px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 420px;
 }
 
 .knowledge-version-controls select {
-	max-width: 260px;
-	padding: 6px 8px;
-	border: 1px solid #b9cce3;
-	border-radius: 7px;
-	background: #fff;
-	color: #36506c;
+  max-width: 260px;
+  padding: 6px 8px;
+  border: 1px solid #b9cce3;
+  border-radius: 7px;
+  background: #fff;
+  color: #36506c;
 }
 
 .knowledge-version-controls button {
-	padding: 6px 10px;
-	border: 0;
-	border-radius: 7px;
-	background: #409eff;
-	color: #fff;
-	cursor: pointer;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: #409eff;
+  color: #fff;
+  cursor: pointer;
 }
 
 .knowledge-version-controls button:disabled {
-	opacity: 0.55;
-	cursor: not-allowed;
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .version-pending {
-	color: #b36b00;
-	white-space: nowrap;
+  color: #b36b00;
+  white-space: nowrap;
 }
 
 .knowledge-latest {
