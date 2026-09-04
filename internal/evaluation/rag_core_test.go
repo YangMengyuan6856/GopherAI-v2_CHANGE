@@ -56,6 +56,9 @@ func TestRAGCoreScoringAndReport(t *testing.T) {
 	if progressCalls != len(cases) {
 		t.Fatalf("expected progress for every case, got %d", progressCalls)
 	}
+	if report.HumanReviewed || report.BaselineEligible {
+		t.Fatalf("unreviewed labels must not be baseline eligible: %+v", report)
+	}
 	var markdown strings.Builder
 	if err := WriteRAGReportMarkdown(&markdown, report); err != nil || !strings.Contains(markdown.String(), "Citation Precision") {
 		t.Fatalf("unexpected markdown report: %v %s", err, markdown.String())
