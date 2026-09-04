@@ -122,15 +122,16 @@ type answerRequest struct {
 }
 
 type answerResponse struct {
-	SchemaVersion   string                    `json:"schema_version"`
-	TraceID         string                    `json:"trace_id"`
-	RequestID       string                    `json:"request_id"`
-	Agent           string                    `json:"agent"`
-	Strategy        string                    `json:"strategy"`
-	StrategyVersion string                    `json:"strategy_version"`
-	Result          contract.AgentResult      `json:"result"`
-	EvidenceGate    ragapp.EvidenceGateResult `json:"evidence_gate"`
-	Diagnostics     ragapp.SearchDiagnostics  `json:"diagnostics"`
+	SchemaVersion     string                           `json:"schema_version"`
+	TraceID           string                           `json:"trace_id"`
+	RequestID         string                           `json:"request_id"`
+	Agent             string                           `json:"agent"`
+	Strategy          string                           `json:"strategy"`
+	StrategyVersion   string                           `json:"strategy_version"`
+	Result            contract.AgentResult             `json:"result"`
+	EvidenceGate      ragapp.EvidenceGateResult        `json:"evidence_gate"`
+	Diagnostics       ragapp.SearchDiagnostics         `json:"diagnostics"`
+	AnswerDiagnostics knowledgeagent.AnswerDiagnostics `json:"answer_diagnostics"`
 }
 
 func NewHandler(application Application, metrics UploadMetrics) *Handler {
@@ -224,7 +225,7 @@ func (handler *Handler) answerWith(ginContext *gin.Context, application AnswerAp
 	ginContext.JSON(http.StatusOK, answerResponse{
 		SchemaVersion: contract.SchemaVersion, TraceID: traceID, RequestID: requestID,
 		Agent: knowledgeagent.AgentName, Strategy: strategy, StrategyVersion: strategyVersion,
-		Result: output.Result, EvidenceGate: output.Gate, Diagnostics: output.Diagnostics,
+		Result: output.Result, EvidenceGate: output.Gate, Diagnostics: output.Diagnostics, AnswerDiagnostics: output.Answer,
 	})
 }
 

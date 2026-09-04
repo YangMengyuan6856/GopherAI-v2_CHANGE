@@ -85,6 +85,11 @@ type RAGCaseResult struct {
 	ReciprocalRank       float64  `json:"reciprocal_rank"`
 	AnswerResolved       bool     `json:"answer_resolved"`
 	ExpectedToResolve    bool     `json:"expected_to_resolve"`
+	GateAccepted         bool     `json:"gate_accepted"`
+	GateReasonCode       string   `json:"gate_reason_code,omitempty"`
+	AnswerStatus         string   `json:"answer_status,omitempty"`
+	AnswerReasonCode     string   `json:"answer_reason_code,omitempty"`
+	ModelAttempts        int      `json:"model_attempts"`
 	CitationCovered      bool     `json:"citation_covered"`
 	SafeRejection        bool     `json:"safe_rejection"`
 	UnauthorizedHits     int      `json:"unauthorized_hits"`
@@ -105,6 +110,7 @@ type RAGMetrics struct {
 	EvidenceGatePrecision  float64 `json:"evidence_gate_precision"`
 	NoEvidenceSafeRate     float64 `json:"no_evidence_safe_rate"`
 	UnsupportedAnswerRate  float64 `json:"unsupported_answer_rate"`
+	CitationFallbackRate   float64 `json:"citation_fallback_rate"`
 	ErrorRate              float64 `json:"error_rate"`
 	P95SearchLatencyMillis float64 `json:"p95_search_latency_ms"`
 	P95AnswerLatencyMillis float64 `json:"p95_answer_latency_ms"`
@@ -281,7 +287,7 @@ func RunRAGCoreWithObserver(ctx context.Context, cases []RAGCase, fixtureVersion
 
 	var recallSum, ndcgSum, mrrSum float64
 	var relevantCitations, totalCitations, coveredCases, resolvedCases, errorCases, unauthorized int
-	var positiveCases, noEvidenceCases, rejectedAnswers, correctRejections, unsupportedAnswers int
+	var positiveCases, noEvidenceCases, gateRejections, correctGateRejections, unsupportedAnswers, citationFallbacks int
 	searchLatencies := make([]int64, 0, len(cases))
 	answerLatencies := make([]int64, 0, len(cases))
 	totalLatencies := make([]int64, 0, len(cases))
@@ -334,17 +340,27 @@ func RunRAGCoreWithObserver(ctx context.Context, cases []RAGCase, fixtureVersion
 			continue
 		}
 		result.AnswerResolved = answerOutput.Result.Resolved
+		result.GateAccepted = answerOutput.Gate.Accepted
+		result.GateReasonCode = answerOutput.Gate.ReasonCode
+		result.AnswerStatus = answerOutput.Answer.Status
+		result.AnswerReasonCode = answerOutput.Answer.ReasonCode
+		result.ModelAttempts = answerOutput.Answer.ModelAttempts
 		if result.AnswerResolved && expectedToResolve {
 			resolvedCases++
 		}
-		if !result.AnswerResolved {
-			rejectedAnswers++
+		if !answerOutput.Gate.Accepted {
+			gateRejections++
 			if !expectedToResolve {
-				correctRejections++
-				result.SafeRejection = true
+				correctGateRejections++
 			}
+		}
+		if !result.AnswerResolved && !expectedToResolve {
+			result.SafeRejection = true
 		} else if !expectedToResolve {
 			unsupportedAnswers++
+		}
+		if expectedToResolve && answerOutput.Answer.Status == knowledgeagent.AnswerStatusSafetyFallback {
+			citationFallbacks++
 		}
 		for _, citation := range answerOutput.Result.Citations {
 			result.CitedEvidenceIDs = append(result.CitedEvidenceIDs, citation.EvidenceID)
@@ -376,8 +392,9 @@ func RunRAGCoreWithObserver(ctx context.Context, cases []RAGCase, fixtureVersion
 		RecallAt5: safeFloatRatio(recallSum, positiveCount), NDCGAt5: safeFloatRatio(ndcgSum, positiveCount), MRR: safeFloatRatio(mrrSum, positiveCount),
 		CitationPrecision: safeRatio(relevantCitations, totalCitations), CitationCoverage: safeRatio(coveredCases, positiveCases),
 		UnauthorizedRecall: unauthorized, ResolvedAnswerRate: safeRatio(resolvedCases, positiveCases),
-		EvidenceGatePrecision: safeRatioOrOne(correctRejections, rejectedAnswers), NoEvidenceSafeRate: safeRatioOrOne(correctRejections, noEvidenceCases),
+		EvidenceGatePrecision: safeRatioOrOne(correctGateRejections, gateRejections), NoEvidenceSafeRate: safeRatioOrOne(correctGateRejections, noEvidenceCases),
 		UnsupportedAnswerRate: safeRatio(unsupportedAnswers, noEvidenceCases), ErrorRate: safeRatio(errorCases, len(cases)),
+		CitationFallbackRate:   safeRatio(citationFallbacks, positiveCases),
 		P95SearchLatencyMillis: percentile95(searchLatencies), P95AnswerLatencyMillis: percentile95(answerLatencies), P95TotalLatencyMillis: percentile95(totalLatencies),
 	}
 	report.PositiveCaseCount = positiveCases
@@ -435,6 +452,7 @@ func WriteRAGReportMarkdown(writer io.Writer, report RAGReport) error {
 | Evidence Gate Precision | %.4f | >= %.2f |
 | No-evidence Safe Rate | %.4f | >= %.2f |
 | Unsupported Answer Rate | %.4f | <= %.2f |
+| Citation Safety Fallback Rate | %.4f | report |
 | Error Rate | %.4f | = 0 |
 | Search P95 | %.0f ms | report |
 | Answer P95 | %.0f ms | report |
@@ -452,7 +470,7 @@ Citation Coverage in this M3 core slice is a conservative evidence-reference pro
 		report.Metrics.CitationPrecision, report.Targets.CitationPrecision, report.Metrics.CitationCoverage, report.Targets.CitationCoverage,
 		report.Metrics.UnauthorizedRecall, report.Targets.UnauthorizedRecall, report.Metrics.ResolvedAnswerRate,
 		report.Metrics.EvidenceGatePrecision, report.Targets.EvidenceGatePrecision, report.Metrics.NoEvidenceSafeRate, report.Targets.NoEvidenceSafeRate,
-		report.Metrics.UnsupportedAnswerRate, report.Targets.UnsupportedAnswerRate, report.Metrics.ErrorRate,
+		report.Metrics.UnsupportedAnswerRate, report.Targets.UnsupportedAnswerRate, report.Metrics.CitationFallbackRate, report.Metrics.ErrorRate,
 		report.Metrics.P95SearchLatencyMillis, report.Metrics.P95AnswerLatencyMillis, report.Metrics.P95TotalLatencyMillis, report.Targets.P95TotalLatencyMillis)
 	if err != nil {
 		return err

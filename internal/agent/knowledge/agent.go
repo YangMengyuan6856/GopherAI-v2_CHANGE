@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/cloudwego/eino/components/model"
@@ -19,11 +20,20 @@ const (
 	StrategyVersion  = "rag-fast-v1"
 	maxEvidenceRunes = 14_000
 	maxModelAttempts = 2
+
+	AnswerStatusGateRejected   = "gate_rejected"
+	AnswerStatusCompleted      = "completed"
+	AnswerStatusSafetyFallback = "safety_fallback"
+	AnswerReasonCompleted      = "grounded_answer_completed"
+	AnswerReasonJSONInvalid    = "answer_json_invalid"
+	AnswerReasonCitationFailed = "citation_verification_failed"
 )
 
 var (
-	ErrInvalidQuestion = errors.New("invalid knowledge question")
-	ErrModelOutput     = errors.New("knowledge model output is invalid")
+	ErrInvalidQuestion  = errors.New("invalid knowledge question")
+	ErrModelOutput      = errors.New("knowledge model output is invalid")
+	agentEvidenceMarker = regexp.MustCompile(`\[E([1-9][0-9]*)\]`)
+	agentNumericMarker  = regexp.MustCompile(`\[([1-9][0-9]?)\]`)
 )
 
 type Retriever interface {
@@ -45,6 +55,13 @@ type Output struct {
 	Result      contract.AgentResult
 	Gate        rag.EvidenceGateResult
 	Diagnostics rag.SearchDiagnostics
+	Answer      AnswerDiagnostics
+}
+
+type AnswerDiagnostics struct {
+	Status        string `json:"status"`
+	ReasonCode    string `json:"reason_code"`
+	ModelAttempts int    `json:"model_attempts"`
 }
 
 type Agent struct {
@@ -87,6 +104,7 @@ func (agent *Agent) Answer(ctx context.Context, input Input) (Output, error) {
 		usage = searchOutput.Diagnostics.Deep.Usage
 	}
 	if !gateResult.Accepted {
+		output.Answer = AnswerDiagnostics{Status: AnswerStatusGateRejected, ReasonCode: gateResult.ReasonCode}
 		output.Result = contract.AgentResult{
 			Answer: insufficientEvidenceAnswer(gateResult), Evidence: evidence, Confidence: gateResult.TopScore,
 			Resolved: false, NeedsUserInput: true, FollowUpQuestions: gateResult.FollowUpQuestions, Usage: usage,
@@ -100,6 +118,7 @@ func (agent *Agent) Answer(ctx context.Context, input Input) (Output, error) {
 	}
 	var verificationErr error
 	for attempt := 0; attempt < maxModelAttempts; attempt++ {
+		output.Answer.ModelAttempts = attempt + 1
 		response, generateErr := agent.model.Generate(ctx, messages)
 		if generateErr != nil {
 			return output, fmt.Errorf("generate grounded answer: %w", generateErr)
@@ -109,6 +128,8 @@ func (agent *Agent) Answer(ctx context.Context, input Input) (Output, error) {
 		if parseErr == nil {
 			answer, citations, verifyErr := agent.citations.BuildAndVerify(input.TenantID, parsed.Answer, parsed.Citations, evidence)
 			if verifyErr == nil {
+				output.Answer.Status = AnswerStatusCompleted
+				output.Answer.ReasonCode = AnswerReasonCompleted
 				output.Result = contract.AgentResult{
 					Answer: answer, Citations: citations, Evidence: evidence, Confidence: gateResult.TopScore,
 					Resolved: true, NeedsUserInput: false, Usage: usage,
@@ -116,8 +137,10 @@ func (agent *Agent) Answer(ctx context.Context, input Input) (Output, error) {
 				return output, nil
 			}
 			verificationErr = verifyErr
+			output.Answer.ReasonCode = AnswerReasonCitationFailed
 		} else {
 			verificationErr = parseErr
+			output.Answer.ReasonCode = AnswerReasonJSONInvalid
 		}
 		if attempt+1 < maxModelAttempts {
 			messages = append(messages, schema.UserMessage(citationRepairPrompt()))
@@ -138,6 +161,7 @@ func (agent *Agent) Answer(ctx context.Context, input Input) (Output, error) {
 		Resolved: false, NeedsUserInput: true,
 		FollowUpQuestions: []string{"模型生成结果未通过引用一致性校验，请展开引用核对原始证据后重试。"},
 	}
+	output.Answer.Status = AnswerStatusSafetyFallback
 	return output, nil
 }
 
@@ -210,21 +234,76 @@ func parseModelOutput(response *schema.Message) (groundedModelOutput, error) {
 	if response == nil {
 		return groundedModelOutput{}, ErrModelOutput
 	}
-	content := strings.TrimSpace(response.Content)
+	content := extractJSONObject(response.Content)
+	raw := struct {
+		Answer    string          `json:"answer"`
+		Citations json.RawMessage `json:"citations"`
+	}{}
+	if err := json.Unmarshal([]byte(content), &raw); err != nil {
+		return groundedModelOutput{}, fmt.Errorf("%w: response is not JSON", ErrModelOutput)
+	}
+	parsed := groundedModelOutput{Answer: normalizeEvidenceMarkers(strings.TrimSpace(raw.Answer))}
+	if len(raw.Citations) > 0 && string(raw.Citations) != "null" {
+		if err := json.Unmarshal(raw.Citations, &parsed.Citations); err != nil {
+			parsed.Citations = nil
+			var numeric []int
+			if numericErr := json.Unmarshal(raw.Citations, &numeric); numericErr != nil {
+				return groundedModelOutput{}, fmt.Errorf("%w: citations are invalid", ErrModelOutput)
+			}
+			for _, value := range numeric {
+				if value > 0 {
+					parsed.Citations = append(parsed.Citations, fmt.Sprintf("E%d", value))
+				}
+			}
+		}
+	}
+	if inline := inlineEvidenceReferences(parsed.Answer); len(inline) > 0 {
+		// The inline markers are the claims actually made. Treat them as the
+		// authoritative citation set and let CitationBuilder verify every ID;
+		// a redundant model-side list may not add or remove answer evidence.
+		parsed.Citations = inline
+	}
+	if parsed.Answer == "" || len(parsed.Citations) == 0 {
+		return groundedModelOutput{}, fmt.Errorf("%w: answer or citations are empty", ErrModelOutput)
+	}
+	return parsed, nil
+}
+
+func extractJSONObject(value string) string {
+	content := strings.TrimSpace(value)
 	if strings.HasPrefix(content, "```") {
 		content = strings.TrimPrefix(content, "```json")
 		content = strings.TrimPrefix(content, "```")
 		content = strings.TrimSuffix(strings.TrimSpace(content), "```")
 	}
-	parsed := groundedModelOutput{}
-	if err := json.Unmarshal([]byte(content), &parsed); err != nil {
-		return groundedModelOutput{}, fmt.Errorf("%w: response is not JSON", ErrModelOutput)
+	start := strings.Index(content, "{")
+	end := strings.LastIndex(content, "}")
+	if start >= 0 && end >= start {
+		return content[start : end+1]
 	}
-	parsed.Answer = strings.TrimSpace(parsed.Answer)
-	if parsed.Answer == "" || len(parsed.Citations) == 0 {
-		return groundedModelOutput{}, fmt.Errorf("%w: answer or citations are empty", ErrModelOutput)
+	return content
+}
+
+func normalizeEvidenceMarkers(answer string) string {
+	answer = strings.ReplaceAll(answer, "【E", "[E")
+	answer = strings.ReplaceAll(answer, "】", "]")
+	answer = agentNumericMarker.ReplaceAllString(answer, "[E$1]")
+	return answer
+}
+
+func inlineEvidenceReferences(answer string) []string {
+	matches := agentEvidenceMarker.FindAllStringSubmatch(answer, -1)
+	result := make([]string, 0, len(matches))
+	seen := make(map[string]struct{}, len(matches))
+	for _, match := range matches {
+		reference := "E" + match[1]
+		if _, exists := seen[reference]; exists {
+			continue
+		}
+		seen[reference] = struct{}{}
+		result = append(result, reference)
 	}
-	return parsed, nil
+	return result
 }
 
 func insufficientEvidenceAnswer(result rag.EvidenceGateResult) string {

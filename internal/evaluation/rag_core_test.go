@@ -37,8 +37,8 @@ func TestRAGCoreScoringAndReport(t *testing.T) {
 		"q2": {Hits: []rag.SearchHit{{Evidence: contract.Evidence{ID: "x", TenantID: "tenant", SourceID: "doc"}}, {Evidence: contract.Evidence{ID: "b", TenantID: "tenant", SourceID: "doc"}}, {Evidence: contract.Evidence{ID: "c", TenantID: "tenant", SourceID: "doc"}}}},
 	}}
 	answerer := &evaluationAnswerer{outputs: map[string]knowledgeagent.Output{
-		"q1": {Result: contract.AgentResult{Resolved: true, Citations: []contract.Citation{{EvidenceID: "a"}}}},
-		"q2": {Result: contract.AgentResult{Resolved: true, Citations: []contract.Citation{{EvidenceID: "b"}, {EvidenceID: "c"}}}},
+		"q1": {Result: contract.AgentResult{Resolved: true, Citations: []contract.Citation{{EvidenceID: "a"}}}, Gate: rag.EvidenceGateResult{Accepted: true}},
+		"q2": {Result: contract.AgentResult{Resolved: true, Citations: []contract.Citation{{EvidenceID: "b"}, {EvidenceID: "c"}}}, Gate: rag.EvidenceGateResult{Accepted: true}},
 	}}
 	progressCalls := 0
 	report := RunRAGCoreWithObserver(context.Background(), cases, "fixture", "candidate", "tenant", "user", searcher, answerer,
@@ -76,8 +76,8 @@ func TestRAGCoreCitationPrecisionExcludesUnresolvedSafetyEvidence(t *testing.T) 
 		"q2": {Hits: []rag.SearchHit{{Evidence: contract.Evidence{ID: "b", TenantID: "tenant", SourceID: "doc"}}}},
 	}}
 	answerer := &evaluationAnswerer{outputs: map[string]knowledgeagent.Output{
-		"q1": {Result: contract.AgentResult{Resolved: true, Citations: []contract.Citation{{EvidenceID: "a"}}}},
-		"q2": {Result: contract.AgentResult{Resolved: false, Citations: []contract.Citation{{EvidenceID: "b"}, {EvidenceID: "unclaimed-context"}}}},
+		"q1": {Result: contract.AgentResult{Resolved: true, Citations: []contract.Citation{{EvidenceID: "a"}}}, Gate: rag.EvidenceGateResult{Accepted: true}},
+		"q2": {Result: contract.AgentResult{Resolved: false, Citations: []contract.Citation{{EvidenceID: "b"}, {EvidenceID: "unclaimed-context"}}}, Gate: rag.EvidenceGateResult{Accepted: true}},
 	}}
 	report := RunRAGCore(context.Background(), cases, "fixture", "candidate", "tenant", "user", searcher, answerer)
 	if report.Metrics.CitationPrecision != 1 {
@@ -100,8 +100,8 @@ func TestRAGCoreSeparatesPositiveRetrievalFromNoEvidenceSafety(t *testing.T) {
 		"unknown": {},
 	}}
 	answerer := &evaluationAnswerer{outputs: map[string]knowledgeagent.Output{
-		"known":   {Result: contract.AgentResult{Resolved: true, Citations: []contract.Citation{{EvidenceID: "a"}}}},
-		"unknown": {Result: contract.AgentResult{Resolved: false}},
+		"known":   {Result: contract.AgentResult{Resolved: true, Citations: []contract.Citation{{EvidenceID: "a"}}}, Gate: rag.EvidenceGateResult{Accepted: true}},
+		"unknown": {Result: contract.AgentResult{Resolved: false}, Gate: rag.EvidenceGateResult{Accepted: false, ReasonCode: rag.GateReasonNoEvidence}},
 	}}
 	report := RunRAGCore(context.Background(), cases, "fixture", "candidate", "tenant", "user", searcher, answerer)
 	if report.PositiveCaseCount != 1 || report.NoEvidenceCaseCount != 1 {

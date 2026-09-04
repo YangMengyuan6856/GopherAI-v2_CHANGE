@@ -63,6 +63,9 @@ func TestAgentBuildsGroundedPromptAndVerifiedCitation(t *testing.T) {
 	if !output.Result.Resolved || output.Result.Answer != "默认重试次数为 7。[1]" || len(output.Result.Citations) != 1 {
 		t.Fatalf("unexpected grounded output: %+v", output)
 	}
+	if output.Answer.Status != AnswerStatusCompleted || output.Answer.ModelAttempts != 1 {
+		t.Fatalf("answer diagnostics were not completed: %+v", output.Answer)
+	}
 	if retriever.input.TenantID != "tenant-a" || retriever.input.UserID != "user-a" {
 		t.Fatalf("ACL was not propagated: %+v", retriever.input)
 	}
@@ -83,6 +86,9 @@ func TestAgentDoesNotCallModelWhenEvidenceGateRejects(t *testing.T) {
 	}
 	if output.Result.Resolved || !output.Result.NeedsUserInput || chatModel.calls != 0 || !strings.Contains(output.Result.Answer, "没有调用模型") {
 		t.Fatalf("evidence rejection must be deterministic and model-free: output=%+v calls=%d", output, chatModel.calls)
+	}
+	if output.Answer.Status != AnswerStatusGateRejected || output.Answer.ModelAttempts != 0 {
+		t.Fatalf("gate rejection diagnostics were not stable: %+v", output.Answer)
 	}
 }
 
@@ -107,6 +113,30 @@ func TestAgentFallsBackToAuthorizedCitationsAfterRepairFails(t *testing.T) {
 	output, err := agent.Answer(context.Background(), Input{TenantID: "tenant-a", UserID: "user-a", Question: "问题"})
 	if err != nil || output.Result.Resolved || !output.Result.NeedsUserInput || chatModel.calls != 2 || len(output.Result.Citations) != 1 || !strings.Contains(output.Result.Answer, "停止输出未经验证的结论") {
 		t.Fatalf("expected safe cited fallback, output=%+v calls=%d err=%v", output, chatModel.calls, err)
+	}
+	if output.Answer.Status != AnswerStatusSafetyFallback || output.Answer.ReasonCode != AnswerReasonCitationFailed {
+		t.Fatalf("safety fallback diagnostics were not stable: %+v", output.Answer)
+	}
+}
+
+func TestAgentNormalizesCommonStructuredCitationVariants(t *testing.T) {
+	tests := []struct {
+		name     string
+		response string
+	}{
+		{name: "markdown prose and inferred list", response: "结果如下：\n```json\n{\"answer\":\"默认重试次数为 7。【E1】\"}\n```"},
+		{name: "numeric citations", response: `{"answer":"默认重试次数为 7。[1]","citations":[1]}`},
+		{name: "inline markers override redundant list", response: `{"answer":"默认重试次数为 7。[E1]","citations":["E1","E9"]}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			chatModel := &fakeModel{response: &schema.Message{Content: test.response}}
+			agent, _ := NewAgent(&fakeRetriever{output: strongEvidence()}, chatModel, rag.DefaultEvidenceGate(), rag.NewCitationBuilder())
+			output, err := agent.Answer(context.Background(), Input{TenantID: "tenant-a", UserID: "user-a", Question: "问题"})
+			if err != nil || !output.Result.Resolved || output.Result.Answer != "默认重试次数为 7。[1]" || chatModel.calls != 1 {
+				t.Fatalf("expected verified normalized output, output=%+v calls=%d err=%v", output, chatModel.calls, err)
+			}
+		})
 	}
 }
 
