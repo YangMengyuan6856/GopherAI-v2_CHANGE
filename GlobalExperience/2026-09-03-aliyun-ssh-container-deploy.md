@@ -1152,3 +1152,42 @@ Bundle SHA-256:
 Root `go test ./...`, root `go vet ./...`, the independent MCP tests, three
 local Linux/amd64 builds, atomic bundle verification, Backend/Worker readiness,
 MCP startup, Vue compile/HTTP, and unique-process checks all passed.
+
+## 34. R1 Durable Diagnostic Harness 首次云端纵向验证
+
+Release `20260905004340-a88d67d003d9-dirty`（commit
+`a88d67d003d9cc5bafa1d47d648f2fb5253d9ddf`）首次上线了由 MySQL
+持久化的诊断 Run/Step/Checkpoint、CAS 状态版本、请求与恢复幂等键、执行预算、取消、
+`WAITING_USER` 恢复，以及只公开可审计摘要的 DiagnosticAgent 页面。Bundle SHA-256：
+`5bda249854e4f60aa14314397af2aedbb468ccc4e2a4d055377108eddc922192`。
+
+发布门通过：根模块和独立 MCP 全测通过；Backend、Index Worker live/ready 通过；
+MCP 启动正常；Vue 在容器内编译成功且 HTTP 8080 可用；四个进程均只有一个活动实例。
+MySQL 确认生成 `agent_lifecycle_runs`、`agent_lifecycle_steps`、
+`agent_checkpoints` 三张表。三次真实浏览器运行最终形成 2 个 `SUCCEEDED` 和 1 个
+`CANCELLED` Run。
+
+浏览器纵向检查覆盖：
+
+1. 输入 Docker、Redis connection refused、HTTP 502 和一个测试密码字段后，Run 从
+   v1 单调推进到 v5，返回两个有 Evidence 的 hypothesis，每个只包含只读验证步骤；
+   公开 Step 报告识别 3 个组件、2 个错误特征并完成 1 处脱敏。
+2. 模糊输入停在 `WAITING_USER` v5，明确提出组件、错误特征和环境三个问题；补充
+   Docker + Redis 7.2 + NOAUTH 后，同一个 Run 从 v6 恢复并在 v9 形成 95% 的待验证
+   认证假设。它没有把用户观察直接升级成 `confirmed` 根因。
+3. 另一条等待中的 Run 由页面取消到 `CANCELLED` v6，新增唯一
+   `USER_CANCELLED` 公开步骤。
+4. 只读数据库检查确认 checkpoint 中不存在输入的测试密码明文，匹配计数为 0。
+
+### 本机 Go 配置与发布包噪声经验
+
+本机的用户级 Go env 曾同时把 `GOROOT`、`GOPATH` 写成 `F:\Golang`，直接执行
+`go test` 会把模块缓存目录误当成标准库根目录并报告 `package context is not in std`。
+这不是项目编译失败。临时验证应显式设置 `GOROOT=C:\Program Files\Go`，将
+`GOPATH` 保持为缓存位置；正式发布继续使用脚本中的 `GOENV=off`、独立临时 GOPATH
+和本地工具链路径，不能为了通过一次构建去修改用户的全局 Go 配置。
+
+该 release 的 `dirty` 来自根目录中未跟踪的验收截图；打包脚本会收集工作目录，
+导致包体达到约 90 MB。保留截图文件不删除，并把这批确切文件名加入 `.gitignore`，
+避免后续 release 被无关截图标记为 dirty 或重复上传。功能提交本身已在发布前推送，
+Git SHA 可追溯。
