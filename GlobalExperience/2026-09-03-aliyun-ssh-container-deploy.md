@@ -1106,3 +1106,11 @@ When probing a Vue history-mode route such as `/ai-chat`, send
 navigation and an HTML deep-link request both work. The deployment gate should
 continue to check `/`; deep-link acceptance should use browser-equivalent
 headers.
+
+The final evening release is `20260904205101-22cf5c50bf94` (commit
+`22cf5c50bf9474699e5e5865d427e6664656ae16`), bundle SHA-256
+`d46a8f5507419e3ca7556e9e8c50d8dfcb7d6a74a55e578ccb2b2c9159f6651e`.
+The release also corrects the legacy `LoginRequest.Password` tag from malformed
+`json:password` syntax to `json:"password"` and adds a regression test. Root
+`go test ./...`, root `go vet ./...`, the independent MCP module tests, and all
+cloud runtime/Vue gates pass.

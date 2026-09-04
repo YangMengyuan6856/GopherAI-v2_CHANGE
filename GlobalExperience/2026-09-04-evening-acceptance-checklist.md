@@ -2,9 +2,9 @@
 
 ## Tested release
 
-- Functional commit: `a39f813578856caad5b28344e61278fb56f9be7f`
-- Cloud release: `20260904204301-a39f81357885`
-- Bundle SHA-256: `a39d28d1e0dcef8b1ae3220d2781275c04667615bd91f9b3eb0d0559154a2117`
+- Functional commit: `22cf5c50bf9474699e5e5865d427e6664656ae16`
+- Cloud release: `20260904205101-22cf5c50bf94`
+- Bundle SHA-256: `d46a8f5507419e3ca7556e9e8c50d8dfcb7d6a74a55e578ccb2b2c9159f6651e`
 - Backend ready: MySQL, RabbitMQ, Redis cache, Redis vector, and model config all `up`
 - Index Worker ready; MCP, Vue compile, and public HTML checks passed
 
@@ -103,6 +103,8 @@ no page control yet:
 - `diagnostic-extractor-v1`: bounded UTF-8 extraction, stable error signatures,
   environment facts, credential/JWT/private-key/email redaction, and
   instruction-line isolation.
+- The legacy login request's malformed password JSON tag was corrected and is
+  protected by a reflection test; both `go test ./...` and `go vet ./...` pass.
 
 Do not mark M5 as user-accepted from UI yet. The next visible checkpoint is
 M5-04/05: DiagnosticAgent plus an independently reversible troubleshooting
