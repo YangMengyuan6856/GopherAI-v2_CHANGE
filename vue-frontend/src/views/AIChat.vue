@@ -29,6 +29,7 @@
           流式响应
         </label>
         <button class="upload-btn" @click="triggerFileUpload" :disabled="uploading">📎 上传文档(.md/.txt)</button>
+        <button class="search-toggle-btn" @click="toggleKnowledgeSearch">🔎 证据检索</button>
         <input
           ref="fileInput"
           type="file"
@@ -43,6 +44,40 @@
         <span class="knowledge-latest">
           最近：{{ knowledgeDocuments[0].display_name }} · {{ documentStatusLabel(knowledgeDocuments[0].status) }}
         </span>
+      </div>
+
+      <div v-if="knowledgeSearchOpen" class="knowledge-search-panel">
+        <div class="knowledge-search-form">
+          <input
+            v-model="knowledgeQuery"
+            type="text"
+            placeholder="输入错误码、配置名或项目问题，预览系统实际召回的证据"
+            @keydown.enter.prevent="searchKnowledge"
+          />
+          <button :disabled="!knowledgeQuery.trim() || searchingKnowledge" @click="searchKnowledge">
+            {{ searchingKnowledge ? '检索中...' : '执行混合检索' }}
+          </button>
+        </div>
+        <div v-if="knowledgeSearchDiagnostics" class="knowledge-search-summary">
+          {{ retrievalModeLabel(knowledgeSearchDiagnostics.mode) }} · Dense {{ knowledgeSearchDiagnostics.dense_candidates }} 条 ·
+          BM25 {{ knowledgeSearchDiagnostics.keyword_candidates }} 条 · 融合后 {{ knowledgeSearchDiagnostics.fused_candidates }} 条
+        </div>
+        <div v-if="knowledgeSearchResults.length" class="knowledge-search-results">
+          <article v-for="(hit, index) in knowledgeSearchResults" :key="hit.evidence.id" class="evidence-card">
+            <div class="evidence-title">
+              <strong>#{{ index + 1 }} {{ hit.evidence.title }}</strong>
+              <span>{{ hit.evidence.retrieval }} · RRF {{ hit.rrf_score.toFixed(4) }}</span>
+            </div>
+            <div class="evidence-location">
+              v{{ hit.evidence.source_version }} · {{ hit.evidence.section || '未命名章节' }} ·
+              L{{ hit.evidence.line_start }}-{{ hit.evidence.line_end }}
+            </div>
+            <pre>{{ hit.evidence.content }}</pre>
+          </article>
+        </div>
+        <div v-else-if="knowledgeSearchDiagnostics && !searchingKnowledge" class="knowledge-search-empty">
+          当前知识库没有召回相关证据；这只是检索结果，不会让聊天模型凭空回答。
+        </div>
       </div>
 
       <div class="chat-messages" ref="messagesRef">
@@ -110,6 +145,11 @@ export default {
     const uploading = ref(false)
     const fileInput = ref(null)
     const knowledgeDocuments = ref([])
+    const knowledgeSearchOpen = ref(false)
+    const knowledgeQuery = ref('')
+    const searchingKnowledge = ref(false)
+    const knowledgeSearchResults = ref([])
+    const knowledgeSearchDiagnostics = ref(null)
     let knowledgePollTimer = null
 
     const renderMarkdown = (text) => {
@@ -509,10 +549,44 @@ export default {
       const labels = {
         uploaded: '已接收，等待索引',
         parsing: '正在解析与索引',
-        indexed: '索引完成，等待检索接入',
+        indexed: '索引完成，可检索',
         failed: '索引失败'
       }
       return labels[status] || status
+    }
+
+    const retrievalModeLabel = (mode) => {
+      const labels = {
+        hybrid: 'Dense + BM25 混合检索',
+        dense_only: 'Dense 降级检索',
+        bm25_only: 'BM25 降级检索'
+      }
+      return labels[mode] || '检索状态未知'
+    }
+
+    const toggleKnowledgeSearch = () => {
+      knowledgeSearchOpen.value = !knowledgeSearchOpen.value
+      if (knowledgeSearchOpen.value && !knowledgeQuery.value.trim() && inputMessage.value.trim()) {
+        knowledgeQuery.value = inputMessage.value.trim()
+      }
+    }
+
+    const searchKnowledge = async () => {
+      const query = knowledgeQuery.value.trim()
+      if (!query || searchingKnowledge.value) return
+      searchingKnowledge.value = true
+      knowledgeSearchResults.value = []
+      knowledgeSearchDiagnostics.value = null
+      try {
+        const response = await api.post('/knowledge/search', { query, top_k: 5 })
+        knowledgeSearchResults.value = response.data?.hits || []
+        knowledgeSearchDiagnostics.value = response.data?.diagnostics || null
+      } catch (error) {
+        console.error('Knowledge search error:', error)
+        ElMessage.error(error.response?.data?.message || '知识检索暂时不可用')
+      } finally {
+        searchingKnowledge.value = false
+      }
     }
 
     const loadKnowledgeDocuments = async () => {
@@ -598,7 +672,13 @@ export default {
       uploading,
       fileInput,
       knowledgeDocuments,
+      knowledgeSearchOpen,
+      knowledgeQuery,
+      searchingKnowledge,
+      knowledgeSearchResults,
+      knowledgeSearchDiagnostics,
       documentStatusLabel,
+      retrievalModeLabel,
       renderMarkdown,
       playTTS,
       createNewSession,
@@ -606,7 +686,9 @@ export default {
       syncHistory,
       sendMessage,
       triggerFileUpload,
-      handleFileUpload
+      handleFileUpload,
+      toggleKnowledgeSearch,
+      searchKnowledge
     }
   }
 }
@@ -770,6 +852,106 @@ export default {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.knowledge-search-panel {
+  max-height: 46vh;
+  overflow-y: auto;
+  padding: 14px 24px 18px;
+  background: rgba(248, 251, 255, 0.98);
+  border-bottom: 1px solid rgba(64, 158, 255, 0.2);
+  box-shadow: 0 8px 18px rgba(27, 54, 93, 0.08);
+}
+
+.knowledge-search-form {
+  display: flex;
+  gap: 10px;
+}
+
+.knowledge-search-form input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 13px;
+  border: 1px solid #c9d7e8;
+  border-radius: 9px;
+  outline: none;
+}
+
+.knowledge-search-form input:focus {
+  border-color: #409eff;
+  box-shadow: 0 0 0 3px rgba(64, 158, 255, 0.12);
+}
+
+.knowledge-search-form button,
+.search-toggle-btn {
+  padding: 8px 14px;
+  border: none;
+  border-radius: 9px;
+  color: white;
+  background: linear-gradient(135deg, #409eff 0%, #536dfe 100%);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.knowledge-search-form button:disabled {
+  background: #b8c2cf;
+  cursor: not-allowed;
+}
+
+.knowledge-search-summary {
+  margin: 11px 0;
+  color: #52677f;
+  font-size: 12px;
+}
+
+.knowledge-search-results {
+  display: grid;
+  gap: 10px;
+}
+
+.evidence-card {
+  padding: 11px 13px;
+  border: 1px solid #dce7f5;
+  border-radius: 10px;
+  background: white;
+}
+
+.evidence-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #2d425c;
+  font-size: 13px;
+}
+
+.evidence-title span,
+.evidence-location {
+  color: #788da6;
+  font-size: 11px;
+}
+
+.evidence-location {
+  margin-top: 5px;
+}
+
+.evidence-card pre {
+  margin: 9px 0 0;
+  padding: 9px;
+  max-height: 130px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-radius: 7px;
+  background: #f6f8fb;
+  color: #34495e;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+}
+
+.knowledge-search-empty {
+  padding: 16px 0 3px;
+  color: #8a98a8;
+  font-size: 13px;
 }
 
 .back-btn {

@@ -3,22 +3,26 @@ package observability
 import (
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type Metrics struct {
-	requests         *prometheus.CounterVec
-	requestDuration  *prometheus.HistogramVec
-	intentDecisions  *prometheus.CounterVec
-	intentConfidence *prometheus.HistogramVec
-	agentRuns        *prometheus.CounterVec
-	agentDuration    *prometheus.HistogramVec
-	persistFailures  *prometheus.CounterVec
-	documentUploads  *prometheus.CounterVec
-	documentBytes    prometheus.Histogram
-	gatherer         prometheus.Gatherer
+	requests          *prometheus.CounterVec
+	requestDuration   *prometheus.HistogramVec
+	intentDecisions   *prometheus.CounterVec
+	intentConfidence  *prometheus.HistogramVec
+	agentRuns         *prometheus.CounterVec
+	agentDuration     *prometheus.HistogramVec
+	persistFailures   *prometheus.CounterVec
+	documentUploads   *prometheus.CounterVec
+	documentBytes     prometheus.Histogram
+	retrievals        *prometheus.CounterVec
+	retrievalDuration *prometheus.HistogramVec
+	retrievalResults  *prometheus.HistogramVec
+	gatherer          prometheus.Gatherer
 }
 
 func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) *Metrics {
@@ -63,6 +67,20 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 			Help:    "Accepted knowledge document size in bytes.",
 			Buckets: []float64{1024, 10 * 1024, 100 * 1024, 1024 * 1024, 5 * 1024 * 1024, 10 * 1024 * 1024},
 		}),
+		retrievals: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_knowledge_retrievals_total",
+			Help: "Total knowledge retrieval attempts by bounded outcome and retrieval mode.",
+		}, []string{"status", "mode"}),
+		retrievalDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "gopherai_knowledge_retrieval_duration_seconds",
+			Help:    "Knowledge hybrid retrieval duration in seconds.",
+			Buckets: []float64{0.05, 0.1, 0.25, 0.5, 1, 2, 4, 8, 15, 30, 45},
+		}, []string{"mode"}),
+		retrievalResults: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "gopherai_knowledge_retrieval_results",
+			Help:    "Number of authoritative knowledge chunks returned per retrieval.",
+			Buckets: []float64{0, 1, 2, 3, 5, 8, 10},
+		}, []string{"mode"}),
 		gatherer: gatherer,
 	}
 	registerer.MustRegister(
@@ -75,9 +93,17 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 		metrics.persistFailures,
 		metrics.documentUploads,
 		metrics.documentBytes,
+		metrics.retrievals,
+		metrics.retrievalDuration,
+		metrics.retrievalResults,
 	)
 	for _, status := range []string{"accepted", "duplicate", "rejected", "error"} {
 		metrics.documentUploads.WithLabelValues(status).Add(0)
+	}
+	for _, mode := range []string{"hybrid", "dense_only", "bm25_only", "unavailable"} {
+		for _, status := range []string{"success", "degraded", "empty", "rejected", "error"} {
+			metrics.retrievals.WithLabelValues(status, mode).Add(0)
+		}
 	}
 	return metrics
 }
@@ -90,6 +116,38 @@ func (metrics *Metrics) RecordDocumentUpload(status string, sizeBytes int64) {
 	metrics.documentUploads.WithLabelValues(status).Inc()
 	if status == "accepted" && sizeBytes >= 0 {
 		metrics.documentBytes.Observe(float64(sizeBytes))
+	}
+}
+
+func (metrics *Metrics) RecordKnowledgeRetrieval(status string, mode string, duration time.Duration, resultCount int) {
+	if metrics == nil {
+		return
+	}
+	status = boundedRetrievalStatus(status)
+	mode = boundedRetrievalMode(mode)
+	metrics.retrievals.WithLabelValues(status, mode).Inc()
+	metrics.retrievalDuration.WithLabelValues(mode).Observe(duration.Seconds())
+	if resultCount < 0 {
+		resultCount = 0
+	}
+	metrics.retrievalResults.WithLabelValues(mode).Observe(float64(resultCount))
+}
+
+func boundedRetrievalStatus(status string) string {
+	switch status {
+	case "success", "degraded", "empty", "rejected", "error":
+		return status
+	default:
+		return "error"
+	}
+}
+
+func boundedRetrievalMode(mode string) string {
+	switch mode {
+	case "hybrid", "dense_only", "bm25_only", "unavailable":
+		return mode
+	default:
+		return "unavailable"
 	}
 }
 

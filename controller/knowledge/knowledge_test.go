@@ -3,14 +3,17 @@ package knowledge
 import (
 	"GopherAI/internal/contract"
 	knowledgeapp "GopherAI/internal/knowledge"
+	ragapp "GopherAI/internal/rag"
 	"GopherAI/middleware/requestid"
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -35,13 +38,33 @@ func (application *fakeApplication) Job(context.Context, string, string) (knowle
 }
 
 type fakeMetrics struct {
-	status string
-	size   int64
+	status          string
+	size            int64
+	retrievalStatus string
+	retrievalMode   string
+	resultCount     int
 }
 
 func (metrics *fakeMetrics) RecordDocumentUpload(status string, sizeBytes int64) {
 	metrics.status = status
 	metrics.size = sizeBytes
+}
+
+func (metrics *fakeMetrics) RecordKnowledgeRetrieval(status string, mode string, _ time.Duration, resultCount int) {
+	metrics.retrievalStatus = status
+	metrics.retrievalMode = mode
+	metrics.resultCount = resultCount
+}
+
+type fakeSearchApplication struct {
+	input  ragapp.SearchInput
+	output ragapp.SearchOutput
+	err    error
+}
+
+func (application *fakeSearchApplication) Search(_ context.Context, input ragapp.SearchInput) (ragapp.SearchOutput, error) {
+	application.input = input
+	return application.output, application.err
 }
 
 func TestUploadReturnsAcceptedContractAndTrace(t *testing.T) {
@@ -105,6 +128,68 @@ func TestUploadMapsValidationErrorWithoutLeakingCause(t *testing.T) {
 	}
 	if metrics.status != "rejected" {
 		t.Fatalf("expected rejected metric, got %q", metrics.status)
+	}
+}
+
+func TestSearchReturnsEvidenceAndPropagatesAuthenticatedACL(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	search := &fakeSearchApplication{output: ragapp.SearchOutput{
+		Hits:        []ragapp.SearchHit{{Evidence: contract.Evidence{ID: "chunk-1", Title: "project.md", Content: "evidence"}, DenseRank: 1, KeywordRank: 2, RRFScore: 0.03}},
+		Diagnostics: ragapp.SearchDiagnostics{Version: ragapp.RetrievalVersion, Mode: "hybrid", DenseCandidates: 2, KeywordCandidates: 1, FusedCandidates: 1},
+	}}
+	metrics := new(fakeMetrics)
+	handler := NewHandler(new(fakeApplication), metrics)
+	handler.search = search
+	handler.retrievalMetrics = metrics
+	engine := gin.New()
+	engine.POST("/search", requestid.Attach(), func(context *gin.Context) {
+		context.Set("userName", "user-a")
+		context.Next()
+	}, handler.Search)
+
+	request := httptest.NewRequest(http.MethodPost, "/search", bytes.NewBufferString(`{"query":"REDIS_TIMEOUT","top_k":3}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	if search.input.TenantID != "user-a" || search.input.UserID != "user-a" || search.input.TopK != 3 {
+		t.Fatalf("authenticated ACL was not propagated: %+v", search.input)
+	}
+	var payload searchResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.TraceID == "" || len(payload.Hits) != 1 || payload.Diagnostics.Mode != "hybrid" {
+		t.Fatalf("unexpected search response: %+v", payload)
+	}
+	if metrics.retrievalStatus != "success" || metrics.retrievalMode != "hybrid" || metrics.resultCount != 1 {
+		t.Fatalf("unexpected retrieval metric: %+v", metrics)
+	}
+}
+
+func TestSearchUnavailableDoesNotLeakInitializationCause(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := NewHandler(new(fakeApplication), new(fakeMetrics))
+	handler.searchInitError = errors.New("secret embedding endpoint")
+	engine := gin.New()
+	engine.POST("/search", requestid.Attach(), func(context *gin.Context) {
+		context.Set("userName", "user-a")
+		context.Next()
+	}, handler.Search)
+
+	request := httptest.NewRequest(http.MethodPost, "/search", bytes.NewBufferString(`{"query":"question"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", response.Code, response.Body.String())
+	}
+	if bytes.Contains(response.Body.Bytes(), []byte("secret embedding endpoint")) {
+		t.Fatalf("initialization cause leaked: %s", response.Body.String())
 	}
 }
 
