@@ -1325,3 +1325,10 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 评测器直接复用生产 `bounded-tool-planner-v1` 和 Tool Runtime；云依赖只由确定性 Fixture 替代。每条同时断言公开 decision/ToolMessage、稳定错误码、底层执行次数和脱敏审计条数，并在全新 Runtime 中隔离重放。当前五类通过率均 `100%`，危险动作执行率 `0%`、未知工具执行 `0`、审计覆盖和确定性重放均 `100%`。
 - 30 条标签仍为 `pending_user`，所以即使技术门通过，`baseline_eligible` 仍为 `false`。API 只返回汇总与报告 SHA-256，不把逐例 Fixture 暴露给浏览器；页面明确声明它不等同于真实云网络故障注入，也不代表开放域 Agent 已获得自主运维权限。
 - Release `20260905054911-e5c2f16c45c9`，bundle SHA-256 `a65366efdb9d3184eb383f4a6a82e94ce62c613b74f1da8581ea04b07ab7e046`。Backend/Index Worker live/ready、MCP、Vue 编译/HTTP 与唯一进程门全部通过。线上已登录页面打开“受治理工具 → 查看 30 条工具评测”后真实显示九项指标、技术门和候选报告 SHA-256 `055e9a1a5eb9b63c2ad564e2562d864ce81f22f4cf25b3041b19d82c3fe57b66`。本地全量测试、`go vet`、Vue production build 及 evaluation/toolruntime/toolagent/controller Race 测试均通过。
+
+## 48. 2026-09-05 有界日志签名工具与线上路径泄漏修复
+
+- 提交 `d15dba5b` 上线 `bounded_log_signature@1.0.0`。服务只允许 `backend/index_worker/mcp`，签名只允许 `panic/auth/timeout/connection/error/warning`；服务端固定映射日志位置，调用方不能传 path、regex、host、命令或行数。单次只读尾部 256 KiB，最多返回最近 20 条匹配，响应包含扫描/命中/返回计数、截断标志、脱敏摘录和逐行 SHA-256。
+- 文件打开前要求固定目标是普通非符号链接文件，并验证解析路径没有逃出项目根。日志摘录会去 ANSI 控制序列并脱敏 URL/DSN 凭据、Bearer、password/token/secret/api-key、JWT 和邮箱。ToolAgent 可把“Worker 健康 + slow sql 告警日志”规划为 Health + Log 两个调用，二者仍分别经过统一 Runtime。
+- 首次 Release `20260905060051-d15dba5bb09e` 在线命中 Worker `SLOW SQL` 后，发现 Go 二进制把本地编译绝对源码路径写进 GORM 日志。提交 `4c6a3498` 增加跨 Windows/Linux 的源码路径归一化为 `<source>/<file>.go:<line>`，并以回归测试锁定；这是线上取证反向推动安全修复的真实闭环。
+- 最终 Release `20260905060533-4c6a3498ecf7`，bundle SHA-256 `2db1ca61c3f9d4e240f6ba6618ab242f1ac9dc30dbfdc23845aecaa939a7970e`，四进程门全部通过。线上 direct 空匹配仍返回可审计 success，不把“无错误”伪装成失败；ToolAgent 的 Worker ready + warning 两步均 success。页面与扫描结果不再出现 `F:/Kama_Project`。MySQL 审计记录为 tool_primary success `3`、tool_agent_v1 success `1`；Prometheus 当前记录 primary `2`、agent `1` 与 cache miss `3`（指标按进程重启清零，数据库审计跨发布保留）。更新后的 30 条候选评测仍全门通过，报告 SHA-256 为 `11f4b4fe932c3a4a6f2175bd84fa6295ffaf4617311e2b7886574ea2cccf9f53`。
