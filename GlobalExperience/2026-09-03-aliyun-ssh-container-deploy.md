@@ -410,3 +410,50 @@ The public deployment exposes only Vue port 8080, so `vue.config.js` must proxy
 routes. The deployment script still accepts a TCP fallback only while rolling
 back to a historical release that returns 404 because it predates the health
 contract; current releases must pass both HTTP gates.
+
+## 15. M2-B1 Observability Release
+
+Release `20260904091522-f07355c04e06` deployed request-level observability
+successfully from commit `f07355c04e06b6d4557f728c5ac7deeaf022f059`.
+
+Verified results:
+
+- Root-module and nested MCP tests passed locally with Go 1.25.0.
+- The backend and MCP were cross-compiled locally as Linux/amd64 binaries;
+  the ECS host did not compile source.
+- Bundle SHA-256 verification, atomic directory switch, live/ready checks,
+  MCP TCP readiness, and Vue compile/HTTP checks passed.
+- MySQL expand migration created the new `agent_runs` table and its trace,
+  request, session, user-hash, intent, strategy, policy, status, and time
+  indexes. No existing table or column was removed.
+- Backend `/metrics` and the real public path `:8080/metrics` both returned
+  Prometheus text exposition successfully.
+- Exactly one active backend, MCP, and Vue process tree remained after the
+  release. Use `ps` state and exact command matching instead of broad `pgrep`
+  output when checking for duplicate processes.
+
+### 15.1 Local Go commands must neutralize the broken global Go environment
+
+The interactive Windows environment currently has both `GOROOT` and `GOPATH`
+pointing at `F:\Golang`, but that directory is only suitable as a module cache
+and does not contain a complete Go standard library. Direct `go test` commands
+therefore fail with misleading messages such as `package context is not in
+std`.
+
+For manual test, tidy, or build commands, use the same isolation as the deploy
+script:
+
+```text
+Go executable: C:\Program Files\Go\bin\go.exe
+GOROOT:        C:\Program Files\Go
+GOENV:         off
+GOPATH:        a task-specific temporary directory
+GOMODCACHE:    F:\Golang\pkg\mod
+GOTOOLCHAIN:   local
+```
+
+Do not run `go mod tidy` before setting this environment. When changing a
+dependency, also re-check that the module's `go` and `toolchain` directives
+were not raised unintentionally. The Prometheus client was pinned to v1.23.2
+so the repository remains compatible with its existing Go 1.24 module
+directive while being built by the verified local Go 1.25 toolchain.
