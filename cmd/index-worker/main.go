@@ -23,6 +23,7 @@ import (
 	"time"
 
 	embeddingArk "github.com/cloudwego/eino-ext/components/embedding/ark"
+	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -44,6 +45,7 @@ func main() {
 }
 
 func run() error {
+	gin.SetMode(gin.ReleaseMode)
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 	if err := mysql.InitMysql(); err != nil {
