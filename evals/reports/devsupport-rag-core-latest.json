@@ -1,0 +1,507 @@
+{
+  "schema_version": "1",
+  "dataset_version": "devsupport-rag-core-v1",
+  "fixture_version": "kb-fixture-v1",
+  "candidate_version": "d6add7fee7de0fd05fbe0ff267bfa8a54e46a6e3",
+  "runtime": {
+    "dataset_sha256": "1ac982b1bb61b6668a8444ab88d7640e265de8714a33786857e60e282683a0d2",
+    "fixture_sha256": "a01fdc45bfbd0f2cbb64e477ea61dbb01cc5198bae3e41c69bbbbf8a27a72bf0",
+    "retriever_version": "hybrid-rrf-v1",
+    "embedding_model": "text-embedding-v4",
+    "chat_model": "qwen-turbo",
+    "environment": "eval-rag-core-v1",
+    "case_timeout_seconds": 90,
+    "external_model_mutable": true
+  },
+  "human_reviewed": false,
+  "baseline_eligible": false,
+  "generated_at": "2026-09-04T08:07:08.741424799Z",
+  "case_count": 20,
+  "metrics": {
+    "recall_at_5": 1,
+    "ndcg_at_5": 0.9815464876785729,
+    "mrr": 0.975,
+    "citation_precision": 0.9545454545454546,
+    "citation_coverage": 0.95,
+    "unauthorized_recall": 0,
+    "resolved_answer_rate": 0.95,
+    "error_rate": 0
+  },
+  "targets": {
+    "recall_at_5": 0.85,
+    "ndcg_at_5": 0.75,
+    "citation_precision": 0.9,
+    "citation_coverage": 0.9,
+    "unauthorized_recall": 0
+  },
+  "passed": true,
+  "cases": [
+    {
+      "id": "rag-core-001",
+      "question": "HEALTH_GATE_TIMEOUT 是多少秒？",
+      "expected_evidence_ids": [
+        "deploy-health-timeout"
+      ],
+      "retrieved_evidence_ids": [
+        "deploy-health-timeout",
+        "rag-evidence-threshold",
+        "mq-retry-max",
+        "go-context-cancel",
+        "deploy-rollback"
+      ],
+      "cited_evidence_ids": [
+        "deploy-health-timeout"
+      ],
+      "recall_at_5": 1,
+      "ndcg_at_5": 1,
+      "reciprocal_rank": 1,
+      "answer_resolved": true,
+      "citation_covered": true,
+      "unauthorized_hits": 0
+    },
+    {
+      "id": "rag-core-002",
+      "question": "发布时 HEALTH_GATE_TIMEOUT 通过的判定条件是什么？",
+      "expected_evidence_ids": [
+        "deploy-health-timeout"
+      ],
+      "retrieved_evidence_ids": [
+        "deploy-health-timeout",
+        "rag-evidence-threshold",
+        "go-context-cancel",
+        "deploy-rollback",
+        "mq-retry-max"
+      ],
+      "cited_evidence_ids": [
+        "deploy-health-timeout"
+      ],
+      "recall_at_5": 1,
+      "ndcg_at_5": 1,
+      "reciprocal_rank": 1,
+      "answer_resolved": true,
+      "citation_covered": true,
+      "unauthorized_hits": 0
+    },
+    {
+      "id": "rag-core-003",
+      "question": "RELEASE_ROLLBACK 在健康检查失败后做什么？",
+      "expected_evidence_ids": [
+        "deploy-rollback"
+      ],
+      "retrieved_evidence_ids": [
+        "deploy-health-timeout",
+        "deploy-rollback",
+        "go-context-cancel",
+        "mq-retry-max",
+        "mq-dlq-routing"
+      ],
+      "cited_evidence_ids": [
+        "deploy-rollback"
+      ],
+      "recall_at_5": 1,
+      "ndcg_at_5": 0.6309297535714574,
+      "reciprocal_rank": 0.5,
+      "answer_resolved": true,
+      "citation_covered": true,
+      "unauthorized_hits": 0
+    },
+    {
+      "id": "rag-core-004",
+      "question": "执行 RELEASE_ROLLBACK 会删除上传等运行数据吗？",
+      "expected_evidence_ids": [
+        "deploy-rollback"
+      ],
+      "retrieved_evidence_ids": [
+        "deploy-rollback",
+        "deploy-health-timeout",
+        "go-context-cancel",
+        "tool-risk-tier",
+        "redis-vector-schema"
+      ],
+      "cited_evidence_ids": [
+        "deploy-rollback"
+      ],
+      "recall_at_5": 1,
+      "ndcg_at_5": 1,
+      "reciprocal_rank": 1,
+      "answer_resolved": true,
+      "citation_covered": true,
+      "unauthorized_hits": 0
+    },
+    {
+      "id": "rag-core-005",
+      "question": "REDIS_VECTOR_SCHEMA 使用什么向量算法和距离度量？",
+      "expected_evidence_ids": [
+        "redis-vector-schema"
+      ],
+      "retrieved_evidence_ids": [
+        "redis-vector-schema",
+        "rag-rrf-k",
+        "security-acl-filter",
+        "rag-evidence-threshold",
+        "mq-retry-max"
+      ],
+      "cited_evidence_ids": [
+        "redis-vector-schema"
+      ],
+      "recall_at_5": 1,
+      "ndcg_at_5": 1,
+      "reciprocal_rank": 1,
+      "answer_resolved": true,
+      "citation_covered": true,
+      "unauthorized_hits": 0
+    },
+    {
+      "id": "rag-core-006",
+      "question": "REDIS_VECTOR_SCHEMA 中哪些字段用于知识库权限隔离？",
+      "expected_evidence_ids": [
+        "redis-vector-schema"
+      ],
+      "retrieved_evidence_ids": [
+        "redis-vector-schema",
+        "security-acl-filter",
+        "rag-rrf-k",
+        "rag-evidence-threshold",
+        "tool-risk-tier"
+      ],
+      "cited_evidence_ids": [
+        "redis-vector-schema",
+        "security-acl-filter"
+      ],
+      "recall_at_5": 1,
+      "ndcg_at_5": 1,
+      "reciprocal_rank": 1,
+      "answer_resolved": true,
+      "citation_covered": true,
+      "unauthorized_hits": 0
+    },
+    {
+      "id": "rag-core-007",
+      "question": "混合检索的 RRF_K 是多少？",
+      "expected_evidence_ids": [
+        "rag-rrf-k"
+      ],
+      "retrieved_evidence_ids": [
+        "rag-rrf-k",
+        "rag-evidence-threshold",
+        "redis-vector-schema",
+        "security-acl-filter",
+        "go-context-cancel"
+      ],
+      "cited_evidence_ids": [
+        "rag-rrf-k"
+      ],
+      "recall_at_5": 1,
+      "ndcg_at_5": 1,
+      "reciprocal_rank": 1,
+      "answer_resolved": true,
+      "citation_covered": true,
+      "unauthorized_hits": 0
+    },
+    {
+      "id": "rag-core-008",
+      "question": "RRF_K 这一策略的默认最终 TopK 和候选池分别是多少？",
+      "expected_evidence_ids": [
+        "rag-rrf-k"
+      ],
+      "retrieved_evidence_ids": [
+        "rag-rrf-k",
+        "rag-evidence-threshold",
+        "security-acl-filter",
+        "tool-risk-tier",
+        "redis-vector-schema"
+      ],
+      "cited_evidence_ids": [
+        "rag-rrf-k"
+      ],
+      "recall_at_5": 1,
+      "ndcg_at_5": 1,
+      "reciprocal_rank": 1,
+      "answer_resolved": true,
+      "citation_covered": true,
+      "unauthorized_hits": 0
+    },
+    {
+      "id": "rag-core-009",
+      "question": "EVIDENCE_THRESHOLD 的最低归一化分数是多少？",
+      "expected_evidence_ids": [
+        "rag-evidence-threshold"
+      ],
+      "retrieved_evidence_ids": [
+        "rag-evidence-threshold",
+        "rag-rrf-k",
+        "tool-risk-tier",
+        "security-acl-filter",
+        "go-context-cancel"
+      ],
+      "cited_evidence_ids": [
+        "rag-evidence-threshold"
+      ],
+      "recall_at_5": 1,
+      "ndcg_at_5": 1,
+      "reciprocal_rank": 1,
+      "answer_resolved": true,
+      "citation_covered": true,
+      "unauthorized_hits": 0
+    },
+    {
+      "id": "rag-core-010",
+      "question": "EVIDENCE_THRESHOLD 为什么要求 Dense 和 BM25 交叉支持？不满足时会怎样？",
+      "expected_evidence_ids": [
+        "rag-evidence-threshold"
+      ],
+      "retrieved_evidence_ids": [
+        "rag-evidence-threshold",
+        "rag-rrf-k",
+        "security-acl-filter",
+        "redis-vector-schema",
+        "go-context-cancel"
+      ],
+      "cited_evidence_ids": [
+        "rag-evidence-threshold"
+      ],
+      "recall_at_5": 1,
+      "ndcg_at_5": 1,
+      "reciprocal_rank": 1,
+      "answer_resolved": true,
+      "citation_covered": true,
+      "unauthorized_hits": 0
+    },
+    {
+      "id": "rag-core-011",
+      "question": "MQ_RETRY_MAX 规定索引消费者最多处理几次？",
+      "expected_evidence_ids": [
+        "mq-retry-max"
+      ],
+      "retrieved_evidence_ids": [
+        "mq-retry-max",
+        "mq-dlq-routing",
+        "deploy-health-timeout",
+        "security-acl-filter",
+        "deploy-rollback"
+      ],
+      "cited_evidence_ids": [
+        "mq-retry-max"
+      ],
+      "recall_at_5": 1,
+      "ndcg_at_5": 1,
+      "reciprocal_rank": 1,
+      "answer_resolved": true,
+      "citation_covered": true,
+      "unauthorized_hits": 0
+    },
+    {
+      "id": "rag-core-012",
+      "question": "MQ_RETRY_MAX 中可重试错误和消息确认分别如何处理？",
+      "expected_evidence_ids": [
+        "mq-retry-max"
+      ],
+      "retrieved_evidence_ids": [
+        "mq-retry-max",
+        "mq-dlq-routing",
+        "deploy-health-timeout",
+        "deploy-rollback",
+        "go-context-cancel"
+      ],
+      "cited_evidence_ids": [
+        "mq-retry-max",
+        "mq-dlq-routing",
+        "deploy-health-timeout"
+      ],
+      "recall_at_5": 1,
+      "ndcg_at_5": 1,
+      "reciprocal_rank": 1,
+      "answer_resolved": false,
+      "citation_covered": false,
+      "unauthorized_hits": 0
+    },
+    {
+      "id": "rag-core-013",
+      "question": "DLQ_ROUTING 会接收哪两类索引事件？",
+      "expected_evidence_ids": [
+        "mq-dlq-routing"
+      ],
+      "retrieved_evidence_ids": [
+        "mq-dlq-routing",
+        "mq-retry-max",
+        "security-acl-filter",
+        "redis-vector-schema",
+        "rag-evidence-threshold"
+      ],
+      "cited_evidence_ids": [
+        "mq-dlq-routing"
+      ],
+      "recall_at_5": 1,
+      "ndcg_at_5": 1,
+      "reciprocal_rank": 1,
+      "answer_resolved": true,
+      "citation_covered": true,
+      "unauthorized_hits": 0
+    },
+    {
+      "id": "rag-core-014",
+      "question": "DLQ_ROUTING 如何避免失败消息在主队列无限循环？",
+      "expected_evidence_ids": [
+        "mq-dlq-routing"
+      ],
+      "retrieved_evidence_ids": [
+        "mq-dlq-routing",
+        "mq-retry-max",
+        "go-context-cancel",
+        "deploy-health-timeout",
+        "deploy-rollback"
+      ],
+      "cited_evidence_ids": [
+        "mq-dlq-routing"
+      ],
+      "recall_at_5": 1,
+      "ndcg_at_5": 1,
+      "reciprocal_rank": 1,
+      "answer_resolved": true,
+      "citation_covered": true,
+      "unauthorized_hits": 0
+    },
+    {
+      "id": "rag-core-015",
+      "question": "CONTEXT_CANCEL 应从 HTTP 层传递到哪些下游组件？",
+      "expected_evidence_ids": [
+        "go-context-cancel"
+      ],
+      "retrieved_evidence_ids": [
+        "go-context-cancel",
+        "deploy-health-timeout",
+        "deploy-rollback",
+        "mq-dlq-routing",
+        "mq-retry-max"
+      ],
+      "cited_evidence_ids": [
+        "go-context-cancel"
+      ],
+      "recall_at_5": 1,
+      "ndcg_at_5": 1,
+      "reciprocal_rank": 1,
+      "answer_resolved": true,
+      "citation_covered": true,
+      "unauthorized_hits": 0
+    },
+    {
+      "id": "rag-core-016",
+      "question": "CONTEXT_CANCEL 在客户端断开后为什么重要？",
+      "expected_evidence_ids": [
+        "go-context-cancel"
+      ],
+      "retrieved_evidence_ids": [
+        "go-context-cancel",
+        "deploy-rollback",
+        "deploy-health-timeout",
+        "mq-dlq-routing",
+        "security-acl-filter"
+      ],
+      "cited_evidence_ids": [
+        "go-context-cancel"
+      ],
+      "recall_at_5": 1,
+      "ndcg_at_5": 1,
+      "reciprocal_rank": 1,
+      "answer_resolved": true,
+      "citation_covered": true,
+      "unauthorized_hits": 0
+    },
+    {
+      "id": "rag-core-017",
+      "question": "ACL_FILTER 的两层知识库权限校验分别是什么？",
+      "expected_evidence_ids": [
+        "security-acl-filter"
+      ],
+      "retrieved_evidence_ids": [
+        "security-acl-filter",
+        "tool-risk-tier",
+        "rag-evidence-threshold",
+        "go-context-cancel",
+        "redis-vector-schema"
+      ],
+      "cited_evidence_ids": [
+        "security-acl-filter"
+      ],
+      "recall_at_5": 1,
+      "ndcg_at_5": 1,
+      "reciprocal_rank": 1,
+      "answer_resolved": true,
+      "citation_covered": true,
+      "unauthorized_hits": 0
+    },
+    {
+      "id": "rag-core-018",
+      "question": "TOOL_RISK_TIER 中哪类工具必须人工确认并审计？",
+      "expected_evidence_ids": [
+        "tool-risk-tier"
+      ],
+      "retrieved_evidence_ids": [
+        "tool-risk-tier",
+        "go-context-cancel",
+        "rag-evidence-threshold",
+        "security-acl-filter",
+        "deploy-rollback"
+      ],
+      "cited_evidence_ids": [
+        "tool-risk-tier"
+      ],
+      "recall_at_5": 1,
+      "ndcg_at_5": 1,
+      "reciprocal_rank": 1,
+      "answer_resolved": true,
+      "citation_covered": true,
+      "unauthorized_hits": 0
+    },
+    {
+      "id": "rag-core-019",
+      "question": "结合 HEALTH_GATE_TIMEOUT 和 RELEASE_ROLLBACK，说明一次安全发布如何判定成功以及失败后如何恢复。",
+      "expected_evidence_ids": [
+        "deploy-health-timeout",
+        "deploy-rollback"
+      ],
+      "retrieved_evidence_ids": [
+        "deploy-health-timeout",
+        "deploy-rollback",
+        "rag-evidence-threshold",
+        "security-acl-filter",
+        "tool-risk-tier"
+      ],
+      "cited_evidence_ids": [
+        "deploy-health-timeout",
+        "deploy-rollback"
+      ],
+      "recall_at_5": 1,
+      "ndcg_at_5": 1,
+      "reciprocal_rank": 1,
+      "answer_resolved": true,
+      "citation_covered": true,
+      "unauthorized_hits": 0
+    },
+    {
+      "id": "rag-core-020",
+      "question": "结合 RRF_K 和 EVIDENCE_THRESHOLD，说明候选如何融合以及何时拒绝调用回答模型。",
+      "expected_evidence_ids": [
+        "rag-rrf-k",
+        "rag-evidence-threshold"
+      ],
+      "retrieved_evidence_ids": [
+        "rag-evidence-threshold",
+        "rag-rrf-k",
+        "security-acl-filter",
+        "go-context-cancel",
+        "tool-risk-tier"
+      ],
+      "cited_evidence_ids": [
+        "rag-rrf-k",
+        "rag-evidence-threshold"
+      ],
+      "recall_at_5": 1,
+      "ndcg_at_5": 1,
+      "reciprocal_rank": 1,
+      "answer_resolved": true,
+      "citation_covered": true,
+      "unauthorized_hits": 0
+    }
+  ]
+}
