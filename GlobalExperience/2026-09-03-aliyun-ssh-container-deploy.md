@@ -473,3 +473,43 @@ The corresponding structured log used trace
 `be825b2e-26b0-4e8f-97fe-2a7178e31c3a`, reported
 `persistence_status=stored`, and contained only the hashed user identifier.
 This closes the M2-B1 user-acceptance gate.
+
+## 16. M3-A1 Reliable Document Intake Release
+
+Release `20260904093522-6d0084b3fb41` deployed the reliable document intake
+slice from commit `6d0084b3fb41f43c1494e08ae405bac8d3026322`.
+
+Verified results:
+
+- Root-module and nested MCP tests passed locally before release.
+- The backend and MCP Linux/amd64 binaries were built locally and installed
+  from a bundle whose SHA-256 was verified on both the ECS host and inside the
+  application container.
+- The release switch preserved the existing `uploads` directory and frontend
+  `node_modules`; live, ready, MCP TCP, Vue compile, and frontend HTTP gates all
+  passed.
+- MySQL expand migration created `knowledge_documents`,
+  `knowledge_document_versions`, `knowledge_jobs`, and `outbox_events`.
+- MySQL reported the intended unique indexes:
+  `knowledge_documents(tenant_id, content_hash)` and
+  `knowledge_document_versions(document_id, version)`.
+- The backend and the public frontend proxy expose the document upload size
+  histogram. The labeled upload counter appears after the first accepted,
+  duplicate, rejected, or failed upload attempt.
+- Exactly one backend, MCP host, and Vue process tree remained active.
+
+This slice deliberately stops at reliable reception. A successful upload has
+document status `uploaded` and job status `queued`; it does not mean retrieval
+or document-grounded answers are available yet. The next slice must publish and
+consume the Outbox work reliably, parse and chunk the stored content, then move
+the document to `indexed` before chat routing may use it.
+
+### 16.1 Do not assume passwordless MySQL root during release verification
+
+The container's MySQL client correctly rejected a passwordless local root
+query. Read-only deployment verification should use the application's existing
+MySQL configuration inside the remote process and pass the password through a
+short-lived environment variable such as `MYSQL_PWD`. Do not print the parsed
+credential, include it in the command output, or copy it back to the local
+workspace. This check is diagnostic only and must not rewrite the deployed
+configuration.
