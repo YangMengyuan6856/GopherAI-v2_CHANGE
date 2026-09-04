@@ -1090,3 +1090,19 @@ compile/HTTP, and unique-process checks. These M5 pieces are deliberately not
 wired into the live chat route yet. Do not activate `troubleshooting` until the
 DiagnosticAgent, evidence gate, fallback, and route tests in M5-04/05 are
 complete.
+
+### PowerShell-to-Bash probe quoting lesson
+
+For ad-hoc read-only verification from Windows PowerShell, do not embed a Bash
+pipeline or regular-expression alternation directly in one SSH argument. On
+2026-09-04 a final `pgrep` probe containing `|` was split before the remote Bash
+could parse it; the command failed without changing remote state. Prefer the
+versioned deploy script's base64 transport for multi-line remote scripts, or run
+independent single-purpose SSH commands and check every exit code.
+
+When probing a Vue history-mode route such as `/ai-chat`, send
+`Accept: text/html`. A generic HTTP client's default `*/*` may receive
+`Cannot GET /ai-chat` from the development server even though a browser
+navigation and an HTML deep-link request both work. The deployment gate should
+continue to check `/`; deep-link acceptance should use browser-equivalent
+headers.
