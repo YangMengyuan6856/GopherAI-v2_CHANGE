@@ -32,6 +32,10 @@
           <input type="checkbox" id="knowledgeMode" v-model="knowledgeRequired" />
           知识库回答
         </label>
+        <label for="diagnosticMode" class="diagnostic-mode" title="显式进入可暂停、可恢复、有预算和公开步骤的故障诊断 Agent">
+          <input type="checkbox" id="diagnosticMode" v-model="diagnosticMode" @change="onDiagnosticModeChanged" />
+          故障诊断 Harness
+        </label>
         <button
           class="upload-btn"
           title="支持 Markdown/TXT、JSON/YAML key path 和 Go 顶层符号索引"
@@ -209,6 +213,67 @@
         </div>
       </div>
 
+      <section v-if="diagnosticMode" class="diagnostic-workbench">
+        <div class="diagnostic-workbench-header">
+          <div>
+            <strong>🩺 可恢复故障诊断</strong>
+            <span>只形成有证据的假设和只读验证步骤，不执行修复命令</span>
+          </div>
+          <div class="diagnostic-actions">
+            <button v-if="activeDiagnosticRun && !isDiagnosticTerminal(activeDiagnosticRun.run.state)" :disabled="loading" @click="cancelDiagnosticRun">取消运行</button>
+            <button :disabled="loading" @click="resetDiagnosticRun">新建诊断</button>
+          </div>
+        </div>
+        <div v-if="!activeDiagnosticRun" class="diagnostic-empty">
+          在下方输入故障现象和脱敏日志。系统会展示状态机、公开步骤、预算、假设、证据与验证方法。
+        </div>
+        <template v-else>
+          <div class="diagnostic-run-summary">
+            <span :class="['run-state-badge', `state-${activeDiagnosticRun.run.state.toLowerCase()}`]">
+              {{ diagnosticStateLabel(activeDiagnosticRun.run.state) }}
+            </span>
+            <span>Run {{ activeDiagnosticRun.run.run_id.slice(0, 8) }}</span>
+            <span>状态版本 v{{ activeDiagnosticRun.run.state_version }}</span>
+            <span>策略 {{ activeDiagnosticRun.run.strategy }} · {{ activeDiagnosticRun.run.policy_version }}</span>
+            <span>
+              预算：轮次 {{ activeDiagnosticRun.run.budget.used_iterations }}/{{ activeDiagnosticRun.run.budget.max_iterations }} ·
+              工具 {{ activeDiagnosticRun.run.budget.used_tool_calls }}/{{ activeDiagnosticRun.run.budget.max_tool_calls }} ·
+              输入 {{ activeDiagnosticRun.run.budget.used_input_tokens }}/{{ activeDiagnosticRun.run.budget.max_input_tokens }} Token
+            </span>
+          </div>
+          <div v-if="activeDiagnosticRun.run.state === 'WAITING_USER'" class="diagnostic-waiting">
+            <strong>需要补充信息后才能继续：</strong>
+            {{ (activeDiagnosticRun.checkpoint?.open_questions || []).join('；') }}
+            <div>请直接在下方输入补充信息；恢复请求会携带当前状态版本，陈旧页面不会覆盖新状态。</div>
+          </div>
+          <details class="diagnostic-steps" open>
+            <summary>公开执行轨迹（不包含隐藏思维链）</summary>
+            <ol>
+              <li v-for="step in activeDiagnosticRun.steps" :key="`${step.step_id}-${step.attempt}`">
+                <strong>{{ step.public_summary || step.kind }}</strong>
+                <span>{{ step.reason_code }} · 状态版本 v{{ step.state_version }}</span>
+              </li>
+            </ol>
+          </details>
+          <div v-if="activeDiagnosticRun.result?.hypotheses?.length" class="diagnostic-hypotheses">
+            <article v-for="hypothesis in activeDiagnosticRun.result.hypotheses" :key="hypothesis.id">
+              <div class="hypothesis-header">
+                <strong>{{ hypothesis.cause }}</strong>
+                <span>置信度 {{ Math.round(hypothesis.confidence * 100) }}% · 待验证假设</span>
+              </div>
+              <p>{{ hypothesis.rationale }}</p>
+              <div><strong>证据：</strong>{{ hypothesis.evidence.map(item => item.summary).join('；') }}</div>
+              <ol>
+                <li v-for="step in hypothesis.verification_steps" :key="step.id">
+                  {{ step.instruction }}<br>
+                  <small>预期：{{ step.expected_observation }}；否则：{{ step.failure_meaning }}</small>
+                </li>
+              </ol>
+            </article>
+          </div>
+        </template>
+      </section>
+
       <div class="chat-messages" ref="messagesRef">
         <div
           v-for="(message, index) in currentMessages"
@@ -243,7 +308,7 @@
         <div class="input-wrapper">
           <textarea
             v-model="inputMessage"
-            placeholder="请输入项目问题、报错信息或排障目标..."
+            :placeholder="diagnosticMode && activeDiagnosticRun?.run?.state === 'WAITING_USER' ? '补充上方要求的环境或日志信息，继续同一个 Run...' : '请输入项目问题、报错信息或排障目标...'"
             @keydown.enter.exact.prevent="sendMessage"
             :disabled="loading"
             ref="messageInput"
@@ -302,6 +367,8 @@ export default {
     const answeringKnowledge = ref(false)
     const answeringKnowledgeMode = ref('')
     const knowledgeAnswer = ref(null)
+    const diagnosticMode = ref(false)
+    const activeDiagnosticRun = ref(null)
     let knowledgePollTimer = null
 
     const renderMarkdown = (text) => {
@@ -480,7 +547,9 @@ export default {
 
       try {
         loading.value = true
-        if (isStreaming.value) {
+        if (diagnosticMode.value) {
+          await handleDiagnostic(currentInput)
+        } else if (isStreaming.value) {
 
           await handleStreaming(currentInput)
         } else {
@@ -624,6 +693,94 @@ export default {
         currentMessages.value[aiMessageIndex].meta.status = 'error'
         currentMessages.value = [...currentMessages.value]
         ElMessage.error(err.message || '流式传输出错')
+      }
+    }
+
+    const newClientRequestId = () => {
+      if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID()
+      return `web-${Date.now()}-${Math.random().toString(16).slice(2)}`
+    }
+
+    const diagnosticStateLabel = (state) => ({
+      RECEIVED: '已接收',
+      CONTEXT_READY: '上下文就绪',
+      PLANNED: '计划完成',
+      RUNNING: '诊断执行中',
+      WAITING_USER: '等待补充信息',
+      SUCCEEDED: '已形成诊断假设',
+      FAILED: '运行失败',
+      CANCELLED: '已取消',
+      BUDGET_EXCEEDED: '预算终止'
+    }[state] || state)
+
+    const isDiagnosticTerminal = (state) => ['SUCCEEDED', 'FAILED', 'CANCELLED', 'BUDGET_EXCEEDED'].includes(state)
+
+    const diagnosticMessage = (payload) => {
+      const state = payload.run?.state
+      const result = payload.result
+      if (state === 'WAITING_USER') {
+        const questions = payload.checkpoint?.open_questions || result?.missing_information?.map(item => item.question) || []
+        return `诊断 Run 已暂停，当前证据不足。\n\n请补充：\n${questions.map((item, index) => `${index + 1}. ${item}`).join('\n')}`
+      }
+      if (state === 'CANCELLED') return '诊断 Run 已取消，后续步骤不会继续执行。'
+      if (state === 'BUDGET_EXCEEDED') return `诊断 Run 已被护栏终止：${payload.run?.terminal_reason || '预算已耗尽'}。`
+      const hypotheses = result?.hypotheses || []
+      if (!hypotheses.length) return `诊断运行状态：${diagnosticStateLabel(state)}。`
+      return `已形成 ${hypotheses.length} 个有证据的待验证假设。完整依据、只读验证步骤和公开执行轨迹见上方“可恢复故障诊断”面板。当前没有把任何假设标记为已确认根因。`
+    }
+
+    async function handleDiagnostic(message) {
+      let response
+      if (activeDiagnosticRun.value?.run?.state === 'WAITING_USER') {
+        response = await api.post(`/agent-runs/${activeDiagnosticRun.value.run.run_id}/resume`, {
+          message,
+          client_request_id: newClientRequestId(),
+          expected_state_version: activeDiagnosticRun.value.run.state_version
+        })
+      } else {
+        response = await api.post('/agent-runs/diagnostics', {
+          message,
+          session_id: tempSession.value ? '' : currentSessionId.value,
+          client_request_id: newClientRequestId()
+        })
+      }
+      activeDiagnosticRun.value = response.data
+      currentMessages.value.push({
+        role: 'assistant',
+        content: diagnosticMessage(response.data),
+        meta: {
+          status: 'done',
+          traceId: response.data.run?.trace_id || '',
+          strategy: response.data.run?.strategy || 'diagnosis_standard',
+          policyVersion: response.data.run?.policy_version || 'policy-diagnostic-v1',
+          diagnosticRunId: response.data.run?.run_id || ''
+        }
+      })
+    }
+
+    const cancelDiagnosticRun = async () => {
+      if (!activeDiagnosticRun.value?.run?.run_id) return
+      try {
+        loading.value = true
+        const response = await api.post(`/agent-runs/${activeDiagnosticRun.value.run.run_id}/cancel`)
+        activeDiagnosticRun.value = response.data
+        ElMessage.success('诊断运行已取消')
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || '取消诊断运行失败')
+      } finally {
+        loading.value = false
+      }
+    }
+
+    const resetDiagnosticRun = () => {
+      activeDiagnosticRun.value = null
+      nextTick(() => messageInput.value?.focus())
+    }
+
+    const onDiagnosticModeChanged = () => {
+      if (diagnosticMode.value) {
+        isStreaming.value = false
+        knowledgeRequired.value = false
       }
     }
 
@@ -1080,6 +1237,8 @@ export default {
       answeringKnowledge,
       answeringKnowledgeMode,
       knowledgeAnswer,
+      diagnosticMode,
+      activeDiagnosticRun,
       documentStatusLabel,
       jobStatusLabel,
       retrievalModeLabel,
@@ -1090,6 +1249,8 @@ export default {
       enhancementOutcomeLabel,
       intentLabel,
       intentStageLabel,
+      diagnosticStateLabel,
+      isDiagnosticTerminal,
       renderMarkdown,
       playTTS,
       createNewSession,
@@ -1105,6 +1266,9 @@ export default {
       toggleKnowledgeSearch,
       searchKnowledge,
       answerKnowledge,
+      cancelDiagnosticRun,
+      resetDiagnosticRun,
+      onDiagnosticModeChanged,
       evidenceForCitation
     }
   }
@@ -1252,6 +1416,155 @@ export default {
   box-shadow: 0 2px 14px rgba(0, 0, 0, 0.06);
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
   gap: 12px;
+  flex-wrap: wrap;
+}
+
+.diagnostic-workbench {
+  max-height: 48vh;
+  overflow-y: auto;
+  padding: 14px 20px;
+  color: #23344d;
+  background: rgba(247, 250, 255, 0.98);
+  border-bottom: 2px solid rgba(103, 126, 234, 0.22);
+  box-shadow: 0 5px 18px rgba(31, 45, 85, 0.08);
+}
+
+.diagnostic-workbench-header,
+.diagnostic-run-summary,
+.hypothesis-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+
+.diagnostic-workbench-header > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.diagnostic-workbench-header span,
+.diagnostic-run-summary,
+.diagnostic-steps li span {
+  color: #65758b;
+  font-size: 12px;
+}
+
+.diagnostic-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.diagnostic-actions button {
+  padding: 6px 11px;
+  border: 1px solid rgba(90, 103, 216, 0.3);
+  border-radius: 8px;
+  color: #4b55a5;
+  background: #fff;
+  cursor: pointer;
+}
+
+.diagnostic-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.diagnostic-empty,
+.diagnostic-waiting {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: rgba(103, 126, 234, 0.08);
+}
+
+.diagnostic-waiting {
+  color: #7a5312;
+  background: #fff7e6;
+  border: 1px solid #ffd591;
+}
+
+.diagnostic-run-summary {
+  justify-content: flex-start;
+  margin-top: 12px;
+}
+
+.run-state-badge {
+  padding: 5px 9px;
+  border-radius: 999px;
+  color: #3451a3;
+  background: #e9efff;
+  font-weight: 700;
+}
+
+.state-waiting_user {
+  color: #9a6200;
+  background: #fff1cc;
+}
+
+.state-succeeded {
+  color: #176e4b;
+  background: #ddf6e9;
+}
+
+.state-cancelled,
+.state-budget_exceeded,
+.state-failed {
+  color: #9c3434;
+  background: #ffe7e7;
+}
+
+.diagnostic-steps {
+  margin-top: 12px;
+  padding: 9px 12px;
+  border: 1px solid rgba(103, 126, 234, 0.18);
+  border-radius: 9px;
+  background: #fff;
+}
+
+.diagnostic-steps summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.diagnostic-steps ol,
+.diagnostic-hypotheses ol {
+  margin: 8px 0 0;
+  padding-left: 22px;
+}
+
+.diagnostic-steps li {
+  display: grid;
+  gap: 2px;
+  margin: 5px 0;
+}
+
+.diagnostic-hypotheses {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.diagnostic-hypotheses article {
+  padding: 12px;
+  border: 1px solid rgba(103, 126, 234, 0.2);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.diagnostic-hypotheses p {
+  margin: 8px 0;
+  color: #526176;
+  font-size: 13px;
+}
+
+.diagnostic-hypotheses li {
+  margin-bottom: 7px;
+}
+
+.diagnostic-hypotheses small {
+  color: #6d7b90;
 }
 
 .knowledge-status {
@@ -1653,6 +1966,19 @@ export default {
   border-radius: 999px;
   background: rgba(25, 169, 116, 0.1);
   color: #167a57;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.diagnostic-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: rgba(93, 78, 190, 0.11);
+  color: #5946aa;
   font-size: 12px;
   font-weight: 700;
   white-space: nowrap;
