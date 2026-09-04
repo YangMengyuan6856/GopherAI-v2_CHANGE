@@ -155,12 +155,19 @@ func summaryItems(summary StructuredSummary) []ContextItem {
 func workingItems(messages []WorkingMessage, currentQuestion string) []ContextItem {
 	items := make([]ContextItem, 0, len(messages))
 	currentQuestion = strings.TrimSpace(currentQuestion)
+	currentQuestionIndex := -1
+	for index := len(messages) - 1; index >= 0; index-- {
+		if messages[index].Role == RoleUser && strings.TrimSpace(messages[index].Content) == currentQuestion {
+			currentQuestionIndex = index
+			break
+		}
+	}
 	for index, message := range messages {
 		content := boundedText(message.Content, 8000)
 		if content == "" {
 			continue
 		}
-		if index == len(messages)-1 && message.Role == RoleUser && content == currentQuestion {
+		if index == currentQuestionIndex {
 			continue
 		}
 		items = append(items, contextItem(ContextWorking, message.Role, content, false))

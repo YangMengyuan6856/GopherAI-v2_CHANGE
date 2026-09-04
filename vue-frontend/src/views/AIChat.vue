@@ -244,7 +244,7 @@
             Working 已参与聊天上下文；Episodic 只接收用户明确确认的解决案例；Profile 自动提取结果先是候选，只有你确认/更正后才成为可召回环境事实。
           </div>
           <details v-if="memoryPreview" open>
-            <summary>本次实际纳入模型上下文的项目（{{ memoryPreview.context.included.length }}）</summary>
+            <summary>按当前历史和预算重建的上下文预览（{{ memoryPreview.context.included.length }}）</summary>
             <ol class="memory-context-items">
               <li v-for="(item, index) in memoryPreview.context.included" :key="`${item.kind}-${index}`">
                 <strong>{{ memoryContextKindLabel(item.kind) }}</strong>

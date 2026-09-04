@@ -68,6 +68,25 @@ func TestAssemblerAdmitsOnlyBoundedConfirmedProfileFacts(t *testing.T) {
 	}
 }
 
+func TestAssemblerDoesNotDuplicateLatestQuestionAfterAnswerWasPersisted(t *testing.T) {
+	result := NewAssembler().Assemble(AssembleInput{
+		CurrentQuestion: "当前问题", BudgetTokens: 256,
+		WorkingMessages: []WorkingMessage{
+			{Role: RoleUser, Content: "当前问题"},
+			{Role: RoleAssistant, Content: "刚生成的回答"},
+		},
+	})
+	questionCount := 0
+	for _, item := range result.Included {
+		if item.Content == "当前问题" {
+			questionCount++
+		}
+	}
+	if questionCount != 1 {
+		t.Fatalf("current question was duplicated in preview assembly: %+v", result.Included)
+	}
+}
+
 func hasContextKind(items []ContextItem, kind ContextKind) bool {
 	for _, item := range items {
 		if item.Kind == kind {
