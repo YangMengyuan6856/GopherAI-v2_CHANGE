@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"GopherAI/internal/incident"
 	"GopherAI/internal/toolagent"
 	"GopherAI/internal/toolruntime"
 )
@@ -209,6 +210,9 @@ func (auditor *evaluationAuditor) Record(context.Context, toolruntime.Invocation
 }
 
 func runRuntimeScenario(item ToolEvaluationCase) ToolEvaluationOutcome {
+	if item.Scenario == "hitl_confirm_allowed" || item.Scenario == "hitl_confirmation_readonly_denied" {
+		return runHITLScenario(item)
+	}
 	definition := manifestEvaluationDefinition()
 	if strings.HasPrefix(item.Scenario, "health_") {
 		definition = healthEvaluationDefinition()
@@ -264,6 +268,10 @@ func runRuntimeScenario(item ToolEvaluationCase) ToolEvaluationOutcome {
 		tool.execute = func(context.Context, map[string]any, int) (toolruntime.Output, error) {
 			return toolruntime.Output{Data: map[string]any{"payload": strings.Repeat("x", 512)}}, nil
 		}
+	case "external_write_denied":
+		tool.definition.Name = "external_write_probe"
+		tool.definition.SideEffect = toolruntime.SideEffectExternalWrite
+		tool.definition.Idempotent = false
 	}
 	registry := toolruntime.NewRegistry()
 	if err := registry.Register(tool); err != nil {
@@ -274,7 +282,7 @@ func runRuntimeScenario(item ToolEvaluationCase) ToolEvaluationOutcome {
 	if err != nil {
 		return ToolEvaluationOutcome{Status: "fixture_error", ErrorCode: err.Error()}
 	}
-	toolName := definition.Name
+	toolName := tool.definition.Name
 	if item.Scenario == "unknown_tool" {
 		toolName = "deployment_manifest_looku"
 	}
@@ -292,12 +300,12 @@ func runRuntimeScenario(item ToolEvaluationCase) ToolEvaluationOutcome {
 		invocation.Principal.Permissions = map[string]bool{}
 	case "intent_denied":
 		invocation.Intent = "general"
-	case "side_effect_denied":
-		invocation.AllowedSideEffect = ""
 	case "budget_zero":
 		invocation.Budget.MaxCalls = 0
 	case "budget_exhausted":
 		invocation.Budget.UsedCalls = 1
+	case "external_write_denied":
+		invocation.AllowedSideEffect = toolruntime.SideEffectInternalWrite
 	}
 	ctx := context.Background()
 	if item.Scenario == "request_cancelled" {
@@ -325,6 +333,42 @@ func runRuntimeScenario(item ToolEvaluationCase) ToolEvaluationOutcome {
 		message = runtime.Invoke(ctx, invocation)
 	}
 	return ToolEvaluationOutcome{Status: message.Status, ErrorCode: message.ErrorCode, Cached: message.Cached, Stale: message.Stale, DegradedReason: message.DegradedReason, Executions: tool.executions, AuditCount: auditor.count}
+}
+
+type evaluationResolutionConfirmer struct{ executions int }
+
+func (confirmer *evaluationResolutionConfirmer) Confirm(_ context.Context, command incident.ConfirmCommand) (incident.Confirmation, error) {
+	confirmer.executions++
+	return incident.Confirmation{
+		SchemaVersion: incident.SchemaVersion, Created: true,
+		Incident: incident.PublicResolvedIncident{ID: "eval-incident", SourceRunID: command.RunID, HypothesisID: command.HypothesisID, Status: incident.StatusConfirmed},
+	}, nil
+}
+
+func runHITLScenario(item ToolEvaluationCase) ToolEvaluationOutcome {
+	confirmer := &evaluationResolutionConfirmer{}
+	registry := toolruntime.NewRegistry()
+	if err := registry.Register(toolruntime.NewConfirmResolutionTool(confirmer)); err != nil {
+		return ToolEvaluationOutcome{Status: "fixture_error", ErrorCode: err.Error()}
+	}
+	auditor := &evaluationAuditor{}
+	runtime, err := toolruntime.NewRuntime(registry, auditor, nil)
+	if err != nil {
+		return ToolEvaluationOutcome{Status: "fixture_error", ErrorCode: err.Error()}
+	}
+	invocation := toolruntime.Invocation{
+		CallID: "eval-hitl-1", TraceID: "eval-trace", ToolName: "confirm_resolution", Arguments: item.Arguments,
+		Intent: "troubleshooting", Strategy: "human_confirmed_action_v1",
+		Principal: toolruntime.Principal{TenantID: "eval-tenant", UserID: "eval-user", Permissions: map[string]bool{
+			"devsupport:resolution:confirm": true,
+		}},
+		AllowedSideEffect: toolruntime.SideEffectInternalWrite, Budget: toolruntime.CallBudget{MaxCalls: 1},
+	}
+	if item.Scenario == "hitl_confirmation_readonly_denied" {
+		invocation.AllowedSideEffect = toolruntime.SideEffectReadOnly
+	}
+	message := runtime.Invoke(context.Background(), invocation)
+	return ToolEvaluationOutcome{Status: message.Status, ErrorCode: message.ErrorCode, Cached: message.Cached, Stale: message.Stale, DegradedReason: message.DegradedReason, Executions: confirmer.executions, AuditCount: auditor.count}
 }
 
 func manifestEvaluationDefinition() toolruntime.Definition {

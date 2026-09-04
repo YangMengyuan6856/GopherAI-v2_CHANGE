@@ -1,7 +1,7 @@
 {
   "evaluator_version": "tool-runtime-evaluator-v1",
   "dataset_version": "devsupport-tool-runtime-v1",
-  "generated_at": "2026-09-04T22:42:06.5527128Z",
+  "generated_at": "2026-09-04T23:01:51.3809068Z",
   "human_reviewed": false,
   "baseline_eligible": false,
   "technical_gates_passed": true,
@@ -21,7 +21,7 @@
     "unknown_tool_execution_count": 0,
     "audit_coverage_rate": 1,
     "deterministic_replay_rate": 1,
-    "latency_p95_ms": 0
+    "latency_p95_ms": 0.5301
   },
   "cases": [
     {
@@ -302,7 +302,7 @@
         "executions": 0,
         "audit_count": 1
       },
-      "latency_ms": 0
+      "latency_ms": 0.5301
     },
     {
       "id": "tool-schema-006",
@@ -331,7 +331,7 @@
     {
       "id": "tool-authorization-001",
       "category": "authorization",
-      "scenario": "permission_allowed",
+      "scenario": "hitl_confirm_allowed",
       "passed": true,
       "deterministic": true,
       "expected": {
@@ -401,7 +401,7 @@
     {
       "id": "tool-authorization-004",
       "category": "authorization",
-      "scenario": "side_effect_denied",
+      "scenario": "hitl_confirmation_readonly_denied",
       "passed": true,
       "deterministic": true,
       "expected": {
@@ -538,7 +538,7 @@
         "executions": 1,
         "audit_count": 1
       },
-      "latency_ms": 21.0793
+      "latency_ms": 21.2851
     },
     {
       "id": "tool-resilience-004",
@@ -610,7 +610,7 @@
         "executions": 2,
         "audit_count": 3
       },
-      "latency_ms": 30.553
+      "latency_ms": 31.1505
     },
     {
       "id": "tool-safety-001",
@@ -729,30 +729,24 @@
     {
       "id": "tool-safety-006",
       "category": "safety",
-      "scenario": "bounded_compound",
+      "scenario": "external_write_denied",
       "passed": true,
       "deterministic": true,
       "expected": {
-        "decision": "execute",
-        "tool_names": [
-          "deployment_manifest_lookup",
-          "service_health_snapshot"
-        ],
+        "status": "rejected",
+        "error_code": "TOOL_SIDE_EFFECT_DENIED",
         "cached": false,
         "stale": false,
         "executions": 0,
-        "audit_count": 0
+        "audit_count": 1
       },
       "actual": {
-        "decision": "execute",
-        "tool_names": [
-          "deployment_manifest_lookup",
-          "service_health_snapshot"
-        ],
+        "status": "rejected",
+        "error_code": "TOOL_SIDE_EFFECT_DENIED",
         "cached": false,
         "stale": false,
         "executions": 0,
-        "audit_count": 0
+        "audit_count": 1
       },
       "latency_ms": 0
     }

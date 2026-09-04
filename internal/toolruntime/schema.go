@@ -11,9 +11,10 @@ import (
 )
 
 var (
-	toolNamePattern     = regexp.MustCompile(`^[a-z][a-z0-9_]{2,63}$`)
-	propertyNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
-	toolVersionPattern  = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,31}$`)
+	toolNamePattern      = regexp.MustCompile(`^[a-z][a-z0-9_]{2,63}$`)
+	propertyNamePattern  = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
+	toolVersionPattern   = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,31}$`)
+	toolErrorCodePattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]{2,63}$`)
 )
 
 func validateDefinition(definition Definition) error {

@@ -122,6 +122,7 @@ func (runtime *Runtime) Invoke(ctx context.Context, invocation Invocation) ToolM
 	}
 	callContext, cancel := context.WithTimeout(ctx, time.Duration(definition.TimeoutMS)*time.Millisecond)
 	defer cancel()
+	callContext = withExecutionPrincipal(callContext, invocation.Principal)
 	var output Output
 	var executeErr error
 	for attempt := 1; attempt <= definition.RetryMaxAttempts; attempt++ {
@@ -143,7 +144,11 @@ func (runtime *Runtime) Invoke(ctx context.Context, invocation Invocation) ToolM
 			message.Status, message.ErrorCode = StatusCancelled, ErrorCancelled
 			runtime.observer.RecordToolCancellation(definition.Name, "request_cancelled")
 		default:
-			message.Status, message.ErrorCode, message.Retryable = StatusError, ErrorExecutionFailed, output.Retryable
+			if code, retryable, ok := executionErrorDetails(executeErr); ok {
+				message.Status, message.ErrorCode, message.Retryable = StatusError, code, retryable
+			} else {
+				message.Status, message.ErrorCode, message.Retryable = StatusError, ErrorExecutionFailed, output.Retryable
+			}
 		}
 		if message.Status != StatusCancelled {
 			if transition := runtime.circuits.failure(definition, runtime.now()); transition != "" {

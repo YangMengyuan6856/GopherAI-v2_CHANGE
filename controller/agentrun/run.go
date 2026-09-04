@@ -2,6 +2,7 @@ package agentrun
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -14,6 +15,7 @@ import (
 	memorydomain "GopherAI/internal/memory"
 	"GopherAI/internal/observability"
 	"GopherAI/internal/profilememory"
+	"GopherAI/internal/toolruntime"
 	"GopherAI/middleware/requestid"
 
 	"github.com/gin-gonic/gin"
@@ -22,9 +24,10 @@ import (
 const responseSchemaVersion = "agent-run-api-v1"
 
 type Handler struct {
-	workflow    Workflow
-	resolutions ResolutionService
-	context     DiagnosticContextService
+	workflow          Workflow
+	resolutions       ResolutionService
+	context           DiagnosticContextService
+	resolutionRuntime ResolutionToolRuntime
 }
 
 type Workflow interface {
@@ -42,6 +45,10 @@ type ResolutionService interface {
 
 type DiagnosticContextService interface {
 	Window(context.Context, string, string) (memorydomain.WorkingWindow, error)
+}
+
+type ResolutionToolRuntime interface {
+	Invoke(context.Context, toolruntime.Invocation) toolruntime.ToolMessage
 }
 
 type StartRequest struct {
@@ -95,11 +102,13 @@ type ErrorResponse struct {
 func NewHandler(workflow Workflow) *Handler { return &Handler{workflow: workflow} }
 
 func NewHandlerWithResolutions(workflow Workflow, resolutions ResolutionService) *Handler {
-	return &Handler{workflow: workflow, resolutions: resolutions}
+	return &Handler{workflow: workflow, resolutions: resolutions, resolutionRuntime: newResolutionToolRuntime(resolutions, nil, nil)}
 }
 
 func NewHandlerWithContext(workflow Workflow, resolutions ResolutionService, contextService DiagnosticContextService) *Handler {
-	return &Handler{workflow: workflow, resolutions: resolutions, context: contextService}
+	handler := NewHandlerWithResolutions(workflow, resolutions)
+	handler.context = contextService
+	return handler
 }
 
 func NewDefaultHandler() *Handler {
@@ -121,7 +130,21 @@ func NewDefaultHandler() *Handler {
 	if err != nil {
 		panic(err)
 	}
-	return NewHandlerWithContext(workflow, resolutions, memorydomain.NewDefaultService())
+	handler := NewHandlerWithContext(workflow, resolutions, memorydomain.NewDefaultService())
+	handler.resolutionRuntime = newResolutionToolRuntime(resolutions, toolruntime.NewGormAuditor(mysql.DB), observability.DefaultMetrics())
+	return handler
+}
+
+func newResolutionToolRuntime(resolutions ResolutionService, auditor toolruntime.Auditor, observer toolruntime.Observer) ResolutionToolRuntime {
+	registry := toolruntime.NewRegistry()
+	if err := registry.Register(toolruntime.NewConfirmResolutionTool(resolutions)); err != nil {
+		panic(err)
+	}
+	runtime, err := toolruntime.NewRuntime(registry, auditor, observer)
+	if err != nil {
+		panic(err)
+	}
+	return runtime
 }
 
 func (handler *Handler) Start(context *gin.Context) {
@@ -247,19 +270,69 @@ func (handler *Handler) ConfirmResolution(context *gin.Context) {
 		handler.writeError(context, err)
 		return
 	}
-	confirmation, err := handler.resolutions.Confirm(context.Request.Context(), incident.ConfirmCommand{
-		RunID: context.Param("run_id"), UserID: context.GetString("userName"), HypothesisID: request.HypothesisID,
-		Resolution: request.Resolution, ClientRequestID: request.ClientRequestID, ExpectedStateVersion: request.ExpectedStateVersion,
-	})
-	if err != nil {
-		handler.writeError(context, err)
+	if handler.resolutionRuntime == nil {
+		handler.writeStableError(context, http.StatusServiceUnavailable, "RESOLUTION_CONFIRMATION_UNAVAILABLE", "解决方案确认治理器暂时不可用", true)
 		return
+	}
+	var confirmation incident.Confirmation
+	{
+		arguments, err := json.Marshal(map[string]any{
+			"run_id": context.Param("run_id"), "hypothesis_id": request.HypothesisID, "resolution": request.Resolution,
+			"client_request_id": request.ClientRequestID, "expected_state_version": request.ExpectedStateVersion,
+		})
+		if err != nil {
+			handler.writeStableError(context, http.StatusInternalServerError, "RESOLUTION_CONFIRMATION_UNAVAILABLE", "解决方案确认暂时不可用", true)
+			return
+		}
+		requestID, traceID := requestid.IDs(context)
+		userID := context.GetString("userName")
+		message := handler.resolutionRuntime.Invoke(context.Request.Context(), toolruntime.Invocation{
+			CallID: requestID, TraceID: traceID, ToolName: "confirm_resolution", Arguments: arguments,
+			Intent: "troubleshooting", Strategy: "human_confirmed_action_v1",
+			Principal: toolruntime.Principal{TenantID: userID, UserID: userID, Permissions: map[string]bool{
+				"devsupport:resolution:confirm": true,
+			}},
+			AllowedSideEffect: toolruntime.SideEffectInternalWrite, Budget: toolruntime.CallBudget{MaxCalls: 1},
+		})
+		if message.Status != toolruntime.StatusSuccess {
+			handler.writeResolutionToolError(context, message)
+			return
+		}
+		if err := json.Unmarshal(message.Data, &confirmation); err != nil {
+			handler.writeStableError(context, http.StatusInternalServerError, "RESOLUTION_CONFIRMATION_UNAVAILABLE", "解决方案确认暂时不可用", true)
+			return
+		}
 	}
 	status := http.StatusOK
 	if confirmation.Created {
 		status = http.StatusCreated
 	}
 	context.JSON(status, confirmation)
+}
+
+func (handler *Handler) writeResolutionToolError(context *gin.Context, message toolruntime.ToolMessage) {
+	switch message.ErrorCode {
+	case toolruntime.ErrorResolutionRunNotEligible:
+		handler.writeError(context, incident.ErrRunNotEligible)
+	case toolruntime.ErrorResolutionHypothesis:
+		handler.writeError(context, incident.ErrHypothesisNotFound)
+	case toolruntime.ErrorResolutionInvalid:
+		handler.writeError(context, incident.ErrInvalidConfirmation)
+	case toolruntime.ErrorResolutionIdempotency:
+		handler.writeError(context, incident.ErrIdempotencyConflict)
+	case toolruntime.ErrorResolutionAlreadyExists:
+		handler.writeError(context, incident.ErrAlreadyConfirmed)
+	case toolruntime.ErrorResolutionStateConflict:
+		handler.writeError(context, harness.ErrRunConflict)
+	case toolruntime.ErrorTimeout:
+		handler.writeStableError(context, http.StatusGatewayTimeout, "RESOLUTION_CONFIRMATION_TIMEOUT", "解决方案确认超时，请使用同一请求标识重试", true)
+	case toolruntime.ErrorCancelled:
+		handler.writeStableError(context, 499, "RESOLUTION_CONFIRMATION_CANCELLED", "解决方案确认已取消", true)
+	case toolruntime.ErrorPermissionDenied, toolruntime.ErrorSideEffectDenied:
+		handler.writeStableError(context, http.StatusForbidden, message.ErrorCode, "该请求没有内部确认动作权限", false)
+	default:
+		handler.writeStableError(context, http.StatusServiceUnavailable, "RESOLUTION_CONFIRMATION_UNAVAILABLE", "解决方案确认暂时不可用，请使用同一请求标识重试", true)
+	}
 }
 
 func (handler *Handler) GetResolution(context *gin.Context) {

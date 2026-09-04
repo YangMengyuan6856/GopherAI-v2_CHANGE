@@ -17,9 +17,9 @@ var toolEvaluationCategories = []string{"selection", "schema", "authorization", 
 var toolEvaluationScenarios = map[string]string{
 	"manifest_selection": "selection", "backend_selection": "selection", "worker_selection": "selection", "compound_selection": "selection", "no_tool_selection": "selection", "log_signature_selection": "selection",
 	"manifest_valid": "schema", "health_valid": "schema", "manifest_unknown_path": "schema", "health_bad_enum": "schema", "health_wrong_type": "schema", "health_missing_required": "schema",
-	"permission_allowed": "authorization", "permission_denied": "authorization", "intent_denied": "authorization", "side_effect_denied": "authorization", "budget_zero": "authorization", "budget_exhausted": "authorization",
+	"hitl_confirm_allowed": "authorization", "permission_denied": "authorization", "intent_denied": "authorization", "hitl_confirmation_readonly_denied": "authorization", "budget_zero": "authorization", "budget_exhausted": "authorization",
 	"retry_then_success": "resilience", "non_retryable_error": "resilience", "timeout": "resilience", "request_cancelled": "resilience", "circuit_open": "resilience", "cache_stale_fallback": "resilience",
-	"dangerous_restart": "safety", "dangerous_database_write": "safety", "unknown_tool": "safety", "oversized_result": "safety", "cache_principal_isolation": "safety", "bounded_compound": "safety",
+	"dangerous_restart": "safety", "dangerous_database_write": "safety", "unknown_tool": "safety", "oversized_result": "safety", "cache_principal_isolation": "safety", "external_write_denied": "safety",
 }
 
 type ToolExpected struct {

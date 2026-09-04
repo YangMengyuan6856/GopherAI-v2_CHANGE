@@ -286,3 +286,16 @@ func TestResolutionPreviewAndConfirmationContracts(t *testing.T) {
 		}
 	}
 }
+
+func TestResolutionConfirmationKeepsConflictContractThroughToolRuntime(t *testing.T) {
+	workflow := &fakeWorkflow{response: testRunResponse()}
+	resolutions := &fakeResolutionService{err: harness.ErrRunConflict}
+	engine := newResolutionTestEngine(workflow, resolutions)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/agent-runs/run-1/resolution-confirmations", bytes.NewBufferString(`{"hypothesis_id":"cause-1","resolution":"fixed and verified","client_request_id":"confirm-conflict","expected_state_version":4}`))
+	request.Header.Set("Content-Type", "application/json")
+	engine.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), `"code":"RUN_STATE_CONFLICT"`) {
+		t.Fatalf("tool adapter changed conflict contract: %d %s", recorder.Code, recorder.Body.String())
+	}
+}

@@ -3,6 +3,7 @@ package toolruntime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 )
 
@@ -75,6 +76,17 @@ type Invocation struct {
 	Budget            CallBudget
 }
 
+type executionPrincipalKey struct{}
+
+func withExecutionPrincipal(ctx context.Context, principal Principal) context.Context {
+	return context.WithValue(ctx, executionPrincipalKey{}, principal)
+}
+
+func executionPrincipal(ctx context.Context) (Principal, bool) {
+	principal, ok := ctx.Value(executionPrincipalKey{}).(Principal)
+	return principal, ok
+}
+
 type Output struct {
 	Data         any
 	EvidenceRefs []string
@@ -123,6 +135,27 @@ const (
 	ErrorResultTooLarge    = "TOOL_RESULT_TOO_LARGE"
 	ErrorCircuitOpen       = "TOOL_CIRCUIT_OPEN"
 )
+
+type codedExecutionError struct {
+	code      string
+	retryable bool
+	cause     error
+}
+
+func (err codedExecutionError) Error() string { return err.cause.Error() }
+func (err codedExecutionError) Unwrap() error { return err.cause }
+
+func newCodedExecutionError(code string, retryable bool, cause error) error {
+	return codedExecutionError{code: code, retryable: retryable, cause: cause}
+}
+
+func executionErrorDetails(err error) (string, bool, bool) {
+	var coded codedExecutionError
+	if errors.As(err, &coded) && toolErrorCodePattern.MatchString(coded.code) {
+		return coded.code, coded.retryable, true
+	}
+	return "", false, false
+}
 
 type Tool interface {
 	Definition() Definition

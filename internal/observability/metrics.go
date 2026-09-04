@@ -299,7 +299,7 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 			}
 		}
 	}
-	for _, tool := range []string{"deployment_manifest_lookup", "service_health_snapshot", "bounded_log_signature", "mcp_deployment_evidence"} {
+	for _, tool := range []string{"deployment_manifest_lookup", "service_health_snapshot", "bounded_log_signature", "mcp_deployment_evidence", "confirm_resolution"} {
 		for _, state := range []string{"closed", "open", "half_open"} {
 			value := 0.0
 			if state == "closed" {
@@ -395,7 +395,7 @@ func (metrics *Metrics) SetToolCircuitState(tool string, state string) {
 
 func boundedToolName(value string) string {
 	switch value {
-	case "deployment_manifest_lookup", "service_health_snapshot", "bounded_log_signature", "mcp_deployment_evidence":
+	case "deployment_manifest_lookup", "service_health_snapshot", "bounded_log_signature", "mcp_deployment_evidence", "confirm_resolution":
 		return value
 	default:
 		return "unknown"
@@ -404,7 +404,7 @@ func boundedToolName(value string) string {
 
 func boundedToolStrategy(value string) string {
 	switch value {
-	case "tool_primary", "tool_agent_v1", "diagnosis_standard":
+	case "tool_primary", "tool_agent_v1", "diagnosis_standard", "human_confirmed_action_v1":
 		return value
 	default:
 		return "unknown"

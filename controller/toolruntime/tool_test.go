@@ -122,3 +122,12 @@ func TestCatalogReturnsVersionedDefinitions(t *testing.T) {
 		t.Fatalf("unexpected catalog: %+v", body)
 	}
 }
+
+func TestPublicToolCatalogNeverExposesResolutionWriteAdapter(t *testing.T) {
+	handler := NewDefaultHandler()
+	for _, definition := range handler.runtime.Definitions() {
+		if definition.Name == "confirm_resolution" || definition.SideEffect != toolruntime.SideEffectReadOnly {
+			t.Fatalf("internal write adapter leaked into public tool catalog: %+v", definition)
+		}
+	}
+}
