@@ -85,6 +85,25 @@
             @change="handleVersionUpload"
           />
         </div>
+        <details class="knowledge-document-details">
+          <summary>查看全部文档状态（{{ knowledgeDocuments.length }}）</summary>
+          <div class="knowledge-document-grid">
+            <article v-for="document in knowledgeDocuments" :key="document.id" class="knowledge-document-card">
+              <div>
+                <strong>{{ document.display_name }}</strong>
+                <span :class="['document-status-badge', `status-${document.status}`]">
+                  {{ documentStatusLabel(document.status) }}
+                </span>
+              </div>
+              <div class="document-version-line">
+                活动版本 v{{ document.current_version }} · {{ document.content_type || '未知格式' }}
+              </div>
+              <div v-if="document.last_error_code" class="document-error-code">
+                稳定失败码：{{ document.last_error_code }}；失败候选不会替换活动版本
+              </div>
+            </article>
+          </div>
+        </details>
       </div>
 
       <div v-if="knowledgeSearchOpen" class="knowledge-search-panel">
@@ -125,6 +144,15 @@
             候选 {{ knowledgeAnswer.diagnostics.deep.candidates_before }} → {{ knowledgeAnswer.diagnostics.deep.candidates_after }} 条 ·
             Rewrite {{ enhancementOutcomeLabel(knowledgeAnswer.diagnostics.deep.rewrite.outcome_reason) }} ·
             Rerank {{ enhancementOutcomeLabel(knowledgeAnswer.diagnostics.deep.rerank.outcome_reason) }}
+            <div class="deep-budget-observation">
+              实际增强模型用量：输入 {{ knowledgeAnswer.diagnostics.deep.usage.input_tokens || 0 }} Token，
+              输出 {{ knowledgeAnswer.diagnostics.deep.usage.output_tokens || 0 }} Token ·
+              Rewrite {{ knowledgeAnswer.diagnostics.deep.rewrite.latency_ms || 0 }} ms ·
+              Rerank {{ knowledgeAnswer.diagnostics.deep.rerank.latency_ms || 0 }} ms
+            </div>
+            <div v-if="knowledgeAnswer.diagnostics.deep.fallback_reasons && knowledgeAnswer.diagnostics.deep.fallback_reasons.length" class="deep-fallback-reasons">
+              安全回退原因：{{ knowledgeAnswer.diagnostics.deep.fallback_reasons.map(enhancementOutcomeLabel).join('；') }}
+            </div>
             <details v-if="knowledgeAnswer.diagnostics.deep.rewrite.queries && knowledgeAnswer.diagnostics.deep.rewrite.queries.length > 1">
               <summary>查看原查询与改写查询</summary>
               <ol>
@@ -151,13 +179,16 @@
         </div>
         <div v-if="knowledgeSearchDiagnostics && knowledgeSearchDiagnostics.query_assessment" class="query-assessment">
           <div>
-            <strong>策略判定（当前仅分析）：</strong>
+            <strong>策略建议（本次检索预览）：</strong>
             {{ knowledgeSearchDiagnostics.query_assessment.deep_recommended ? '建议进入 rag_deep' : '保持 rag_fast' }} ·
             复杂度 {{ queryComplexityLabel(knowledgeSearchDiagnostics.query_assessment.complexity) }} ·
             信息缺口 {{ queryGapLabel(knowledgeSearchDiagnostics.query_assessment.gap) }}
           </div>
           <div class="query-assessment-reasons">
             判定依据：{{ knowledgeSearchDiagnostics.query_assessment.reason_codes.map(queryReasonLabel).join('；') }}
+          </div>
+          <div v-if="knowledgeSearchDiagnostics.query_assessment.deep_recommended" class="query-assessment-action">
+            如需执行改写、多查询合并和重排，请点击“深度分析回答”；普通混合检索不会暗中增加模型调用。
           </div>
         </div>
         <div v-if="knowledgeSearchResults.length" class="knowledge-search-results">
@@ -1208,6 +1239,78 @@ export default {
   font-size: 13px;
 }
 
+.knowledge-document-details {
+  flex-basis: 100%;
+  padding-top: 2px;
+  border-top: 1px dashed rgba(64, 158, 255, 0.2);
+}
+
+.knowledge-document-details summary {
+  width: fit-content;
+  cursor: pointer;
+  color: #2f6ea7;
+  font-weight: 600;
+}
+
+.knowledge-document-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.knowledge-document-card {
+  padding: 9px 11px;
+  border: 1px solid rgba(64, 158, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.knowledge-document-card > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.document-status-badge {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #e8eef5;
+  color: #52677f;
+  font-size: 11px;
+}
+
+.document-status-badge.status-indexed {
+  background: #e2f7ee;
+  color: #137a52;
+}
+
+.document-status-badge.status-failed {
+  background: #fff0f0;
+  color: #c23d4b;
+}
+
+.document-status-badge.status-uploaded,
+.document-status-badge.status-parsing {
+  background: #fff4de;
+  color: #a56500;
+}
+
+.document-version-line {
+  margin-top: 5px;
+  color: #708399;
+  font-size: 11px;
+}
+
+.document-error-code {
+  margin-top: 5px;
+  color: #b23a48;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+}
+
 .knowledge-version-controls {
   display: flex;
   align-items: center;
@@ -1255,6 +1358,11 @@ export default {
 .query-assessment-reasons {
   margin-top: 4px;
   color: #6b7280;
+}
+
+.query-assessment-action {
+  margin-top: 5px;
+  color: #355f93;
 }
 
 .version-pending {
@@ -1371,6 +1479,15 @@ export default {
 
 .deep-diagnostics details {
   margin-top: 5px;
+}
+
+.deep-budget-observation,
+.deep-fallback-reasons {
+  margin-top: 5px;
+}
+
+.deep-fallback-reasons {
+  color: #9a630d;
 }
 
 .knowledge-follow-up {
