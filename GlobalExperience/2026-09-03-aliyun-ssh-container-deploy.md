@@ -934,3 +934,25 @@ permutation of every authorized Evidence ID. Unknown, duplicate, or omitted
 IDs, malformed JSON, model failure, and timeout all preserve the complete RRF
 ordering. Do not silently accept a partial ranking: appending omitted evidence
 would conceal an invalid model contract and weaken evaluation evidence.
+
+## 29. M3-B7 Bounded and Observable RAG Deep Strategy
+
+Release `20260904182953-79a80dc9c5b2` (commit `79a80dc9c5b2`) passed root/MCP
+tests, local Linux builds, bundle verification, atomic switch, Backend/Worker/MCP
+health gates, and Vue compile/HTTP. Bundle SHA-256:
+`ee33f69ee85e59d9de7c13689312ac8e999655bbeddf7027435e5bb4dca55c9c`.
+
+The production Deep path is a separate, reversible API and UI action. It always
+starts with the ACL-authorized Hybrid baseline and applies fixed budgets of at
+most three retrieval queries, one rewrite call, and one rerank call. A simple,
+high-confidence request smart-skips every enhancement call. Complex or gapped
+requests may add two rewritten searches, merge and deduplicate their evidence,
+then rerank only the bounded authorized candidate set.
+
+Every enhancement is fail-open: rewrite, additional retrieval, or rerank failure
+keeps the baseline evidence and reports `partial_fallback`; it never converts an
+enhancement failure into an empty answer. The endpoint reports independent
+`rag_deep/rag-deep-v1` identity, query/candidate diagnostics, enhancement Token
+usage, and stable outcomes. Prometheus exports bounded strategy request,
+duration, and enhancement counters. This makes later Fast-versus-Deep evaluation
+possible without using raw query text or dynamic error strings as metric labels.
