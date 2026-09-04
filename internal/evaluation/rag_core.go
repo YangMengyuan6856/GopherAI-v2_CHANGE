@@ -272,9 +272,15 @@ func RunRAGCoreWithObserver(ctx context.Context, cases []RAGCase, fixtureVersion
 		}
 		for _, citation := range answerOutput.Result.Citations {
 			result.CitedEvidenceIDs = append(result.CitedEvidenceIDs, citation.EvidenceID)
-			totalCitations++
-			if contains(item.Expected.EvidenceIDs, citation.EvidenceID) {
-				relevantCitations++
+			// Unresolved answers deliberately expose the authorized evidence that
+			// was inspected while making no factual claim. Keep those citations in
+			// the case trace, but do not score them as answer citations. Safety
+			// fallback quality is already reflected by coverage/resolved rate.
+			if result.AnswerResolved {
+				totalCitations++
+				if contains(item.Expected.EvidenceIDs, citation.EvidenceID) {
+					relevantCitations++
+				}
 			}
 		}
 		result.CitationCovered = result.AnswerResolved && containsAll(result.CitedEvidenceIDs, item.Expected.EvidenceIDs)

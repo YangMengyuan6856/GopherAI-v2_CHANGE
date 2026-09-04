@@ -65,6 +65,28 @@ func TestRAGCoreScoringAndReport(t *testing.T) {
 	}
 }
 
+func TestRAGCoreCitationPrecisionExcludesUnresolvedSafetyEvidence(t *testing.T) {
+	cases := []RAGCase{
+		{ID: "resolved", Question: "q1", Expected: RAGExpected{EvidenceIDs: []string{"a"}}},
+		{ID: "unresolved", Question: "q2", Expected: RAGExpected{EvidenceIDs: []string{"b"}}},
+	}
+	searcher := &evaluationSearcher{outputs: map[string]rag.SearchOutput{
+		"q1": {Hits: []rag.SearchHit{{Evidence: contract.Evidence{ID: "a", TenantID: "tenant", SourceID: "doc"}}}},
+		"q2": {Hits: []rag.SearchHit{{Evidence: contract.Evidence{ID: "b", TenantID: "tenant", SourceID: "doc"}}}},
+	}}
+	answerer := &evaluationAnswerer{outputs: map[string]knowledgeagent.Output{
+		"q1": {Result: contract.AgentResult{Resolved: true, Citations: []contract.Citation{{EvidenceID: "a"}}}},
+		"q2": {Result: contract.AgentResult{Resolved: false, Citations: []contract.Citation{{EvidenceID: "b"}, {EvidenceID: "unclaimed-context"}}}},
+	}}
+	report := RunRAGCore(context.Background(), cases, "fixture", "candidate", "tenant", "user", searcher, answerer)
+	if report.Metrics.CitationPrecision != 1 {
+		t.Fatalf("unresolved safety evidence must not reduce citation precision: %+v", report.Metrics)
+	}
+	if report.Metrics.CitationCoverage != 0.5 || report.Metrics.ResolvedAnswerRate != 0.5 {
+		t.Fatalf("unresolved answer must remain visible in coverage and resolved rate: %+v", report.Metrics)
+	}
+}
+
 func TestRAGDatasetValidationRejectsUnknownEvidence(t *testing.T) {
 	dataset := `{"id":"rag-001","type":"rag","difficulty":"easy","question":"q","fixture":"kb-fixture-v1","expected":{"intent":"project_qa","evidence_ids":["missing"]},"reviewed_by":"human","dataset_version":"devsupport-rag-core-v1"}`
 	cases, err := LoadRAGCases(strings.NewReader(dataset))
