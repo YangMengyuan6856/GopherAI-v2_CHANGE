@@ -99,7 +99,7 @@ func TestConditionalQueryRewriterTimesOutAndKeepsOriginal(t *testing.T) {
 	model := &fakeRewriteModel{wait: true}
 	rewriter, _ := NewConditionalQueryRewriter(model, 10*time.Millisecond)
 	result := rewriter.Rewrite(context.Background(), "原问题", QueryAssessment{RewriteRecommended: true})
-	if result.Status != RewriteStatusFallback || result.OutcomeReason != RewriteReasonTimeout || result.Queries[0] != "原问题" {
+	if result.Status != RewriteStatusFallback || result.OutcomeReason != RewriteReasonTimeout || result.Queries[0] != "原问题" || result.LatencyMillis < 1 {
 		t.Fatalf("timeout must preserve baseline query: %+v", result)
 	}
 }

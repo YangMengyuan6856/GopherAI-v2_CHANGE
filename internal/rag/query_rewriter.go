@@ -68,9 +68,9 @@ func NewConditionalQueryRewriter(rewriteModel RewriteModel, timeout time.Duratio
 // Rewrite is fail-open by design: every outcome contains the exact original
 // query at index zero, so an unavailable or malformed model cannot erase the
 // baseline retrieval path.
-func (rewriter *ConditionalQueryRewriter) Rewrite(ctx context.Context, query string, assessment QueryAssessment) QueryRewriteResult {
+func (rewriter *ConditionalQueryRewriter) Rewrite(ctx context.Context, query string, assessment QueryAssessment) (result QueryRewriteResult) {
 	query = strings.TrimSpace(query)
-	result := QueryRewriteResult{
+	result = QueryRewriteResult{
 		Version: QueryRewriteVersion, Status: RewriteStatusSkipped,
 		OriginalQuery: query, Queries: []string{query}, TriggerReasons: append([]string(nil), assessment.ReasonCodes...),
 		OutcomeReason: RewriteReasonNotRequired,
