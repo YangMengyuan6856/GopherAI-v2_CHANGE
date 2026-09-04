@@ -101,9 +101,16 @@
           <button
             class="answer-evidence-btn"
             :disabled="!knowledgeQuery.trim() || answeringKnowledge"
-            @click="answerKnowledge"
+            @click="answerKnowledge(false)"
           >
-            {{ answeringKnowledge ? '证据校验与回答中...' : '基于证据回答' }}
+            {{ answeringKnowledge && answeringKnowledgeMode === 'fast' ? '快速回答中...' : '基于证据回答' }}
+          </button>
+          <button
+            class="deep-answer-btn"
+            :disabled="!knowledgeQuery.trim() || answeringKnowledge"
+            @click="answerKnowledge(true)"
+          >
+            {{ answeringKnowledge && answeringKnowledgeMode === 'deep' ? '深度检索与回答中...' : '深度分析回答' }}
           </button>
         </div>
         <section v-if="knowledgeAnswer" :class="['knowledge-answer', { insufficient: !knowledgeAnswer.result.resolved }]">
@@ -112,6 +119,19 @@
             <span>{{ knowledgeAnswer.agent }} · {{ knowledgeAnswer.strategy }} · {{ knowledgeAnswer.evidence_gate.reason_code }}</span>
           </div>
           <div class="knowledge-answer-text">{{ knowledgeAnswer.result.answer }}</div>
+          <div v-if="knowledgeAnswer.diagnostics && knowledgeAnswer.diagnostics.deep" class="deep-diagnostics">
+            <strong>深度策略：</strong>{{ deepOutcomeLabel(knowledgeAnswer.diagnostics.deep) }} ·
+            追加检索 {{ knowledgeAnswer.diagnostics.deep.additional_searches }} 次 ·
+            候选 {{ knowledgeAnswer.diagnostics.deep.candidates_before }} → {{ knowledgeAnswer.diagnostics.deep.candidates_after }} 条 ·
+            Rewrite {{ enhancementOutcomeLabel(knowledgeAnswer.diagnostics.deep.rewrite.outcome_reason) }} ·
+            Rerank {{ enhancementOutcomeLabel(knowledgeAnswer.diagnostics.deep.rerank.outcome_reason) }}
+            <details v-if="knowledgeAnswer.diagnostics.deep.rewrite.queries && knowledgeAnswer.diagnostics.deep.rewrite.queries.length > 1">
+              <summary>查看原查询与改写查询</summary>
+              <ol>
+                <li v-for="query in knowledgeAnswer.diagnostics.deep.rewrite.queries" :key="query">{{ query }}</li>
+              </ol>
+            </details>
+          </div>
           <div v-if="knowledgeAnswer.result.follow_up_questions && knowledgeAnswer.result.follow_up_questions.length" class="knowledge-follow-up">
             <strong>需要补充：</strong>{{ knowledgeAnswer.result.follow_up_questions.join('；') }}
           </div>
@@ -243,6 +263,7 @@ export default {
     const knowledgeSearchResults = ref([])
     const knowledgeSearchDiagnostics = ref(null)
     const answeringKnowledge = ref(false)
+    const answeringKnowledgeMode = ref('')
     const knowledgeAnswer = ref(null)
     let knowledgePollTimer = null
 
@@ -699,6 +720,27 @@ export default {
       return labels[reason] || reason
     }
 
+    const deepOutcomeLabel = (deep) => {
+      if (!deep.activated) return '问题简单且证据充分，智能跳过额外模型调用'
+      return ({ completed: '增强链路完成', partial_fallback: '部分增强失败，已安全回退' }[deep.outcome] || deep.outcome)
+    }
+
+    const enhancementOutcomeLabel = (outcome) => {
+      const labels = {
+        rewrite_not_required: '未触发',
+        rewrite_completed: '完成',
+        rewrite_model_error: '模型错误，已回退',
+        rewrite_timeout: '超时，已回退',
+        rewrite_invalid_output: '输出无效，已回退',
+        rerank_not_required: '未触发',
+        rerank_completed: '完成',
+        rerank_model_error: '模型错误，已回退',
+        rerank_timeout: '超时，已回退',
+        rerank_invalid_output: '输出无效，已回退'
+      }
+      return labels[outcome] || '未触发'
+    }
+
     const toggleKnowledgeSearch = () => {
       knowledgeSearchOpen.value = !knowledgeSearchOpen.value
       if (knowledgeSearchOpen.value && !knowledgeQuery.value.trim() && inputMessage.value.trim()) {
@@ -725,13 +767,15 @@ export default {
       }
     }
 
-    const answerKnowledge = async () => {
+    const answerKnowledge = async (deep = false) => {
       const question = knowledgeQuery.value.trim()
       if (!question || answeringKnowledge.value) return
       answeringKnowledge.value = true
+      answeringKnowledgeMode.value = deep ? 'deep' : 'fast'
       knowledgeAnswer.value = null
       try {
-        const response = await api.post('/knowledge/answer', { question, top_k: 5 })
+        const endpoint = deep ? '/knowledge/deep-answer' : '/knowledge/answer'
+        const response = await api.post(endpoint, { question, top_k: 5 })
         knowledgeAnswer.value = response.data || null
         if (knowledgeAnswer.value?.result?.resolved) {
           ElMessage.success('回答已通过证据门和引用校验')
@@ -743,6 +787,7 @@ export default {
         ElMessage.error(error.response?.data?.message || '知识库回答暂时不可用')
       } finally {
         answeringKnowledge.value = false
+        answeringKnowledgeMode.value = ''
       }
     }
 
@@ -976,6 +1021,7 @@ export default {
       knowledgeSearchResults,
       knowledgeSearchDiagnostics,
       answeringKnowledge,
+      answeringKnowledgeMode,
       knowledgeAnswer,
       documentStatusLabel,
       jobStatusLabel,
@@ -983,6 +1029,8 @@ export default {
       queryComplexityLabel,
       queryGapLabel,
       queryReasonLabel,
+      deepOutcomeLabel,
+      enhancementOutcomeLabel,
       renderMarkdown,
       playTTS,
       createNewSession,
@@ -1263,6 +1311,10 @@ export default {
   background: linear-gradient(135deg, #19a974 0%, #2f80ed 100%);
 }
 
+.knowledge-search-form .deep-answer-btn {
+  background: linear-gradient(135deg, #7c3aed 0%, #2563eb 100%);
+}
+
 .knowledge-search-form button:disabled {
   background: #b8c2cf;
   cursor: not-allowed;
@@ -1305,6 +1357,20 @@ export default {
   white-space: pre-wrap;
   line-height: 1.65;
   color: #273b4d;
+}
+
+.deep-diagnostics {
+  margin-top: 10px;
+  padding: 9px 10px;
+  border-radius: 7px;
+  background: rgba(124, 58, 237, 0.08);
+  color: #4c3d72;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.deep-diagnostics details {
+  margin-top: 5px;
 }
 
 .knowledge-follow-up {

@@ -54,15 +54,22 @@ type AnswerMetrics interface {
 	RecordKnowledgeAnswer(status string, gateReason string, duration time.Duration)
 }
 
+type RAGStrategyMetrics interface {
+	RecordRAGStrategy(strategy string, status string, enhancement string, duration time.Duration, rewriteOutcome string, rerankOutcome string)
+}
+
 type Handler struct {
-	application      Application
-	search           SearchApplication
-	searchInitError  error
-	answer           AnswerApplication
-	answerInitError  error
-	uploadMetrics    UploadMetrics
-	retrievalMetrics RetrievalMetrics
-	answerMetrics    AnswerMetrics
+	application         Application
+	search              SearchApplication
+	searchInitError     error
+	answer              AnswerApplication
+	answerInitError     error
+	deepAnswer          AnswerApplication
+	deepAnswerInitError error
+	uploadMetrics       UploadMetrics
+	retrievalMetrics    RetrievalMetrics
+	answerMetrics       AnswerMetrics
+	ragStrategyMetrics  RAGStrategyMetrics
 }
 
 type uploadResponse struct {
@@ -136,46 +143,73 @@ func NewDefaultHandler() *Handler {
 	handler := NewHandler(knowledgeapp.NewDefaultService(repository), metrics)
 	handler.retrievalMetrics = metrics
 	handler.answerMetrics = metrics
+	handler.ragStrategyMetrics = metrics
 	handler.search = new(lazyDefaultSearchApplication)
 	handler.answer = new(lazyDefaultAnswerApplication)
+	handler.deepAnswer = new(lazyDefaultDeepAnswerApplication)
 	return handler
 }
 
 func (handler *Handler) Answer(context *gin.Context) {
+	handler.answerWith(context, handler.answer, handler.answerInitError, knowledgeagent.StrategyName, knowledgeagent.StrategyVersion)
+}
+
+func (handler *Handler) DeepAnswer(context *gin.Context) {
+	handler.answerWith(context, handler.deepAnswer, handler.deepAnswerInitError, ragapp.DeepStrategyName, ragapp.DeepStrategyVersion)
+}
+
+func (handler *Handler) answerWith(ginContext *gin.Context, application AnswerApplication, initializationError error, strategy string, strategyVersion string) {
 	startedAt := time.Now()
 	status := "error"
 	gateReason := "none"
+	enhancement := ragapp.DeepOutcomeSkipped
+	rewriteOutcome := "none"
+	rerankOutcome := "none"
 	defer func() {
 		if handler.answerMetrics != nil {
 			handler.answerMetrics.RecordKnowledgeAnswer(status, gateReason, time.Since(startedAt))
 		}
+		if handler.ragStrategyMetrics != nil {
+			handler.ragStrategyMetrics.RecordRAGStrategy(strategy, status, enhancement, time.Since(startedAt), rewriteOutcome, rerankOutcome)
+		}
 	}()
 	request := new(answerRequest)
-	if err := context.ShouldBindJSON(request); err != nil {
+	if err := ginContext.ShouldBindJSON(request); err != nil {
 		status = "rejected"
-		handler.writeError(context, contract.NewDomainError("INVALID_KNOWLEDGE_ANSWER", contract.ErrorValidation, "请输入有效的知识库问题", false, err))
+		handler.writeError(ginContext, contract.NewDomainError("INVALID_KNOWLEDGE_ANSWER", contract.ErrorValidation, "请输入有效的知识库问题", false, err))
 		return
 	}
 	request.Question = strings.TrimSpace(request.Question)
-	if handler.answer == nil {
-		handler.writeError(context, contract.NewDomainError("KNOWLEDGE_ANSWER_UNAVAILABLE", contract.ErrorDependencyUnavailable, "知识库回答暂时不可用", true, handler.answerInitError))
+	if application == nil {
+		handler.writeError(ginContext, contract.NewDomainError("KNOWLEDGE_ANSWER_UNAVAILABLE", contract.ErrorDependencyUnavailable, "知识库回答暂时不可用", true, initializationError))
 		return
 	}
-	userID := context.GetString("userName")
-	output, err := handler.answer.Answer(context.Request.Context(), knowledgeagent.Input{
+	userID := ginContext.GetString("userName")
+	requestContext := ginContext.Request.Context()
+	if strategy == ragapp.DeepStrategyName {
+		var cancel context.CancelFunc
+		requestContext, cancel = context.WithTimeout(requestContext, 45*time.Second)
+		defer cancel()
+	}
+	output, err := application.Answer(requestContext, knowledgeagent.Input{
 		TenantID: userID, UserID: userID, Question: request.Question, TopK: request.TopK,
 	})
 	gateReason = output.Gate.ReasonCode
+	if output.Diagnostics.Deep != nil {
+		enhancement = output.Diagnostics.Deep.Outcome
+		rewriteOutcome = output.Diagnostics.Deep.Rewrite.OutcomeReason
+		rerankOutcome = output.Diagnostics.Deep.Rerank.OutcomeReason
+	}
 	if err != nil {
 		switch {
 		case errors.Is(err, knowledgeagent.ErrInvalidQuestion), errors.Is(err, ragapp.ErrInvalidSearch):
 			status = "rejected"
-			handler.writeError(context, contract.NewDomainError("INVALID_KNOWLEDGE_ANSWER", contract.ErrorValidation, "问题为空、过长或返回数量超出范围", false, err))
+			handler.writeError(ginContext, contract.NewDomainError("INVALID_KNOWLEDGE_ANSWER", contract.ErrorValidation, "问题为空、过长或返回数量超出范围", false, err))
 		case errors.Is(err, knowledgeagent.ErrModelOutput), errors.Is(err, ragapp.ErrCitationVerification):
 			status = "verifier_rejected"
-			handler.writeError(context, contract.NewDomainError("KNOWLEDGE_ANSWER_UNVERIFIED", contract.ErrorModel, "模型回答未通过引用校验，请稍后重试", true, err))
+			handler.writeError(ginContext, contract.NewDomainError("KNOWLEDGE_ANSWER_UNVERIFIED", contract.ErrorModel, "模型回答未通过引用校验，请稍后重试", true, err))
 		default:
-			handler.writeError(context, contract.NewDomainError("KNOWLEDGE_ANSWER_UNAVAILABLE", contract.ErrorDependencyUnavailable, "知识库回答暂时不可用", true, err))
+			handler.writeError(ginContext, contract.NewDomainError("KNOWLEDGE_ANSWER_UNAVAILABLE", contract.ErrorDependencyUnavailable, "知识库回答暂时不可用", true, err))
 		}
 		return
 	}
@@ -184,12 +218,12 @@ func (handler *Handler) Answer(context *gin.Context) {
 	} else {
 		status = "insufficient"
 	}
-	requestID, traceID := requestid.IDs(context)
-	context.Header(requestid.RequestIDHeader, requestID)
-	context.Header(requestid.TraceIDHeader, traceID)
-	context.JSON(http.StatusOK, answerResponse{
+	requestID, traceID := requestid.IDs(ginContext)
+	ginContext.Header(requestid.RequestIDHeader, requestID)
+	ginContext.Header(requestid.TraceIDHeader, traceID)
+	ginContext.JSON(http.StatusOK, answerResponse{
 		SchemaVersion: contract.SchemaVersion, TraceID: traceID, RequestID: requestID,
-		Agent: knowledgeagent.AgentName, Strategy: knowledgeagent.StrategyName, StrategyVersion: knowledgeagent.StrategyVersion,
+		Agent: knowledgeagent.AgentName, Strategy: strategy, StrategyVersion: strategyVersion,
 		Result: output.Result, EvidenceGate: output.Gate, Diagnostics: output.Diagnostics,
 	})
 }
@@ -455,6 +489,38 @@ func newDefaultAnswerApplication() (AnswerApplication, error) {
 	if err != nil {
 		return nil, err
 	}
+	chatModel, err := newDefaultKnowledgeChatModel()
+	if err != nil {
+		return nil, err
+	}
+	return knowledgeagent.NewAgent(retriever, chatModel, ragapp.DefaultEvidenceGate(), ragapp.NewCitationBuilder())
+}
+
+func newDefaultDeepAnswerApplication() (AnswerApplication, error) {
+	base, err := newDefaultSearchApplication()
+	if err != nil {
+		return nil, err
+	}
+	chatModel, err := newDefaultKnowledgeChatModel()
+	if err != nil {
+		return nil, err
+	}
+	rewriter, err := ragapp.NewConditionalQueryRewriter(chatModel, 4*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	reranker, err := ragapp.NewConditionalReranker(chatModel, 4*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	deepRetriever, err := ragapp.NewDeepRetriever(base, rewriter, reranker)
+	if err != nil {
+		return nil, err
+	}
+	return knowledgeagent.NewAgent(deepRetriever, chatModel, ragapp.DefaultEvidenceGate(), ragapp.NewCitationBuilder())
+}
+
+func newDefaultKnowledgeChatModel() (knowledgeagent.ChatModel, error) {
 	configuration := config.GetConfig()
 	apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
 	if apiKey == "" {
@@ -466,7 +532,7 @@ func newDefaultAnswerApplication() (AnswerApplication, error) {
 	if err != nil {
 		return nil, err
 	}
-	return knowledgeagent.NewAgent(retriever, chatModel, ragapp.DefaultEvidenceGate(), ragapp.NewCitationBuilder())
+	return chatModel, nil
 }
 
 type lazyDefaultSearchApplication struct {
@@ -481,9 +547,25 @@ type lazyDefaultAnswerApplication struct {
 	err         error
 }
 
+type lazyDefaultDeepAnswerApplication struct {
+	once        sync.Once
+	application AnswerApplication
+	err         error
+}
+
 func (application *lazyDefaultAnswerApplication) Answer(ctx context.Context, input knowledgeagent.Input) (knowledgeagent.Output, error) {
 	application.once.Do(func() {
 		application.application, application.err = newDefaultAnswerApplication()
+	})
+	if application.err != nil {
+		return knowledgeagent.Output{}, application.err
+	}
+	return application.application.Answer(ctx, input)
+}
+
+func (application *lazyDefaultDeepAnswerApplication) Answer(ctx context.Context, input knowledgeagent.Input) (knowledgeagent.Output, error) {
+	application.once.Do(func() {
+		application.application, application.err = newDefaultDeepAnswerApplication()
 	})
 	if application.err != nil {
 		return knowledgeagent.Output{}, application.err

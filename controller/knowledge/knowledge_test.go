@@ -67,11 +67,22 @@ type fakeMetrics struct {
 	resultCount     int
 	answerStatus    string
 	gateReason      string
+	ragStrategy     string
+	ragEnhancement  string
+	rewriteOutcome  string
+	rerankOutcome   string
 }
 
 func (metrics *fakeMetrics) RecordKnowledgeAnswer(status string, gateReason string, _ time.Duration) {
 	metrics.answerStatus = status
 	metrics.gateReason = gateReason
+}
+
+func (metrics *fakeMetrics) RecordRAGStrategy(strategy string, _ string, enhancement string, _ time.Duration, rewriteOutcome string, rerankOutcome string) {
+	metrics.ragStrategy = strategy
+	metrics.ragEnhancement = enhancement
+	metrics.rewriteOutcome = rewriteOutcome
+	metrics.rerankOutcome = rerankOutcome
 }
 
 func (metrics *fakeMetrics) RecordDocumentUpload(status string, sizeBytes int64) {
@@ -368,6 +379,47 @@ func TestAnswerReturnsDeterministicInsufficientEvidenceWithoutError(t *testing.T
 	engine.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || metrics.answerStatus != "insufficient" || metrics.gateReason != ragapp.GateReasonNoEvidence {
 		t.Fatalf("insufficient evidence should be a controlled 200 response: code=%d metric=%+v body=%s", response.Code, metrics, response.Body.String())
+	}
+}
+
+func TestDeepAnswerReturnsIndependentStrategyAndEnhancementDiagnostics(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	answer := &fakeAnswerApplication{output: knowledgeagent.Output{
+		Result: contract.AgentResult{Answer: "跨文档结论 [1][2]", Resolved: true},
+		Gate:   ragapp.EvidenceGateResult{Accepted: true, ReasonCode: ragapp.GateReasonSufficient},
+		Diagnostics: ragapp.SearchDiagnostics{Mode: "hybrid", Deep: &ragapp.DeepSearchDiagnostics{
+			Activated: true, Outcome: ragapp.DeepOutcomeCompleted,
+			Rewrite: ragapp.QueryRewriteResult{OutcomeReason: ragapp.RewriteReasonCompleted},
+			Rerank:  ragapp.RerankResult{OutcomeReason: ragapp.RerankReasonCompleted},
+		}},
+	}}
+	metrics := new(fakeMetrics)
+	handler := NewHandler(new(fakeApplication), metrics)
+	handler.deepAnswer = answer
+	handler.answerMetrics = metrics
+	handler.ragStrategyMetrics = metrics
+	engine := gin.New()
+	engine.POST("/deep-answer", requestid.Attach(), func(context *gin.Context) {
+		context.Set("userName", "user-a")
+		context.Next()
+	}, handler.DeepAnswer)
+
+	request := httptest.NewRequest(http.MethodPost, "/deep-answer", bytes.NewBufferString(`{"question":"比较两份文档并分析差异"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	payload := new(answerResponse)
+	if err := json.Unmarshal(response.Body.Bytes(), payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Strategy != ragapp.DeepStrategyName || payload.StrategyVersion != ragapp.DeepStrategyVersion || payload.Diagnostics.Deep == nil || !payload.Diagnostics.Deep.Activated {
+		t.Fatalf("deep strategy contract was lost: %+v", payload)
+	}
+	if metrics.ragStrategy != ragapp.DeepStrategyName || metrics.ragEnhancement != ragapp.DeepOutcomeCompleted || metrics.rewriteOutcome != ragapp.RewriteReasonCompleted || metrics.rerankOutcome != ragapp.RerankReasonCompleted {
+		t.Fatalf("deep metrics were not recorded: %+v", metrics)
 	}
 }
 

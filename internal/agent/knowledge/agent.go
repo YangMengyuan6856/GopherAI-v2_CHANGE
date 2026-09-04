@@ -82,10 +82,14 @@ func (agent *Agent) Answer(ctx context.Context, input Input) (Output, error) {
 	evidence := rag.EvidenceFromHits(searchOutput.Hits)
 	gateResult := agent.gate.Evaluate(searchOutput)
 	output := Output{Gate: gateResult, Diagnostics: searchOutput.Diagnostics}
+	usage := contract.ModelUsage{}
+	if searchOutput.Diagnostics.Deep != nil {
+		usage = searchOutput.Diagnostics.Deep.Usage
+	}
 	if !gateResult.Accepted {
 		output.Result = contract.AgentResult{
 			Answer: insufficientEvidenceAnswer(gateResult), Evidence: evidence, Confidence: gateResult.TopScore,
-			Resolved: false, NeedsUserInput: true, FollowUpQuestions: gateResult.FollowUpQuestions,
+			Resolved: false, NeedsUserInput: true, FollowUpQuestions: gateResult.FollowUpQuestions, Usage: usage,
 		}
 		return output, nil
 	}
@@ -94,7 +98,6 @@ func (agent *Agent) Answer(ctx context.Context, input Input) (Output, error) {
 		schema.SystemMessage(systemPrompt()),
 		schema.UserMessage(buildEvidencePrompt(input.Question, evidence)),
 	}
-	usage := contract.ModelUsage{}
 	var verificationErr error
 	for attempt := 0; attempt < maxModelAttempts; attempt++ {
 		response, generateErr := agent.model.Generate(ctx, messages)

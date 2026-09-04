@@ -84,13 +84,14 @@ type SearchHit struct {
 }
 
 type SearchDiagnostics struct {
-	Version           string          `json:"version"`
-	Mode              string          `json:"mode"`
-	DenseCandidates   int             `json:"dense_candidates"`
-	KeywordCandidates int             `json:"keyword_candidates"`
-	FusedCandidates   int             `json:"fused_candidates"`
-	DegradedReasons   []string        `json:"degraded_reasons,omitempty"`
-	QueryAssessment   QueryAssessment `json:"query_assessment"`
+	Version           string                 `json:"version"`
+	Mode              string                 `json:"mode"`
+	DenseCandidates   int                    `json:"dense_candidates"`
+	KeywordCandidates int                    `json:"keyword_candidates"`
+	FusedCandidates   int                    `json:"fused_candidates"`
+	DegradedReasons   []string               `json:"degraded_reasons,omitempty"`
+	QueryAssessment   QueryAssessment        `json:"query_assessment"`
+	Deep              *DeepSearchDiagnostics `json:"deep,omitempty"`
 }
 
 type SearchOutput struct {

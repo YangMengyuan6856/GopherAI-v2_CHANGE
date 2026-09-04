@@ -24,6 +24,9 @@ type Metrics struct {
 	retrievalResults        *prometheus.HistogramVec
 	knowledgeAnswers        *prometheus.CounterVec
 	knowledgeAnswerDuration *prometheus.HistogramVec
+	ragStrategyRequests     *prometheus.CounterVec
+	ragStrategyDuration     *prometheus.HistogramVec
+	ragEnhancements         *prometheus.CounterVec
 	gatherer                prometheus.Gatherer
 }
 
@@ -85,13 +88,26 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 		}, []string{"mode"}),
 		knowledgeAnswers: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "gopherai_knowledge_answers_total",
-			Help: "Total KnowledgeAgent rag_fast attempts by bounded outcome and evidence-gate reason.",
+			Help: "Total KnowledgeAgent attempts by bounded outcome and evidence-gate reason.",
 		}, []string{"status", "gate_reason"}),
 		knowledgeAnswerDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "gopherai_knowledge_answer_duration_seconds",
 			Help:    "KnowledgeAgent rag_fast end-to-end duration in seconds.",
 			Buckets: []float64{0.1, 0.25, 0.5, 1, 2, 4, 8, 15, 30, 45},
 		}, []string{"status"}),
+		ragStrategyRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_rag_strategy_requests_total",
+			Help: "Total RAG strategy requests by bounded strategy, outcome, and enhancement state.",
+		}, []string{"strategy", "status", "enhancement"}),
+		ragStrategyDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "gopherai_rag_strategy_duration_seconds",
+			Help:    "End-to-end RAG strategy duration in seconds.",
+			Buckets: []float64{0.1, 0.25, 0.5, 1, 2, 4, 8, 15, 30, 45, 60},
+		}, []string{"strategy", "status"}),
+		ragEnhancements: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_rag_enhancements_total",
+			Help: "Total conditional RAG enhancement component outcomes.",
+		}, []string{"component", "outcome"}),
 		gatherer: gatherer,
 	}
 	registerer.MustRegister(
@@ -109,6 +125,9 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 		metrics.retrievalResults,
 		metrics.knowledgeAnswers,
 		metrics.knowledgeAnswerDuration,
+		metrics.ragStrategyRequests,
+		metrics.ragStrategyDuration,
+		metrics.ragEnhancements,
 	)
 	for _, status := range []string{"accepted", "duplicate", "rejected", "error"} {
 		metrics.documentUploads.WithLabelValues(status).Add(0)
@@ -121,7 +140,66 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 	for _, status := range []string{"answered", "insufficient", "verifier_rejected", "rejected", "error"} {
 		metrics.knowledgeAnswers.WithLabelValues(status, "none").Add(0)
 	}
+	for _, strategy := range []string{"rag_fast", "rag_deep"} {
+		for _, status := range []string{"answered", "insufficient", "verifier_rejected", "rejected", "error"} {
+			for _, enhancement := range []string{"skipped", "completed", "partial_fallback"} {
+				metrics.ragStrategyRequests.WithLabelValues(strategy, status, enhancement).Add(0)
+			}
+		}
+	}
 	return metrics
+}
+
+func (metrics *Metrics) RecordRAGStrategy(strategy string, status string, enhancement string, duration time.Duration, rewriteOutcome string, rerankOutcome string) {
+	if metrics == nil {
+		return
+	}
+	strategy = boundedRAGStrategy(strategy)
+	status = boundedRAGStatus(status)
+	enhancement = boundedEnhancement(enhancement)
+	metrics.ragStrategyRequests.WithLabelValues(strategy, status, enhancement).Inc()
+	metrics.ragStrategyDuration.WithLabelValues(strategy, status).Observe(duration.Seconds())
+	if rewriteOutcome != "" && rewriteOutcome != "none" {
+		metrics.ragEnhancements.WithLabelValues("rewrite", boundedEnhancementOutcome(rewriteOutcome)).Inc()
+	}
+	if rerankOutcome != "" && rerankOutcome != "none" {
+		metrics.ragEnhancements.WithLabelValues("rerank", boundedEnhancementOutcome(rerankOutcome)).Inc()
+	}
+}
+
+func boundedRAGStrategy(strategy string) string {
+	if strategy == "rag_deep" {
+		return strategy
+	}
+	return "rag_fast"
+}
+
+func boundedRAGStatus(status string) string {
+	switch status {
+	case "answered", "insufficient", "verifier_rejected", "rejected", "error":
+		return status
+	default:
+		return "error"
+	}
+}
+
+func boundedEnhancement(enhancement string) string {
+	switch enhancement {
+	case "skipped", "completed", "partial_fallback":
+		return enhancement
+	default:
+		return "partial_fallback"
+	}
+}
+
+func boundedEnhancementOutcome(outcome string) string {
+	switch outcome {
+	case "rewrite_not_required", "rewrite_completed", "rewrite_model_error", "rewrite_timeout", "rewrite_invalid_output",
+		"rerank_not_required", "rerank_completed", "rerank_model_error", "rerank_timeout", "rerank_invalid_output":
+		return outcome
+	default:
+		return "unknown"
+	}
 }
 
 func (metrics *Metrics) RecordKnowledgeAnswer(status string, gateReason string, duration time.Duration) {

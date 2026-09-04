@@ -93,3 +93,26 @@ func TestRecorderClassifiesFailureWithoutLeakingInternalError(t *testing.T) {
 		t.Fatal("internal error leaked into structured log")
 	}
 }
+
+func TestRAGStrategyMetricsUseBoundedLabels(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	metrics := NewMetrics(registry, registry)
+	metrics.RecordRAGStrategy("rag_deep", "answered", "completed", 2*time.Second, "rewrite_completed", "rerank_completed")
+	metrics.RecordRAGStrategy("untrusted", "unexpected", "unexpected", time.Second, "untrusted", "")
+
+	if count := testutil.ToFloat64(metrics.ragStrategyRequests.WithLabelValues("rag_deep", "answered", "completed")); count != 1 {
+		t.Fatalf("expected one deep strategy request, got %v", count)
+	}
+	if count := testutil.ToFloat64(metrics.ragEnhancements.WithLabelValues("rewrite", "rewrite_completed")); count != 1 {
+		t.Fatalf("expected rewrite outcome metric, got %v", count)
+	}
+	if count := testutil.ToFloat64(metrics.ragEnhancements.WithLabelValues("rerank", "rerank_completed")); count != 1 {
+		t.Fatalf("expected rerank outcome metric, got %v", count)
+	}
+	if count := testutil.ToFloat64(metrics.ragStrategyRequests.WithLabelValues("rag_fast", "error", "partial_fallback")); count != 1 {
+		t.Fatalf("untrusted labels must collapse to bounded values, got %v", count)
+	}
+	if count := testutil.ToFloat64(metrics.ragEnhancements.WithLabelValues("rewrite", "unknown")); count != 1 {
+		t.Fatalf("untrusted component outcomes must collapse to unknown, got %v", count)
+	}
+}

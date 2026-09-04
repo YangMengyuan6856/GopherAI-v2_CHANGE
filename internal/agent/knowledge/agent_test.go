@@ -109,3 +109,17 @@ func TestAgentFallsBackToAuthorizedCitationsAfterRepairFails(t *testing.T) {
 		t.Fatalf("expected safe cited fallback, output=%+v calls=%d err=%v", output, chatModel.calls, err)
 	}
 }
+
+func TestAgentIncludesDeepEnhancementUsageInStrategyUsage(t *testing.T) {
+	search := strongEvidence()
+	search.Diagnostics.Deep = &rag.DeepSearchDiagnostics{Usage: contract.ModelUsage{InputTokens: 120, OutputTokens: 30, CostMicros: 99}}
+	chatModel := &fakeModel{response: &schema.Message{Content: `{"answer":"默认重试次数为 7。[E1]","citations":["E1"]}`}}
+	agent, _ := NewAgent(&fakeRetriever{output: search}, chatModel, rag.DefaultEvidenceGate(), rag.NewCitationBuilder())
+	output, err := agent.Answer(context.Background(), Input{TenantID: "tenant-a", UserID: "user-a", Question: "问题"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output.Result.Usage.InputTokens != 120 || output.Result.Usage.OutputTokens != 30 || output.Result.Usage.CostMicros != 99 {
+		t.Fatalf("deep enhancement usage was not included: %+v", output.Result.Usage)
+	}
+}
