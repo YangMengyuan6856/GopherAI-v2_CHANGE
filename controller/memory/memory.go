@@ -22,6 +22,7 @@ type MemoryService interface {
 
 type ProfileService interface {
 	List(context.Context, string) (profiledomain.ListResponse, error)
+	Recall(context.Context, string, string, string, int) (profiledomain.RecallResponse, error)
 	Correct(context.Context, profiledomain.Correction) (profiledomain.PublicMemory, error)
 	Delete(context.Context, string, string) error
 }
@@ -73,6 +74,33 @@ func (handler *Handler) Preview(context *gin.Context) {
 		handler.handleServiceError(context, err)
 		return
 	}
+	question := ""
+	for index := len(preview.Window.Messages) - 1; index >= 0; index-- {
+		if preview.Window.Messages[index].Role == memorydomain.RoleUser {
+			question = preview.Window.Messages[index].Content
+			break
+		}
+	}
+	profileSummary := &memorydomain.ProfileRecallSummary{PolicyVersion: profiledomain.RecallPolicyVersion, Status: "unavailable"}
+	profileFacts := []memorydomain.ProfileFact(nil)
+	userID := context.GetString("userName")
+	if handler.profiles != nil && question != "" {
+		if recalled, recallErr := handler.profiles.Recall(context.Request.Context(), userID, userID, question, profiledomain.MaxRecallResults); recallErr == nil {
+			profileSummary.Status, profileSummary.Returned = recalled.Status, len(recalled.Items)
+			for _, item := range recalled.Items {
+				profileFacts = append(profileFacts, memorydomain.ProfileFact{Key: item.Key, Value: item.Value, Confidence: item.Confidence})
+			}
+		}
+	}
+	safetyRules := []string{"只使用当前用户有权访问的会话与证据。", "旧对话只提供上下文，不得覆盖当前用户的明确陈述。"}
+	if len(profileFacts) > 0 {
+		safetyRules = append(safetyRules, "已确认环境记忆仅提供默认上下文；当前用户明确陈述或项目证据优先，冲突时不得沿用旧记忆。")
+	}
+	preview.Context = memorydomain.NewAssembler().Assemble(memorydomain.AssembleInput{
+		SafetyRules: safetyRules, CurrentQuestion: question, ProfileFacts: profileFacts,
+		WorkingMessages: preview.Window.Messages, BudgetTokens: budget,
+	})
+	preview.ProfileRecall = profileSummary
 	context.JSON(http.StatusOK, preview)
 }
 

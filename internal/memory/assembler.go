@@ -13,6 +13,7 @@ type AssembleInput struct {
 	CurrentQuestion string
 	CurrentRunState string
 	Summary         StructuredSummary
+	ProfileFacts    []ProfileFact
 	WorkingMessages []WorkingMessage
 	BudgetTokens    int
 }
@@ -28,6 +29,7 @@ func (*Assembler) Assemble(input AssembleInput) ContextAssembly {
 		BudgetTokens:     budget,
 		Included:         make([]ContextItem, 0, len(input.WorkingMessages)+16),
 		WorkingAvailable: len(input.WorkingMessages),
+		ProfileAvailable: len(input.ProfileFacts),
 	}
 
 	required := make([]ContextItem, 0, 8)
@@ -48,8 +50,9 @@ func (*Assembler) Assemble(input AssembleInput) ContextAssembly {
 	}
 
 	optional := summaryItems(input.Summary)
+	profiles := profileItems(input.ProfileFacts)
 	working := workingItems(input.WorkingMessages, input.CurrentQuestion)
-	for _, item := range append(optional, working...) {
+	for _, item := range append(append(optional, profiles...), working...) {
 		assembly.OriginalTokens += item.EstimatedTokens
 	}
 	for _, item := range required {
@@ -62,6 +65,14 @@ func (*Assembler) Assemble(input AssembleInput) ContextAssembly {
 			continue
 		}
 		assembly.add(item)
+	}
+	for _, item := range profiles {
+		if assembly.EstimatedTokens+item.EstimatedTokens > budget {
+			assembly.DroppedByBudget++
+			continue
+		}
+		assembly.add(item)
+		assembly.ProfileIncluded++
 	}
 
 	selectedWorking := make([]ContextItem, 0, len(working))
@@ -83,6 +94,29 @@ func (*Assembler) Assemble(input AssembleInput) ContextAssembly {
 		assembly.TokenReductionRatio = float64(assembly.OriginalTokens-assembly.EstimatedTokens) / float64(assembly.OriginalTokens)
 	}
 	return assembly
+}
+
+func profileItems(facts []ProfileFact) []ContextItem {
+	if len(facts) > 5 {
+		facts = facts[:5]
+	}
+	allowed := map[string]struct{}{
+		"os": {}, "go_version": {}, "deployment_mode": {}, "cloud_provider": {}, "redis_version": {}, "mysql_version": {},
+	}
+	items := make([]ContextItem, 0, len(facts))
+	seen := make(map[string]struct{}, len(facts))
+	for _, fact := range facts {
+		key, value := boundedText(fact.Key, 64), boundedText(fact.Value, 256)
+		if _, ok := allowed[key]; !ok || value == "" || fact.Confidence < 0.8 || fact.Confidence > 1 {
+			continue
+		}
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		seen[key] = struct{}{}
+		items = append(items, contextItem(ContextProfile, "", fmt.Sprintf("confirmed_environment.%s=%s", key, value), false))
+	}
+	return items
 }
 
 func (assembly *ContextAssembly) add(item ContextItem) {

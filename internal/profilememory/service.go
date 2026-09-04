@@ -3,6 +3,7 @@ package profilememory
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -67,6 +68,87 @@ func (service *Service) List(ctx context.Context, userID string) (ListResponse, 
 		}
 	}
 	return response, nil
+}
+
+func (service *Service) Recall(ctx context.Context, tenantID string, userID string, query string, limit int) (RecallResponse, error) {
+	response := RecallResponse{SchemaVersion: SchemaVersion, PolicyVersion: RecallPolicyVersion, Status: "no_match", Items: []PublicMemory{}}
+	tenantID, userID, query = strings.TrimSpace(tenantID), strings.TrimSpace(userID), strings.TrimSpace(query)
+	if tenantID == "" || userID == "" || query == "" {
+		return response, ErrInvalidProfileMemory
+	}
+	if limit <= 0 || limit > MaxRecallResults {
+		limit = MaxRecallResults
+	}
+	now := service.clock.Now()
+	items, err := service.repository.RecallActive(ctx, harness.PrincipalHash(tenantID), harness.PrincipalHash(userID), now)
+	if err != nil {
+		return response, err
+	}
+	type rankedMemory struct {
+		memory model.EnvironmentMemory
+		score  int
+	}
+	ranked := make([]rankedMemory, 0, len(items))
+	for _, item := range items {
+		if item.Status != StatusActive || item.Confidence < MinRecallConfidence || strings.TrimSpace(item.Value) == "" || (item.ExpiresAt != nil && !item.ExpiresAt.After(now)) {
+			continue
+		}
+		score := profileQueryRelevance(item.Key, query)
+		if score == 0 {
+			continue
+		}
+		ranked = append(ranked, rankedMemory{memory: item, score: score})
+	}
+	sort.SliceStable(ranked, func(i, j int) bool {
+		if ranked[i].score != ranked[j].score {
+			return ranked[i].score > ranked[j].score
+		}
+		if !ranked[i].memory.LastObservedAt.Equal(ranked[j].memory.LastObservedAt) {
+			return ranked[i].memory.LastObservedAt.After(ranked[j].memory.LastObservedAt)
+		}
+		if ranked[i].memory.Key != ranked[j].memory.Key {
+			return ranked[i].memory.Key < ranked[j].memory.Key
+		}
+		return ranked[i].memory.ID < ranked[j].memory.ID
+	})
+	if len(ranked) > limit {
+		ranked = ranked[:limit]
+	}
+	for _, item := range ranked {
+		response.Items = append(response.Items, publicMemory(item.memory))
+	}
+	if len(response.Items) > 0 {
+		response.Status = "hit"
+	}
+	return response, nil
+}
+
+func profileQueryRelevance(key string, query string) int {
+	query = strings.ToLower(query)
+	if containsAny(query, "环境", "environment", "运行配置", "部署信息") {
+		return 1
+	}
+	keywords := map[string][]string{
+		"redis_version":   {"redis", "noauth"},
+		"mysql_version":   {"mysql", "数据库版本", "database version"},
+		"go_version":      {"golang", "go 版本", "go版本", " go ", "go1."},
+		"deployment_mode": {"docker", "container", "容器", "kubernetes", "k8s", "部署方式"},
+		"cloud_provider":  {"阿里云", "aliyun", "aws", "azure", "gcp", "云厂商", "ecs"},
+		"os":              {"ubuntu", "linux", "操作系统", " os "},
+	}
+	if containsAny(query, keywords[key]...) {
+		return 2
+	}
+	return 0
+}
+
+func containsAny(value string, needles ...string) bool {
+	for _, needle := range needles {
+		if strings.Contains(value, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func (service *Service) Correct(ctx context.Context, command Correction) (PublicMemory, error) {

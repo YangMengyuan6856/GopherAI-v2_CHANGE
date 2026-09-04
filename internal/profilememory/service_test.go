@@ -12,13 +12,16 @@ import (
 )
 
 type memoryRepository struct {
-	tenantHash string
-	userHash   string
-	sourceRun  string
-	facts      []capturedFact
-	items      []model.EnvironmentMemory
-	corrected  model.EnvironmentMemory
-	deletedID  string
+	tenantHash       string
+	userHash         string
+	sourceRun        string
+	facts            []capturedFact
+	items            []model.EnvironmentMemory
+	corrected        model.EnvironmentMemory
+	deletedID        string
+	recallTenantHash string
+	recallUserHash   string
+	recallItems      []model.EnvironmentMemory
 }
 
 func (repository *memoryRepository) Capture(_ context.Context, tenantHash string, userHash string, sourceRun string, facts []capturedFact, _ time.Time) error {
@@ -29,6 +32,11 @@ func (repository *memoryRepository) Capture(_ context.Context, tenantHash string
 
 func (repository *memoryRepository) List(context.Context, string) ([]model.EnvironmentMemory, error) {
 	return append([]model.EnvironmentMemory(nil), repository.items...), nil
+}
+
+func (repository *memoryRepository) RecallActive(_ context.Context, tenantHash string, userHash string, _ time.Time) ([]model.EnvironmentMemory, error) {
+	repository.recallTenantHash, repository.recallUserHash = tenantHash, userHash
+	return append([]model.EnvironmentMemory(nil), repository.recallItems...), nil
 }
 
 func (repository *memoryRepository) Correct(_ context.Context, userHash string, id string, value string, expiresAt *time.Time, now time.Time) (model.EnvironmentMemory, error) {
@@ -92,5 +100,28 @@ func TestListReportsCandidateConflictAndActiveCounts(t *testing.T) {
 	}
 	if result.CandidateCount != 1 || result.ConflictCount != 1 || result.ActiveCount != 1 || len(result.Items) != 3 {
 		t.Fatalf("unexpected profile counts: %#v", result)
+	}
+}
+
+func TestRecallUsesScopedActiveFreshRelevantTopK(t *testing.T) {
+	now := time.Date(2026, 9, 5, 4, 0, 0, 0, time.UTC)
+	expired := now.Add(-time.Second)
+	future := now.Add(time.Hour)
+	repository := &memoryRepository{recallItems: []model.EnvironmentMemory{
+		{ID: "redis-active", Key: "redis_version", Value: "7.4", Status: StatusActive, Confidence: 1, ExpiresAt: &future, LastObservedAt: now},
+		{ID: "redis-expired", Key: "redis_version", Value: "6.0", Status: StatusActive, Confidence: 1, ExpiresAt: &expired, LastObservedAt: now.Add(time.Minute)},
+		{ID: "redis-candidate", Key: "redis_version", Value: "7.5", Status: StatusCandidate, Confidence: 1, LastObservedAt: now},
+		{ID: "mysql-active", Key: "mysql_version", Value: "8.0", Status: StatusActive, Confidence: 1, LastObservedAt: now},
+	}}
+	service, _ := NewService(repository, fixedClock{now: now})
+	result, err := service.Recall(context.Background(), "tenant-a", "alice", "Redis NOAUTH 怎么排查", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repository.recallTenantHash != harness.PrincipalHash("tenant-a") || repository.recallUserHash != harness.PrincipalHash("alice") {
+		t.Fatalf("recall crossed principal boundary: %+v", repository)
+	}
+	if result.Status != "hit" || len(result.Items) != 1 || result.Items[0].ID != "redis-active" {
+		t.Fatalf("stale/candidate/unrelated memory crossed recall gate: %#v", result)
 	}
 }

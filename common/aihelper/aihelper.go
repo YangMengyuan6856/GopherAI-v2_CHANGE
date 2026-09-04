@@ -3,22 +3,35 @@ package aihelper
 import (
 	"GopherAI/config"
 	memorydomain "GopherAI/internal/memory"
+	"GopherAI/internal/observability"
+	profiledomain "GopherAI/internal/profilememory"
 	"GopherAI/model"
 	"context"
 	"sync"
+	"time"
 
 	"github.com/cloudwego/eino/schema"
 )
 
 // AIHelper AI助手结构体，包含消息历史、AI模型和多层记忆系统
 type AIHelper struct {
-	model         AIModel
-	messages      []*model.Message
-	mu            sync.RWMutex
-	SessionID     string
-	saveFunc      func(context.Context, *model.Message) (*model.Message, error)
-	historyLoaded bool
-	userName      string
+	model           AIModel
+	messages        []*model.Message
+	mu              sync.RWMutex
+	SessionID       string
+	saveFunc        func(context.Context, *model.Message) (*model.Message, error)
+	historyLoaded   bool
+	userName        string
+	profileRecall   ProfileRecallService
+	profileObserver ProfileRecallObserver
+}
+
+type ProfileRecallService interface {
+	Recall(context.Context, string, string, string, int) (profiledomain.RecallResponse, error)
+}
+
+type ProfileRecallObserver interface {
+	RecordProfileRecall(string, time.Duration, int)
 }
 
 // NewAIHelper 创建新的AIHelper实例
@@ -39,7 +52,7 @@ func NewAIHelper(model_ AIModel, SessionID string) *AIHelper {
 			msg.ID, msg.CreatedAt = persisted.ID, persisted.CreatedAt
 			return msg, nil
 		},
-		SessionID: SessionID,
+		SessionID: SessionID, profileRecall: profiledomain.NewDefaultService(), profileObserver: observability.DefaultMetrics(),
 	}
 }
 
@@ -48,6 +61,12 @@ func NewAIHelper(model_ AIModel, SessionID string) *AIHelper {
 // path only admits structured, source-aware memory.
 func (a *AIHelper) InitMemory(userName string) {
 	a.userName = userName
+}
+
+func (a *AIHelper) SetProfileRecall(service ProfileRecallService, observer ProfileRecallObserver) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.profileRecall, a.profileObserver = service, observer
 }
 
 // addMessage 添加消息到内存中并调用自定义存储函数
@@ -113,14 +132,19 @@ func (a *AIHelper) GetMessages() []*model.Message {
 	return out
 }
 
-// buildContextMessages assembles the bounded working-memory layer through the
-// same deterministic Context Assembler used by the public diagnostics view.
-func (a *AIHelper) buildContextMessages() []*schema.Message {
+// buildContextMessages assembles bounded working and governed profile memory
+// through the same deterministic Context Assembler used by the public view.
+func (a *AIHelper) buildContextMessages(ctx context.Context) []*schema.Message {
 	budget := GetContextTokenBudget()
 	systemPrompt := config.GetConfig().MemoryConfig.SystemPrompt
-	working := make([]memorydomain.WorkingMessage, 0, len(a.messages))
+	a.mu.RLock()
+	messages := make([]*model.Message, len(a.messages))
+	copy(messages, a.messages)
+	userName, recallService, recallObserver := a.userName, a.profileRecall, a.profileObserver
+	a.mu.RUnlock()
+	working := make([]memorydomain.WorkingMessage, 0, len(messages))
 	currentQuestion := ""
-	for _, message := range a.messages {
+	for _, message := range messages {
 		role := memorydomain.RoleAssistant
 		if message.IsUser {
 			role = memorydomain.RoleUser
@@ -132,8 +156,25 @@ func (a *AIHelper) buildContextMessages() []*schema.Message {
 	if systemPrompt != "" {
 		safetyRules = append(safetyRules, systemPrompt)
 	}
+	profileFacts := make([]memorydomain.ProfileFact, 0, profiledomain.MaxRecallResults)
+	status := "unavailable"
+	startedAt := time.Now()
+	if recallService != nil && userName != "" && currentQuestion != "" {
+		if recalled, err := recallService.Recall(ctx, userName, userName, currentQuestion, profiledomain.MaxRecallResults); err == nil {
+			status = recalled.Status
+			for _, item := range recalled.Items {
+				profileFacts = append(profileFacts, memorydomain.ProfileFact{Key: item.Key, Value: item.Value, Confidence: item.Confidence})
+			}
+		}
+	}
+	if recallObserver != nil {
+		recallObserver.RecordProfileRecall(status, time.Since(startedAt), len(profileFacts))
+	}
+	if len(profileFacts) > 0 {
+		safetyRules = append(safetyRules, "已确认环境记忆仅提供默认上下文；当前用户明确陈述或项目证据优先，冲突时不得沿用旧记忆。")
+	}
 	assembly := memorydomain.NewAssembler().Assemble(memorydomain.AssembleInput{
-		SafetyRules: safetyRules, CurrentQuestion: currentQuestion, WorkingMessages: working, BudgetTokens: budget,
+		SafetyRules: safetyRules, CurrentQuestion: currentQuestion, ProfileFacts: profileFacts, WorkingMessages: working, BudgetTokens: budget,
 	})
 	result := make([]*schema.Message, 0, len(assembly.Included))
 	for _, item := range assembly.Included {
@@ -155,8 +196,8 @@ func (a *AIHelper) GenerateResponse(userName string, ctx context.Context, userQu
 		return nil, err
 	}
 
+	messages := a.buildContextMessages(ctx)
 	a.mu.RLock()
-	messages := a.buildContextMessages()
 	modelInstance := a.model
 	a.mu.RUnlock()
 
@@ -184,8 +225,8 @@ func (a *AIHelper) StreamResponse(userName string, ctx context.Context, cb Strea
 		return nil, err
 	}
 
+	messages := a.buildContextMessages(ctx)
 	a.mu.RLock()
-	messages := a.buildContextMessages()
 	modelInstance := a.model
 	a.mu.RUnlock()
 

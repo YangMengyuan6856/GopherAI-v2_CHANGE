@@ -16,8 +16,22 @@ import (
 type Repository interface {
 	Capture(context.Context, string, string, string, []capturedFact, time.Time) error
 	List(context.Context, string) ([]model.EnvironmentMemory, error)
+	RecallActive(context.Context, string, string, time.Time) ([]model.EnvironmentMemory, error)
 	Correct(context.Context, string, string, string, *time.Time, time.Time) (model.EnvironmentMemory, error)
 	Delete(context.Context, string, string) error
+}
+
+func (repository *GormRepository) RecallActive(ctx context.Context, tenantHash string, userHash string, now time.Time) ([]model.EnvironmentMemory, error) {
+	if repository == nil || repository.db == nil {
+		return nil, gorm.ErrInvalidDB
+	}
+	var result []model.EnvironmentMemory
+	err := repository.db.WithContext(ctx).
+		Where("tenant_id_hash = ? AND user_id_hash = ? AND status = ? AND confidence >= ? AND (expires_at IS NULL OR expires_at > ?)", tenantHash, userHash, StatusActive, MinRecallConfidence, now).
+		Order("last_observed_at DESC, updated_at DESC, id ASC").
+		Limit(32).
+		Find(&result).Error
+	return result, err
 }
 
 type capturedFact struct {

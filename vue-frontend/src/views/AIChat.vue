@@ -236,6 +236,9 @@
             <span>预算 {{ memoryPreview.context.estimated_tokens }}/{{ memoryPreview.context.budget_tokens }} Token</span>
             <span>裁剪 {{ memoryPreview.context.dropped_by_budget }} 项</span>
             <span>估算 Token 降幅 {{ metricPercent(memoryPreview.context.token_reduction_ratio) }}</span>
+            <span v-if="memoryPreview.profile_recall">
+              Profile {{ memoryPreview.profile_recall.status === 'hit' ? `命中 ${memoryPreview.profile_recall.returned} 条` : memoryPreview.profile_recall.status === 'no_match' ? '无相关事实' : '降级未使用' }} · {{ memoryPreview.profile_recall.policy_version }}
+            </span>
           </div>
           <div class="memory-boundary">
             Working 已参与聊天上下文；Episodic 只接收用户明确确认的解决案例；Profile 自动提取结果先是候选，只有你确认/更正后才成为可召回环境事实。
@@ -932,6 +935,7 @@ export default {
       open_question: '未决问题',
       evidence_ref: '证据引用',
       structured_summary: '结构化摘要',
+      profile_memory: '已确认环境事实',
       working_message: '近期原始消息'
     }[kind] || kind)
 

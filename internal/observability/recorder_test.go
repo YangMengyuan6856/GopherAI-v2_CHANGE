@@ -167,6 +167,20 @@ func TestCaseRecallMetricsUseBoundedLabels(t *testing.T) {
 	}
 }
 
+func TestProfileRecallMetricsUseBoundedLabels(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	metrics := NewMetrics(registry, registry)
+	metrics.RecordProfileRecall("hit", 8*time.Millisecond, 2)
+	metrics.RecordProfileRecall("untrusted-user-value", -time.Second, 99)
+
+	if count := testutil.ToFloat64(metrics.profileMemoryRecalls.WithLabelValues("hit")); count != 1 {
+		t.Fatalf("expected one profile-memory hit, got %v", count)
+	}
+	if count := testutil.ToFloat64(metrics.profileMemoryRecalls.WithLabelValues("unavailable")); count != 1 {
+		t.Fatalf("untrusted recall status must collapse to unavailable, got %v", count)
+	}
+}
+
 func TestHarnessMetricsTrackLifecycleWithoutIdentifierLabels(t *testing.T) {
 	registry := prometheus.NewRegistry()
 	metrics := NewMetrics(registry, registry)

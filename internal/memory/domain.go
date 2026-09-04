@@ -73,6 +73,12 @@ type StructuredSummary struct {
 	NextAction     string            `json:"next_action,omitempty"`
 }
 
+type ProfileFact struct {
+	Key        string  `json:"key"`
+	Value      string  `json:"value"`
+	Confidence float64 `json:"confidence"`
+}
+
 type ContextKind string
 
 const (
@@ -84,6 +90,7 @@ const (
 	ContextOpenQuestion ContextKind = "open_question"
 	ContextEvidence     ContextKind = "evidence_ref"
 	ContextSummary      ContextKind = "structured_summary"
+	ContextProfile      ContextKind = "profile_memory"
 	ContextWorking      ContextKind = "working_message"
 )
 
@@ -106,10 +113,19 @@ type ContextAssembly struct {
 	DroppedByBudget     int           `json:"dropped_by_budget"`
 	WorkingIncluded     int           `json:"working_messages_included"`
 	WorkingAvailable    int           `json:"working_messages_available"`
+	ProfileIncluded     int           `json:"profile_memories_included"`
+	ProfileAvailable    int           `json:"profile_memories_available"`
+}
+
+type ProfileRecallSummary struct {
+	PolicyVersion string `json:"policy_version"`
+	Status        string `json:"status"`
+	Returned      int    `json:"returned"`
 }
 
 type Preview struct {
-	SchemaVersion string          `json:"schema_version"`
-	Window        WorkingWindow   `json:"window"`
-	Context       ContextAssembly `json:"context"`
+	SchemaVersion string                `json:"schema_version"`
+	Window        WorkingWindow         `json:"window"`
+	Context       ContextAssembly       `json:"context"`
+	ProfileRecall *ProfileRecallSummary `json:"profile_recall,omitempty"`
 }

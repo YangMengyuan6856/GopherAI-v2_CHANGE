@@ -25,13 +25,25 @@ type fakeMemoryService struct {
 }
 
 type fakeProfileService struct {
-	list      profiledomain.ListResponse
-	corrected profiledomain.PublicMemory
-	err       error
-	userID    string
-	memoryID  string
-	value     string
-	deleted   bool
+	list         profiledomain.ListResponse
+	corrected    profiledomain.PublicMemory
+	err          error
+	userID       string
+	memoryID     string
+	value        string
+	deleted      bool
+	recall       profiledomain.RecallResponse
+	recallTenant string
+	recallUser   string
+	recallQuery  string
+}
+
+func (service *fakeProfileService) Recall(_ context.Context, tenantID, userID, query string, _ int) (profiledomain.RecallResponse, error) {
+	service.recallTenant, service.recallUser, service.recallQuery = tenantID, userID, query
+	if service.recall.PolicyVersion == "" {
+		return profiledomain.RecallResponse{SchemaVersion: profiledomain.SchemaVersion, PolicyVersion: profiledomain.RecallPolicyVersion, Status: "no_match", Items: []profiledomain.PublicMemory{}}, nil
+	}
+	return service.recall, nil
 }
 
 func (service *fakeProfileService) List(_ context.Context, userID string) (profiledomain.ListResponse, error) {
@@ -66,6 +78,30 @@ func TestPreviewReturnsOwnedBoundedContext(t *testing.T) {
 	NewHandler(service).Preview(context)
 	if recorder.Code != http.StatusOK || service.userID != "alice" || service.session != "session-1" || service.budget != 512 {
 		t.Fatalf("unexpected preview: code=%d service=%+v body=%s", recorder.Code, service, recorder.Body.String())
+	}
+}
+
+func TestPreviewShowsOnlyGovernedRelevantProfileInActualAssembly(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service := &fakeMemoryService{preview: memorydomain.Preview{SchemaVersion: memorydomain.SchemaVersion, Window: memorydomain.WorkingWindow{
+		SessionID: "session-1", Cache: memorydomain.CacheHit,
+		Messages: []memorydomain.WorkingMessage{{ID: 1, Role: memorydomain.RoleUser, Content: "我当前 Redis 版本是什么？"}},
+	}}}
+	profiles := &fakeProfileService{recall: profiledomain.RecallResponse{
+		SchemaVersion: profiledomain.SchemaVersion, PolicyVersion: profiledomain.RecallPolicyVersion, Status: "hit",
+		Items: []profiledomain.PublicMemory{{Key: "redis_version", Value: "7.4", Confidence: 1, Status: profiledomain.StatusActive}},
+	}}
+	context, recorder := memoryContext(http.MethodGet, "/api/v1/memory/sessions/session-1/context?budget_tokens=512", "session-1")
+	NewHandlerWithProfiles(service, profiles).Preview(context)
+	if recorder.Code != http.StatusOK || profiles.recallTenant != "alice" || profiles.recallUser != "alice" || profiles.recallQuery == "" {
+		t.Fatalf("profile recall principal/query missing: code=%d profiles=%+v body=%s", recorder.Code, profiles, recorder.Body.String())
+	}
+	var response memorydomain.Preview
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.ProfileRecall == nil || response.ProfileRecall.Status != "hit" || response.Context.ProfileIncluded != 1 {
+		t.Fatalf("governed profile not visible in assembly: %#v", response)
 	}
 }
 

@@ -46,6 +46,28 @@ func TestAssemblerIsDeterministicAndCapsBudget(t *testing.T) {
 	}
 }
 
+func TestAssemblerAdmitsOnlyBoundedConfirmedProfileFacts(t *testing.T) {
+	result := NewAssembler().Assemble(AssembleInput{
+		CurrentQuestion: "Redis 版本是什么", BudgetTokens: 256,
+		ProfileFacts: []ProfileFact{
+			{Key: "redis_version", Value: "7.4", Confidence: 1},
+			{Key: "mysql_version", Value: "8.0", Confidence: 0.7},
+			{Key: "secret", Value: "must-not-enter", Confidence: 1},
+		},
+	})
+	if result.ProfileAvailable != 3 || result.ProfileIncluded != 1 {
+		t.Fatalf("unexpected profile counts: %+v", result)
+	}
+	for _, item := range result.Included {
+		if strings.Contains(item.Content, "must-not-enter") || strings.Contains(item.Content, "mysql_version") {
+			t.Fatalf("untrusted profile crossed assembler gate: %+v", result.Included)
+		}
+	}
+	if !hasContextKind(result.Included, ContextProfile) {
+		t.Fatalf("confirmed profile was not assembled: %+v", result.Included)
+	}
+}
+
 func hasContextKind(items []ContextItem, kind ContextKind) bool {
 	for _, item := range items {
 		if item.Kind == kind {

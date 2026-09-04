@@ -11,36 +11,39 @@ import (
 )
 
 type Metrics struct {
-	requests                  *prometheus.CounterVec
-	requestDuration           *prometheus.HistogramVec
-	intentDecisions           *prometheus.CounterVec
-	intentConfidence          *prometheus.HistogramVec
-	intentShadowDecisions     *prometheus.CounterVec
-	intentShadowDuration      *prometheus.HistogramVec
-	intentShadowStageCalls    *prometheus.CounterVec
-	intentShadowDisagreements *prometheus.CounterVec
-	agentRuns                 *prometheus.CounterVec
-	agentDuration             *prometheus.HistogramVec
-	persistFailures           *prometheus.CounterVec
-	documentUploads           *prometheus.CounterVec
-	documentBytes             prometheus.Histogram
-	retrievals                *prometheus.CounterVec
-	retrievalDuration         *prometheus.HistogramVec
-	retrievalResults          *prometheus.HistogramVec
-	knowledgeAnswers          *prometheus.CounterVec
-	knowledgeAnswerDuration   *prometheus.HistogramVec
-	ragStrategyRequests       *prometheus.CounterVec
-	ragStrategyDuration       *prometheus.HistogramVec
-	ragEnhancements           *prometheus.CounterVec
-	caseMemoryRecalls         *prometheus.CounterVec
-	caseMemoryRecallDuration  *prometheus.HistogramVec
-	caseMemoryRecallResults   *prometheus.HistogramVec
-	harnessRuns               *prometheus.CounterVec
-	harnessTransitions        *prometheus.CounterVec
-	harnessTerminals          *prometheus.CounterVec
-	harnessDuration           *prometheus.HistogramVec
-	harnessBudgetUtilization  *prometheus.HistogramVec
-	gatherer                  prometheus.Gatherer
+	requests                    *prometheus.CounterVec
+	requestDuration             *prometheus.HistogramVec
+	intentDecisions             *prometheus.CounterVec
+	intentConfidence            *prometheus.HistogramVec
+	intentShadowDecisions       *prometheus.CounterVec
+	intentShadowDuration        *prometheus.HistogramVec
+	intentShadowStageCalls      *prometheus.CounterVec
+	intentShadowDisagreements   *prometheus.CounterVec
+	agentRuns                   *prometheus.CounterVec
+	agentDuration               *prometheus.HistogramVec
+	persistFailures             *prometheus.CounterVec
+	documentUploads             *prometheus.CounterVec
+	documentBytes               prometheus.Histogram
+	retrievals                  *prometheus.CounterVec
+	retrievalDuration           *prometheus.HistogramVec
+	retrievalResults            *prometheus.HistogramVec
+	knowledgeAnswers            *prometheus.CounterVec
+	knowledgeAnswerDuration     *prometheus.HistogramVec
+	ragStrategyRequests         *prometheus.CounterVec
+	ragStrategyDuration         *prometheus.HistogramVec
+	ragEnhancements             *prometheus.CounterVec
+	caseMemoryRecalls           *prometheus.CounterVec
+	caseMemoryRecallDuration    *prometheus.HistogramVec
+	caseMemoryRecallResults     *prometheus.HistogramVec
+	profileMemoryRecalls        *prometheus.CounterVec
+	profileMemoryRecallDuration *prometheus.HistogramVec
+	profileMemoryRecallResults  *prometheus.HistogramVec
+	harnessRuns                 *prometheus.CounterVec
+	harnessTransitions          *prometheus.CounterVec
+	harnessTerminals            *prometheus.CounterVec
+	harnessDuration             *prometheus.HistogramVec
+	harnessBudgetUtilization    *prometheus.HistogramVec
+	gatherer                    prometheus.Gatherer
 }
 
 func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) *Metrics {
@@ -152,6 +155,20 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 			Help:    "Number of user-confirmed historical cases returned by recall.",
 			Buckets: []float64{0, 1, 2, 3},
 		}, []string{"status"}),
+		profileMemoryRecalls: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_profile_memory_recalls_total",
+			Help: "Total governed profile-memory recalls by bounded outcome.",
+		}, []string{"status"}),
+		profileMemoryRecallDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "gopherai_profile_memory_recall_duration_seconds",
+			Help:    "Profile-memory recall duration in seconds by bounded outcome.",
+			Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1},
+		}, []string{"status"}),
+		profileMemoryRecallResults: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "gopherai_profile_memory_recall_results",
+			Help:    "Number of active relevant profile facts returned per recall.",
+			Buckets: []float64{0, 1, 2, 3, 5},
+		}, []string{"status"}),
 		harnessRuns: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "gopherai_harness_runs_total",
 			Help: "Total durable harness create requests by bounded intent, strategy and idempotency outcome.",
@@ -201,6 +218,9 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 		metrics.caseMemoryRecalls,
 		metrics.caseMemoryRecallDuration,
 		metrics.caseMemoryRecallResults,
+		metrics.profileMemoryRecalls,
+		metrics.profileMemoryRecallDuration,
+		metrics.profileMemoryRecallResults,
 		metrics.harnessRuns,
 		metrics.harnessTransitions,
 		metrics.harnessTerminals,
@@ -227,6 +247,7 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 	}
 	for _, status := range []string{"hit", "no_match", "unavailable"} {
 		metrics.caseMemoryRecalls.WithLabelValues(status).Add(0)
+		metrics.profileMemoryRecalls.WithLabelValues(status).Add(0)
 	}
 	for _, strategy := range []string{"rag_fast", "rag_deep"} {
 		for _, status := range []string{"answered", "insufficient", "verifier_rejected", "rejected", "error"} {
@@ -236,6 +257,29 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 		}
 	}
 	return metrics
+}
+
+func (metrics *Metrics) RecordProfileRecall(status string, duration time.Duration, count int) {
+	if metrics == nil {
+		return
+	}
+	switch status {
+	case "hit", "no_match", "unavailable":
+	default:
+		status = "unavailable"
+	}
+	if duration < 0 {
+		duration = 0
+	}
+	if count < 0 {
+		count = 0
+	}
+	if count > 5 {
+		count = 5
+	}
+	metrics.profileMemoryRecalls.WithLabelValues(status).Inc()
+	metrics.profileMemoryRecallDuration.WithLabelValues(status).Observe(duration.Seconds())
+	metrics.profileMemoryRecallResults.WithLabelValues(status).Observe(float64(count))
 }
 
 // RecordCaseRecall implements diagnostic.CaseRecallObserver without importing

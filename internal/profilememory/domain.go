@@ -6,7 +6,10 @@ import (
 )
 
 const (
-	SchemaVersion = "profile-memory-v1"
+	SchemaVersion       = "profile-memory-v1"
+	RecallPolicyVersion = "profile-recall-v1"
+	MaxRecallResults    = 5
+	MinRecallConfidence = 0.8
 
 	StatusCandidate  = "candidate"
 	StatusActive     = "active"
@@ -49,6 +52,13 @@ type ListResponse struct {
 	ActiveCount    int            `json:"active_count"`
 	CandidateCount int            `json:"candidate_count"`
 	ConflictCount  int            `json:"conflict_count"`
+}
+
+type RecallResponse struct {
+	SchemaVersion string         `json:"schema_version"`
+	PolicyVersion string         `json:"policy_version"`
+	Status        string         `json:"status"`
+	Items         []PublicMemory `json:"items"`
 }
 
 type Correction struct {
