@@ -13,6 +13,7 @@ import (
 
 	"GopherAI/internal/diagnostic"
 	"GopherAI/internal/harness"
+	"GopherAI/internal/incident"
 	"GopherAI/middleware/requestid"
 
 	"github.com/gin-gonic/gin"
@@ -25,6 +26,32 @@ type fakeWorkflow struct {
 	resumeCommand diagnostic.ResumeCommand
 	getRunID      string
 	cancelRunID   string
+}
+
+type fakeResolutionService struct {
+	proposal       incident.Proposal
+	confirmation   incident.Confirmation
+	resolved       *incident.PublicResolvedIncident
+	err            error
+	confirmCommand incident.ConfirmCommand
+	previewUser    string
+}
+
+func (service *fakeResolutionService) Preview(_ context.Context, userID string, runID string, hypothesisID string) (incident.Proposal, error) {
+	service.previewUser = userID
+	if service.proposal.RunID == "" {
+		service.proposal = incident.Proposal{SchemaVersion: incident.SchemaVersion, RunID: runID, HypothesisID: hypothesisID, RequiresHumanConfirm: true}
+	}
+	return service.proposal, service.err
+}
+
+func (service *fakeResolutionService) Confirm(_ context.Context, command incident.ConfirmCommand) (incident.Confirmation, error) {
+	service.confirmCommand = command
+	return service.confirmation, service.err
+}
+
+func (service *fakeResolutionService) Get(context.Context, string, string) (*incident.PublicResolvedIncident, error) {
+	return service.resolved, service.err
 }
 
 func (workflow *fakeWorkflow) Start(_ context.Context, command diagnostic.StartCommand) (diagnostic.RunResponse, error) {
@@ -81,6 +108,15 @@ func newTestEngine(workflow Workflow) *gin.Engine {
 	engine.POST("/agent-runs/:run_id/resume", handler.Resume)
 	engine.POST("/agent-runs/:run_id/cancel", handler.Cancel)
 	return engine
+}
+
+func newResolutionTestEngine(workflow Workflow, resolutions ResolutionService) *gin.Engine {
+	gine := newTestEngine(workflow)
+	handler := NewHandlerWithResolutions(workflow, resolutions)
+	gine.POST("/agent-runs/:run_id/resolution-proposals", handler.PreviewResolution)
+	gine.POST("/agent-runs/:run_id/resolution-confirmations", handler.ConfirmResolution)
+	gine.GET("/agent-runs/:run_id/resolution", handler.GetResolution)
+	return gine
 }
 
 func TestStartContractUsesRequestContextAndHidesPrivateCheckpoint(t *testing.T) {
@@ -154,5 +190,35 @@ func TestInvalidResumeBodyDoesNotReachWorkflow(t *testing.T) {
 
 	if recorder.Code != http.StatusBadRequest || workflow.resumeCommand.RunID != "" {
 		t.Fatalf("invalid input reached workflow or wrong response: %d %+v", recorder.Code, workflow.resumeCommand)
+	}
+}
+
+func TestResolutionPreviewAndConfirmationContracts(t *testing.T) {
+	workflow := &fakeWorkflow{response: testRunResponse()}
+	resolutions := &fakeResolutionService{confirmation: incident.Confirmation{
+		SchemaVersion: incident.SchemaVersion, Created: true,
+		Incident: incident.PublicResolvedIncident{ID: "incident-1", SourceRunID: "run-1", Status: incident.StatusConfirmed, IndexStatus: incident.IndexStatusPending},
+	}}
+	engine := newResolutionTestEngine(workflow, resolutions)
+
+	preview := httptest.NewRecorder()
+	previewRequest := httptest.NewRequest(http.MethodPost, "/agent-runs/run-1/resolution-proposals", bytes.NewBufferString(`{"hypothesis_id":"cause-1"}`))
+	previewRequest.Header.Set("Content-Type", "application/json")
+	engine.ServeHTTP(preview, previewRequest)
+	if preview.Code != http.StatusOK || resolutions.previewUser != "alice" || !strings.Contains(preview.Body.String(), `"requires_human_confirm":true`) {
+		t.Fatalf("unexpected preview contract %d: %s", preview.Code, preview.Body.String())
+	}
+
+	confirmation := httptest.NewRecorder()
+	confirmRequest := httptest.NewRequest(http.MethodPost, "/agent-runs/run-1/resolution-confirmations", bytes.NewBufferString(`{"hypothesis_id":"cause-1","resolution":"fixed and verified","client_request_id":"confirm-1","expected_state_version":5}`))
+	confirmRequest.Header.Set("Content-Type", "application/json")
+	engine.ServeHTTP(confirmation, confirmRequest)
+	if confirmation.Code != http.StatusCreated || resolutions.confirmCommand.UserID != "alice" || resolutions.confirmCommand.ExpectedStateVersion != 5 {
+		t.Fatalf("unexpected confirmation contract %d: %s command=%+v", confirmation.Code, confirmation.Body.String(), resolutions.confirmCommand)
+	}
+	for _, forbidden := range []string{"tenant_id_hash", "user_id_hash"} {
+		if strings.Contains(confirmation.Body.String(), forbidden) {
+			t.Fatalf("principal hash leaked: %s", confirmation.Body.String())
+		}
 	}
 }

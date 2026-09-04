@@ -17,7 +17,21 @@ const (
 	DocumentIndexQueue = "gopher.document.index.v1"
 	DocumentRetryQueue = "gopher.document.index.v1.retry"
 	DocumentDLQ        = "gopher.document.index.v1.dlq"
+	IncidentIndexQueue = "gopher.incident.index.v1"
+	IncidentRetryQueue = "gopher.incident.index.v1.retry"
+	IncidentDLQ        = "gopher.incident.index.v1.dlq"
 	DefaultRetryDelay  = 5 * time.Second
+)
+
+type QueueConfig struct {
+	Queue      string
+	RetryQueue string
+	DeadQueue  string
+}
+
+var (
+	DocumentQueueConfig = QueueConfig{Queue: DocumentIndexQueue, RetryQueue: DocumentRetryQueue, DeadQueue: DocumentDLQ}
+	IncidentQueueConfig = QueueConfig{Queue: IncidentIndexQueue, RetryQueue: IncidentRetryQueue, DeadQueue: IncidentDLQ}
 )
 
 type RabbitMQ struct {
@@ -91,9 +105,16 @@ func (broker *RabbitMQ) Publish(ctx context.Context, routingKey string, body []b
 }
 
 func (broker *RabbitMQ) Consume(ctx context.Context, handler func(context.Context, []byte) queuecontract.Result) error {
-	deliveries, err := broker.consumeChannel.Consume(DocumentIndexQueue, "", false, false, false, false, nil)
+	return broker.ConsumeQueue(ctx, DocumentQueueConfig, handler)
+}
+
+func (broker *RabbitMQ) ConsumeQueue(ctx context.Context, queue QueueConfig, handler func(context.Context, []byte) queuecontract.Result) error {
+	if queue.Queue == "" || queue.RetryQueue == "" || queue.DeadQueue == "" || handler == nil {
+		return errors.New("complete queue configuration and handler are required")
+	}
+	deliveries, err := broker.consumeChannel.Consume(queue.Queue, "", false, false, false, false, nil)
 	if err != nil {
-		return fmt.Errorf("start document consumer: %w", err)
+		return fmt.Errorf("start %s consumer: %w", queue.Queue, err)
 	}
 	closed := broker.connection.NotifyClose(make(chan *amqp.Error, 1))
 	for {
@@ -107,17 +128,17 @@ func (broker *RabbitMQ) Consume(ctx context.Context, handler func(context.Contex
 			return fmt.Errorf("rabbitmq connection closed: %w", closeError)
 		case delivery, open := <-deliveries:
 			if !open {
-				return errors.New("document delivery channel closed")
+				return fmt.Errorf("%s delivery channel closed", queue.Queue)
 			}
 			result := handler(ctx, delivery.Body)
-			if err := broker.finishDelivery(ctx, delivery, result); err != nil {
+			if err := broker.finishDelivery(ctx, delivery, result, queue); err != nil {
 				return err
 			}
 		}
 	}
 }
 
-func (broker *RabbitMQ) finishDelivery(ctx context.Context, delivery amqp.Delivery, result queuecontract.Result) error {
+func (broker *RabbitMQ) finishDelivery(ctx context.Context, delivery amqp.Delivery, result queuecontract.Result, queue QueueConfig) error {
 	body := result.Body
 	if len(body) == 0 {
 		body = delivery.Body
@@ -126,13 +147,13 @@ func (broker *RabbitMQ) finishDelivery(ctx context.Context, delivery amqp.Delive
 	case queuecontract.ActionAck:
 		return delivery.Ack(false)
 	case queuecontract.ActionRetry:
-		if err := broker.publishPersistent(ctx, "", DocumentRetryQueue, body); err != nil {
+		if err := broker.publishPersistent(ctx, "", queue.RetryQueue, body); err != nil {
 			_ = delivery.Nack(false, true)
 			return fmt.Errorf("publish retry message: %w", err)
 		}
 		return delivery.Ack(false)
 	case queuecontract.ActionDead:
-		if err := broker.publishPersistent(ctx, DeadLetterExchange, DocumentIndexQueue, body); err != nil {
+		if err := broker.publishPersistent(ctx, DeadLetterExchange, queue.Queue, body); err != nil {
 			_ = delivery.Nack(false, true)
 			return fmt.Errorf("publish dead letter: %w", err)
 		}
@@ -183,33 +204,39 @@ func (broker *RabbitMQ) declareTopology() error {
 			return fmt.Errorf("declare dead-letter exchange: %w", err)
 		}
 	}
-	mainQueue, err := broker.consumeChannel.QueueDeclare(DocumentIndexQueue, true, false, false, false, amqp.Table{
-		"x-dead-letter-exchange":    DeadLetterExchange,
-		"x-dead-letter-routing-key": DocumentIndexQueue,
+	for _, queue := range []QueueConfig{DocumentQueueConfig, IncidentQueueConfig} {
+		if err := broker.declareQueue(queue); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (broker *RabbitMQ) declareQueue(queue QueueConfig) error {
+	mainQueue, err := broker.consumeChannel.QueueDeclare(queue.Queue, true, false, false, false, amqp.Table{
+		"x-dead-letter-exchange": DeadLetterExchange, "x-dead-letter-routing-key": queue.Queue,
 	})
 	if err != nil {
-		return fmt.Errorf("declare document queue: %w", err)
+		return fmt.Errorf("declare %s: %w", queue.Queue, err)
 	}
-	if err := broker.consumeChannel.QueueBind(mainQueue.Name, DocumentIndexQueue, JobsExchange, false, nil); err != nil {
-		return fmt.Errorf("bind document queue: %w", err)
+	if err := broker.consumeChannel.QueueBind(mainQueue.Name, queue.Queue, JobsExchange, false, nil); err != nil {
+		return fmt.Errorf("bind %s: %w", queue.Queue, err)
 	}
-	retryQueue, err := broker.consumeChannel.QueueDeclare(DocumentRetryQueue, true, false, false, false, amqp.Table{
-		"x-message-ttl":             int32(DefaultRetryDelay / time.Millisecond),
-		"x-dead-letter-exchange":    JobsExchange,
-		"x-dead-letter-routing-key": DocumentIndexQueue,
+	retryQueue, err := broker.consumeChannel.QueueDeclare(queue.RetryQueue, true, false, false, false, amqp.Table{
+		"x-message-ttl": int32(DefaultRetryDelay / time.Millisecond), "x-dead-letter-exchange": JobsExchange, "x-dead-letter-routing-key": queue.Queue,
 	})
+	if err != nil || retryQueue.Name == "" {
+		if err == nil {
+			err = errors.New("retry queue has no name")
+		}
+		return fmt.Errorf("declare %s: %w", queue.RetryQueue, err)
+	}
+	deadQueue, err := broker.consumeChannel.QueueDeclare(queue.DeadQueue, true, false, false, false, nil)
 	if err != nil {
-		return fmt.Errorf("declare document retry queue: %w", err)
+		return fmt.Errorf("declare %s: %w", queue.DeadQueue, err)
 	}
-	if retryQueue.Name == "" {
-		return errors.New("document retry queue has no name")
-	}
-	deadQueue, err := broker.consumeChannel.QueueDeclare(DocumentDLQ, true, false, false, false, nil)
-	if err != nil {
-		return fmt.Errorf("declare document dead-letter queue: %w", err)
-	}
-	if err := broker.consumeChannel.QueueBind(deadQueue.Name, DocumentIndexQueue, DeadLetterExchange, false, nil); err != nil {
-		return fmt.Errorf("bind document dead-letter queue: %w", err)
+	if err := broker.consumeChannel.QueueBind(deadQueue.Name, queue.Queue, DeadLetterExchange, false, nil); err != nil {
+		return fmt.Errorf("bind %s: %w", queue.DeadQueue, err)
 	}
 	return nil
 }

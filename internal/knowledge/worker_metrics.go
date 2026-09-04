@@ -7,10 +7,12 @@ import (
 )
 
 type WorkerMetrics struct {
-	outboxPublishes *prometheus.CounterVec
-	outboxOldestAge prometheus.Gauge
-	indexJobs       *prometheus.CounterVec
-	indexDuration   prometheus.Histogram
+	outboxPublishes  *prometheus.CounterVec
+	outboxOldestAge  prometheus.Gauge
+	indexJobs        *prometheus.CounterVec
+	indexDuration    prometheus.Histogram
+	incidentJobs     *prometheus.CounterVec
+	incidentDuration prometheus.Histogram
 }
 
 func NewWorkerMetrics(registerer prometheus.Registerer) *WorkerMetrics {
@@ -32,15 +34,33 @@ func NewWorkerMetrics(registerer prometheus.Registerer) *WorkerMetrics {
 			Help:    "Knowledge indexing execution duration in seconds.",
 			Buckets: []float64{0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 40, 80},
 		}),
+		incidentJobs: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_incident_index_jobs_total",
+			Help: "Total confirmed incident indexing outcomes.",
+		}, []string{"status", "error_code"}),
+		incidentDuration: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "gopherai_incident_index_job_duration_seconds",
+			Help:    "Confirmed incident indexing execution duration in seconds.",
+			Buckets: []float64{0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5},
+		}),
 	}
-	registerer.MustRegister(metrics.outboxPublishes, metrics.outboxOldestAge, metrics.indexJobs, metrics.indexDuration)
+	registerer.MustRegister(metrics.outboxPublishes, metrics.outboxOldestAge, metrics.indexJobs, metrics.indexDuration, metrics.incidentJobs, metrics.incidentDuration)
 	for _, status := range []string{"published", "error", "invalid"} {
 		metrics.outboxPublishes.WithLabelValues(status).Add(0)
 	}
 	for _, status := range []string{"success", "retry", "dead"} {
 		metrics.indexJobs.WithLabelValues(status, "none").Add(0)
+		metrics.incidentJobs.WithLabelValues(status, "none").Add(0)
 	}
 	return metrics
+}
+
+func (metrics *WorkerMetrics) RecordIncidentIndex(status string, code string, duration time.Duration) {
+	if code == "" {
+		code = "none"
+	}
+	metrics.incidentJobs.WithLabelValues(status, code).Inc()
+	metrics.incidentDuration.Observe(duration.Seconds())
 }
 
 func (metrics *WorkerMetrics) RecordOutboxPublish(status string) {

@@ -75,6 +75,8 @@ func migration() error {
 		new(model.KnowledgeChunk),
 		new(model.KnowledgeJob),
 		new(model.OutboxEvent),
+		new(model.ResolutionFeedback),
+		new(model.ResolvedIncident),
 	)
 }
 

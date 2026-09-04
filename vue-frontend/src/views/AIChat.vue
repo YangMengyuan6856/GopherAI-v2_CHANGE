@@ -238,7 +238,7 @@
             <span>估算 Token 降幅 {{ metricPercent(memoryPreview.context.token_reduction_ratio) }}</span>
           </div>
           <div class="memory-boundary">
-            当前上线的是 Working Memory + Token 预算组装；已解决案例（Episodic）和环境事实（Profile）仍未开放，避免把未确认信息注入回答。
+            Working Memory 已参与上下文组装；Episodic Memory 只接收下方由用户显式确认的已解决案例，未确认假设不会进入召回。环境事实（Profile）尚未开放。
           </div>
           <details open>
             <summary>本次实际纳入模型上下文的项目（{{ memoryPreview.context.included.length }}）</summary>
@@ -353,8 +353,59 @@
                   <small>预期：{{ step.expected_observation }}；否则：{{ step.failure_meaning }}</small>
                 </li>
               </ol>
+              <button
+                v-if="activeDiagnosticRun.run.state === 'SUCCEEDED' && !confirmedResolution"
+                class="resolution-preview-btn"
+                :disabled="loadingResolution"
+                @click="previewResolution(hypothesis.id)"
+              >
+                {{ loadingResolution ? '生成确认预览中...' : '这个假设已验证，预览案例记忆' }}
+              </button>
             </article>
           </div>
+          <section v-if="resolutionProposal && !confirmedResolution" class="resolution-proposal">
+            <div class="resolution-proposal-header">
+              <div>
+                <strong>🧩 Action Proposal · 写入案例记忆前预览</strong>
+                <span>预览不会写数据库；确认后才会事务写入反馈、案例和 Outbox</span>
+              </div>
+              <button @click="closeResolutionProposal">关闭</button>
+            </div>
+            <div class="resolution-proposal-content">
+              <p><strong>故障现象：</strong>{{ resolutionProposal.symptom }}</p>
+              <p><strong>你将确认的根因：</strong>{{ resolutionProposal.proposed_root_cause }}</p>
+              <p><strong>已有证据：</strong>{{ resolutionProposal.evidence.map(item => item.summary).join('；') }}</p>
+            </div>
+            <label class="resolution-input-label">
+              <span>请填写你实际执行且已验证有效的解决办法（不会自动执行）：</span>
+              <textarea v-model="resolutionText" maxlength="1000" rows="3" placeholder="例如：修正后端容器的 Redis 主机名并重启，随后 PING 返回 PONG、接口恢复。"></textarea>
+            </label>
+            <label class="resolution-confirm-check">
+              <input v-model="resolutionAcknowledged" type="checkbox" />
+              我确认该办法已经在真实环境验证有效，并同意将脱敏结果作为我的已解决案例
+            </label>
+            <button
+              class="resolution-confirm-btn"
+              :disabled="loadingResolution || !resolutionAcknowledged || resolutionText.trim().length < 5"
+              @click="confirmResolution"
+            >
+              {{ loadingResolution ? '确认写入中...' : '确认解决并写入 Episodic Memory' }}
+            </button>
+          </section>
+          <section v-if="confirmedResolution" class="confirmed-resolution">
+            <div class="confirmed-resolution-header">
+              <strong>✅ 用户已确认的解决案例</strong>
+              <div class="confirmed-resolution-actions">
+                <span :class="['incident-index-badge', `index-${confirmedResolution.index_status}`]">
+                  {{ incidentIndexLabel(confirmedResolution.index_status) }}
+                </span>
+                <button :disabled="loadingResolution" @click="loadConfirmedResolution">刷新索引状态</button>
+              </div>
+            </div>
+            <p><strong>根因：</strong>{{ confirmedResolution.root_cause }}</p>
+            <p><strong>实际解决：</strong>{{ confirmedResolution.resolution }}</p>
+            <small>案例 {{ confirmedResolution.id.slice(0, 8) }} · 仅当前用户可召回 · 未确认假设不会进入索引</small>
+          </section>
         </template>
       </section>
 
@@ -461,6 +512,11 @@ export default {
     const memoryPreviewOpen = ref(false)
     const loadingMemoryPreview = ref(false)
     const memoryPreview = ref(null)
+    const resolutionProposal = ref(null)
+    const resolutionText = ref('')
+    const resolutionAcknowledged = ref(false)
+    const loadingResolution = ref(false)
+    const confirmedResolution = ref(null)
     const diagnosticRunStorageKey = 'gopherai.active-diagnostic-run-v1'
     const diagnosticModeStorageKey = 'gopherai.diagnostic-mode-v1'
     let knowledgePollTimer = null
@@ -884,6 +940,68 @@ export default {
 
     const isDiagnosticTerminal = (state) => ['SUCCEEDED', 'FAILED', 'CANCELLED', 'BUDGET_EXCEEDED'].includes(state)
 
+    const incidentIndexLabel = (status) => ({
+      pending: '等待可靠索引',
+      indexed: 'RabbitMQ 异步索引完成',
+      failed: '索引失败，可由 Outbox/重试恢复'
+    }[status] || status)
+
+    const previewResolution = async (hypothesisId) => {
+      if (!activeDiagnosticRun.value?.run?.run_id) return
+      try {
+        loadingResolution.value = true
+        const response = await api.post(`/agent-runs/${activeDiagnosticRun.value.run.run_id}/resolution-proposals`, {
+          hypothesis_id: hypothesisId
+        })
+        resolutionProposal.value = response.data
+        resolutionText.value = ''
+        resolutionAcknowledged.value = false
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || '解决案例预览失败')
+      } finally {
+        loadingResolution.value = false
+      }
+    }
+
+    const closeResolutionProposal = () => {
+      resolutionProposal.value = null
+      resolutionText.value = ''
+      resolutionAcknowledged.value = false
+    }
+
+    const loadConfirmedResolution = async () => {
+      if (!activeDiagnosticRun.value?.run?.run_id) return
+      try {
+        const response = await api.get(`/agent-runs/${activeDiagnosticRun.value.run.run_id}/resolution`)
+        confirmedResolution.value = response.data
+        resolutionProposal.value = null
+      } catch (error) {
+        if (error.response?.status !== 404) ElMessage.warning(error.response?.data?.message || '已解决案例状态暂时不可用')
+        confirmedResolution.value = null
+      }
+    }
+
+    const confirmResolution = async () => {
+      if (!resolutionProposal.value || !resolutionAcknowledged.value || resolutionText.value.trim().length < 5) return
+      try {
+        loadingResolution.value = true
+        const response = await api.post(`/agent-runs/${resolutionProposal.value.run_id}/resolution-confirmations`, {
+          hypothesis_id: resolutionProposal.value.hypothesis_id,
+          resolution: resolutionText.value,
+          client_request_id: newClientRequestId(),
+          expected_state_version: resolutionProposal.value.expected_state_version
+        })
+        confirmedResolution.value = response.data.incident
+        resolutionProposal.value = null
+        ElMessage.success(response.data.created ? '已确认解决，案例正在通过 Outbox 异步建立索引' : '该确认已处理，没有重复写入')
+        window.setTimeout(loadConfirmedResolution, 1500)
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || '确认解决方案失败')
+      } finally {
+        loadingResolution.value = false
+      }
+    }
+
     const diagnosticMessage = (payload) => {
       const state = payload.run?.state
       const result = payload.result
@@ -914,6 +1032,8 @@ export default {
         })
       }
       activeDiagnosticRun.value = response.data
+      confirmedResolution.value = null
+      resolutionProposal.value = null
       diagnosticRecovered.value = false
       rememberDiagnosticRun(response.data)
       currentMessages.value.push({
@@ -946,6 +1066,8 @@ export default {
 
     const resetDiagnosticRun = () => {
       activeDiagnosticRun.value = null
+      confirmedResolution.value = null
+      resolutionProposal.value = null
       diagnosticRecovered.value = false
       sessionStorage.removeItem(diagnosticRunStorageKey)
       nextTick(() => messageInput.value?.focus())
@@ -964,6 +1086,7 @@ export default {
         const response = await api.get(`/agent-runs/${encodeURIComponent(runId)}`)
         activeDiagnosticRun.value = response.data
         diagnosticRecovered.value = true
+        await loadConfirmedResolution()
       } catch (error) {
         if (error.response?.status === 404) sessionStorage.removeItem(diagnosticRunStorageKey)
         ElMessage.warning(error.response?.data?.message || '上次诊断 Run 暂时无法恢复，可稍后重新打开诊断模式')
@@ -1448,6 +1571,11 @@ export default {
       memoryPreviewOpen,
       loadingMemoryPreview,
       memoryPreview,
+      resolutionProposal,
+      resolutionText,
+      resolutionAcknowledged,
+      loadingResolution,
+      confirmedResolution,
       documentStatusLabel,
       jobStatusLabel,
       retrievalModeLabel,
@@ -1460,6 +1588,7 @@ export default {
       intentStageLabel,
       diagnosticStateLabel,
       isDiagnosticTerminal,
+      incidentIndexLabel,
       metricPercent,
       memoryCacheLabel,
       memoryContextKindLabel,
@@ -1467,6 +1596,10 @@ export default {
       loadMemoryPreview,
       rebuildWorkingMemory,
       toggleDiagnosticEvaluation,
+      previewResolution,
+      closeResolutionProposal,
+      confirmResolution,
+      loadConfirmedResolution,
       renderMarkdown,
       playTTS,
       createNewSession,
@@ -1998,6 +2131,143 @@ export default {
 
 .diagnostic-hypotheses small {
   color: #6d7b90;
+}
+
+.resolution-preview-btn {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid #98a9e8;
+  border-radius: 8px;
+  color: #4054a5;
+  background: #eef2ff;
+  cursor: pointer;
+}
+
+.resolution-preview-btn:disabled,
+.resolution-confirm-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.resolution-proposal,
+.confirmed-resolution {
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: 12px;
+}
+
+.resolution-proposal {
+  border: 1px solid #e0bd67;
+  background: #fffbeb;
+}
+
+.resolution-proposal-header,
+.confirmed-resolution-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.confirmed-resolution-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.confirmed-resolution-actions button {
+  padding: 4px 7px;
+  border: 1px solid #9bd4b6;
+  border-radius: 7px;
+  color: #246346;
+  background: #fff;
+  cursor: pointer;
+}
+
+.resolution-proposal-header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.resolution-proposal-header span,
+.confirmed-resolution small {
+  color: #68768b;
+  font-size: 12px;
+}
+
+.resolution-proposal-header button {
+  border: 0;
+  color: #6f5a25;
+  background: transparent;
+  cursor: pointer;
+}
+
+.resolution-proposal-content p,
+.confirmed-resolution p {
+  margin: 8px 0;
+  color: #435169;
+  font-size: 13px;
+}
+
+.resolution-input-label {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  color: #4b5363;
+  font-size: 13px;
+}
+
+.resolution-input-label textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 10px;
+  border: 1px solid #d7be7e;
+  border-radius: 8px;
+  resize: vertical;
+  font: inherit;
+}
+
+.resolution-confirm-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 10px 0;
+  color: #705821;
+  font-size: 12px;
+}
+
+.resolution-confirm-btn {
+  padding: 9px 13px;
+  border: 0;
+  border-radius: 8px;
+  color: white;
+  background: #5267c9;
+  cursor: pointer;
+}
+
+.confirmed-resolution {
+  border: 1px solid #9bd4b6;
+  background: #effbf4;
+}
+
+.incident-index-badge {
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: #7e5d16;
+  background: #fff1c7;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.incident-index-badge.index-indexed {
+  color: #176b45;
+  background: #d9f4e5;
+}
+
+.incident-index-badge.index-failed {
+  color: #9c3434;
+  background: #ffe3e3;
 }
 
 .knowledge-status {

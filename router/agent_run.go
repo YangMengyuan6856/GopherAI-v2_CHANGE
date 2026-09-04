@@ -12,4 +12,7 @@ func RegisterAgentRunRouter(group *gin.RouterGroup) {
 	group.GET("/:run_id", handler.Get)
 	group.POST("/:run_id/resume", handler.Resume)
 	group.POST("/:run_id/cancel", handler.Cancel)
+	group.POST("/:run_id/resolution-proposals", handler.PreviewResolution)
+	group.POST("/:run_id/resolution-confirmations", handler.ConfirmResolution)
+	group.GET("/:run_id/resolution", handler.GetResolution)
 }

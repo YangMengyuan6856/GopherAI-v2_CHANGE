@@ -34,6 +34,32 @@ type ExtractedInput struct {
 
 type Extractor struct{}
 
+// SanitizeFreeText applies the same secret redaction, instruction filtering and
+// rune bounds used by diagnostic input before text is admitted to reusable
+// memory. The caller chooses a smaller field-specific bound.
+func SanitizeFreeText(raw string, maximum int) (string, int, error) {
+	if maximum <= 0 || maximum > maxDiagnosticExcerpt {
+		return "", 0, errors.New("sanitization bound is invalid")
+	}
+	normalized := normalizeDiagnosticText(raw)
+	normalized, _ = truncateRunes(normalized, maxDiagnosticInputRune)
+	normalized, redactions := redactDiagnosticText(normalized)
+	lines := make([]string, 0, 16)
+	for _, line := range strings.Split(normalized, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || isInstructionLike(line) {
+			continue
+		}
+		line, _ = truncateRunes(line, maxDiagnosticLine)
+		lines = append(lines, line)
+	}
+	value, _ := truncateRunes(strings.TrimSpace(strings.Join(lines, "\n")), maximum)
+	if value == "" {
+		return "", redactions, ErrEmptyDiagnosticInput
+	}
+	return value, redactions, nil
+}
+
 type namedPattern struct {
 	name    string
 	pattern *regexp.Regexp

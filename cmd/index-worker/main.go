@@ -4,6 +4,7 @@ import (
 	"GopherAI/common/mysql"
 	redisstore "GopherAI/common/redis"
 	"GopherAI/config"
+	"GopherAI/internal/incident"
 	"GopherAI/internal/knowledge"
 	jobqueueadapter "GopherAI/internal/platform/jobqueue"
 	"context"
@@ -88,6 +89,19 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	incidentRepository := incident.NewGormRepository(mysql.DB)
+	incidentIndexer, err := incident.NewRedisCaseIndexer(redisstore.Rdb, environment)
+	if err != nil {
+		return fmt.Errorf("initialize incident indexer: %w", err)
+	}
+	incidentProcessor, err := incident.NewProcessor(incidentRepository, incidentIndexer, incident.SystemClock{})
+	if err != nil {
+		return err
+	}
+	incidentConsumer, err := incident.NewConsumer(incidentProcessor, metrics, incident.DefaultMaximumAttempts, incident.SystemClock{})
+	if err != nil {
+		return err
+	}
 	state := new(workerState)
 	server, listener, err := startStatusServer(state, registry)
 	if err != nil {
@@ -108,7 +122,7 @@ func run() error {
 
 	rabbitURL := buildRabbitURL(configuration)
 	for ctx.Err() == nil {
-		err = runBrokerSession(ctx, rabbitURL, repository, consumer, metrics, state)
+		err = runBrokerSession(ctx, rabbitURL, repository, consumer, incidentConsumer, metrics, state)
 		state.ready.Store(false)
 		if ctx.Err() != nil {
 			break
@@ -122,7 +136,7 @@ func run() error {
 	return ctx.Err()
 }
 
-func runBrokerSession(ctx context.Context, rabbitURL string, repository *knowledge.GormRepository, consumer *knowledge.IndexConsumer, metrics *knowledge.WorkerMetrics, state *workerState) error {
+func runBrokerSession(ctx context.Context, rabbitURL string, repository *knowledge.GormRepository, consumer *knowledge.IndexConsumer, incidentConsumer *incident.Consumer, metrics *knowledge.WorkerMetrics, state *workerState) error {
 	broker, err := jobqueueadapter.Dial(rabbitURL)
 	if err != nil {
 		return err
@@ -134,9 +148,12 @@ func runBrokerSession(ctx context.Context, rabbitURL string, repository *knowled
 	}
 	sessionContext, cancel := context.WithCancel(ctx)
 	defer cancel()
-	errorsChannel := make(chan error, 2)
+	errorsChannel := make(chan error, 3)
 	go func() { errorsChannel <- publisher.Run(sessionContext) }()
 	go func() { errorsChannel <- broker.Consume(sessionContext, consumer.Handle) }()
+	go func() {
+		errorsChannel <- broker.ConsumeQueue(sessionContext, jobqueueadapter.IncidentQueueConfig, incidentConsumer.Handle)
+	}()
 	state.ready.Store(true)
 	log.Print(`{"event":"index_worker","status":"ready"}`)
 	select {
