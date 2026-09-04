@@ -247,7 +247,7 @@ try {
 
     $tarArgs = @(
         "-czf", $bundlePath,
-        "--exclude=.git", "--exclude=.claude", "--exclude=uploads",
+		"--exclude=.git", "--exclude=.claude", "--exclude=.codex-tmp", "--exclude=uploads",
         "--exclude=vue-frontend/node_modules", "--exclude=vue-frontend/dist",
         "--exclude=backend.log", "--exclude=index-worker.log", "--exclude=mcp.log", "--exclude=frontend.log"
     )
