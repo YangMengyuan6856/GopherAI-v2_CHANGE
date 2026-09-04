@@ -527,3 +527,52 @@ The user verified the four M3-A1 behaviors through the real public page:
 
 This closes the M3-A1 user-acceptance gate. It does not close the later parser,
 worker, Redis indexing, retrieval, citation, or grounded-answer gates.
+
+## 17. M3-A2 Reliable Index Worker Release
+
+Release `20260904101913-b1ac2744abda` deployed the reliable asynchronous index
+worker from feature commit `1c99674e626b40074153c7382e23961bb710620b` and
+the polling-log fix `b1ac2744abda675b2ceb2553a80b0bc87531abaf`.
+
+Verified results:
+
+- Root-module and nested MCP tests passed; backend, MCP, and the new index
+  worker built successfully for Linux/amd64 on the local machine.
+- Deployment now treats the index worker as a first-class artifact and PID,
+  checks its finite `/health/live` and `/health/ready` endpoints on local port
+  9091, and keeps historical releases without a worker rollback-compatible.
+- The two document events created during M3-A1 were published from MySQL
+  Outbox and consumed successfully after the worker first started.
+- Aggregate authority state became: 2 indexed documents, 2 completed jobs, 2
+  published Outbox events, and 2 indexed MySQL chunks.
+- Redis contains `gopher:prod:v1:kb:chunks:idx` and two corresponding Chunk
+  hashes. MySQL remains the authoritative Chunk store.
+- RabbitMQ contains durable topic exchanges `gopher.jobs.v1` and
+  `gopher.jobs.dlx.v1`, a durable manual-ack document queue, a durable 5-second
+  retry queue, and a durable DLQ. All queues were empty after processing.
+- Exactly one backend, index worker, MCP host, and Vue process were active.
+
+The feature supports deterministic Markdown/TXT parsing, heading paths, fenced
+code-block preservation, line ranges, bounded chunking, stable content hashes
+and Chunk IDs, batched embeddings, tenant/user fields in the Redis schema,
+publisher confirms, prefetch 1, finite retry, and dead-letter handling.
+
+This release does not yet expose retrieval or document-grounded answering.
+`indexed` means the document is ready for the next hybrid-retrieval slice, not
+that the current Legacy chat strategy is already using it.
+
+### 17.1 Worker polling must not inherit development SQL logging
+
+The first worker release was healthy, but its one-second Outbox poll inherited
+Gin debug mode and GORM printed every empty query. This would grow the log
+without adding diagnostic value. Set Gin to release mode before initializing
+the worker's MySQL connection. After redeployment, the worker log remained one
+62-byte structured `ready` line during idle polling.
+
+### 17.2 Clear cross-compilation variables before native tests
+
+After a Linux cross-build on Windows, running `go test` without clearing
+`GOOS=linux`, `GOARCH=amd64`, and `CGO_ENABLED=0` creates a Linux test binary
+that Windows reports as “not a valid Win32 application.” Restore the native
+environment before tests. This failure is a command-environment issue, not a
+source-code or test failure.
