@@ -60,8 +60,38 @@
             <strong>受治理 Tool Runtime</strong>
             <span>Registry → Schema → 意图/权限/副作用 → 预算/超时 → 审计/指标</span>
           </div>
-          <span class="tool-runtime-schema">{{ toolCatalog?.schema_version || 'tool-message-v1' }}</span>
+          <div class="tool-runtime-header-actions">
+            <button :disabled="loadingToolEvaluation" @click="toggleToolEvaluation">
+              {{ loadingToolEvaluation ? '读取评测中...' : '查看 30 条工具评测' }}
+            </button>
+            <span class="tool-runtime-schema">{{ toolCatalog?.schema_version || 'tool-message-v1' }}</span>
+          </div>
         </div>
+        <section v-if="toolEvaluationOpen" class="tool-evaluation-panel">
+          <div v-if="toolEvaluation" class="tool-evaluation-summary">
+            <div class="tool-result-heading">
+              <strong>{{ toolEvaluation.technical_gates_passed ? '✅ 技术门通过' : '❌ 技术门未通过' }}</strong>
+              <span>{{ toolEvaluation.metrics.case_count }} 条 · {{ toolEvaluation.evaluator_version }}</span>
+            </div>
+            <div class="tool-evaluation-metrics">
+              <span>工具选型 {{ metricPercent(toolEvaluation.metrics.tool_selection_accuracy) }}</span>
+              <span>Schema 契约 {{ metricPercent(toolEvaluation.metrics.schema_contract_pass_rate) }}</span>
+              <span>授权策略 {{ metricPercent(toolEvaluation.metrics.authorization_policy_pass_rate) }}</span>
+              <span>韧性机制 {{ metricPercent(toolEvaluation.metrics.resilience_pass_rate) }}</span>
+              <span>安全用例 {{ metricPercent(toolEvaluation.metrics.safety_pass_rate) }}</span>
+              <span>审计覆盖 {{ metricPercent(toolEvaluation.metrics.audit_coverage_rate) }}</span>
+              <span>确定性重放 {{ metricPercent(toolEvaluation.metrics.deterministic_replay_rate) }}</span>
+              <span>危险动作执行率 {{ metricPercent(toolEvaluation.metrics.dangerous_action_execution_rate) }}</span>
+              <span>未知工具执行 {{ toolEvaluation.metrics.unknown_tool_execution_count }} 次</span>
+            </div>
+            <div class="evaluation-candidate-warning">
+              <strong>候选报告 · 尚不可作为人工基线</strong>
+              <span>SHA-256 {{ toolEvaluation.report_sha256 }}</span>
+              <span v-for="limitation in toolEvaluation.limitations" :key="limitation">{{ limitation }}</span>
+            </div>
+          </div>
+          <div v-else class="tool-runtime-empty">正在读取只含汇总指标的评测报告...</div>
+        </section>
         <div class="tool-agent-console">
           <input
             v-model="toolAgentQuery"
@@ -751,6 +781,9 @@ export default {
     const toolAgentQuery = ref('给出当前发布清单，并检查后端和 Worker 健康状态')
     const runningToolAgent = ref(false)
     const toolAgentResult = ref(null)
+    const toolEvaluationOpen = ref(false)
+    const loadingToolEvaluation = ref(false)
+    const toolEvaluation = ref(null)
     const profileMemories = ref(null)
     const profileDrafts = ref({})
     const profileMemoryBusy = ref('')
@@ -1292,6 +1325,21 @@ export default {
         ElMessage.error(error.response?.data?.message || 'ToolAgent 暂时不可用')
       } finally {
         runningToolAgent.value = false
+      }
+    }
+
+    const toggleToolEvaluation = async () => {
+      toolEvaluationOpen.value = !toolEvaluationOpen.value
+      if (!toolEvaluationOpen.value || toolEvaluation.value || loadingToolEvaluation.value) return
+      try {
+        loadingToolEvaluation.value = true
+        const response = await api.get('/evaluations/tools/latest')
+        toolEvaluation.value = response.data
+      } catch (error) {
+        toolEvaluationOpen.value = false
+        ElMessage.error(error.response?.data?.message || '工具评测报告暂时不可用')
+      } finally {
+        loadingToolEvaluation.value = false
       }
     }
 
@@ -1973,6 +2021,9 @@ export default {
       toolAgentQuery,
       runningToolAgent,
       toolAgentResult,
+      toolEvaluationOpen,
+      loadingToolEvaluation,
+      toolEvaluation,
       profileMemories,
       profileDrafts,
       profileMemoryBusy,
@@ -2010,6 +2061,7 @@ export default {
       invokeGovernedTool,
       formatToolData,
       runToolAgent,
+      toggleToolEvaluation,
       toggleDiagnosticEvaluation,
       toggleContextCompression,
       formattedFacts,
@@ -3289,6 +3341,52 @@ export default {
 .tool-runtime-header > div {
   display: grid;
   gap: 3px;
+}
+
+.tool-runtime-header .tool-runtime-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tool-runtime-header-actions button {
+  padding: 6px 10px;
+  border: 1px solid rgba(64, 90, 125, 0.2);
+  border-radius: 8px;
+  background: #fff;
+  color: #405a7d;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tool-evaluation-panel {
+  margin-top: 11px;
+  padding: 11px;
+  border: 1px solid rgba(52, 168, 121, 0.2);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.tool-evaluation-summary {
+  display: grid;
+  gap: 9px;
+  color: #5c6680;
+  font-size: 12px;
+}
+
+.tool-evaluation-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 6px;
+}
+
+.tool-evaluation-metrics span {
+  padding: 7px 8px;
+  border-radius: 7px;
+  background: #eef7f3;
+  color: #28795b;
+  font-weight: 700;
 }
 
 .tool-runtime-header span,

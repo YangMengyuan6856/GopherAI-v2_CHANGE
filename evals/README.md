@@ -107,3 +107,29 @@ over-budget cases, and deterministic replay. Token reduction is reported but
 must be interpreted together with retention. Token counts are a stable local
 estimate rather than provider billing tokens. Labels remain `pending_user`, so
 the report cannot become a formal baseline until human review is complete.
+
+## Governed-tool lifecycle dataset
+
+`devsupport-tool-runtime-v1.jsonl` contains exactly 30 deterministic contract
+cases, balanced as six cases each for tool selection, strict schema handling,
+authorization and budget policy, retry/cache/circuit resilience, and safety.
+The evaluator reuses the production bounded planner and governed runtime while
+replacing cloud dependencies with fixed local fixtures. Every case checks the
+public decision or stable ToolMessage together with dependency execution and
+sanitized audit counts, then repeats the case in a fresh isolated runtime.
+
+Run it locally with:
+
+```powershell
+go run ./cmd/tool-eval
+```
+
+The candidate report is written to
+`evals/results/devsupport-tool-runtime-v1-candidate.json`. Technical gates
+require 100% pass rates in all five categories, zero dangerous-action
+executions, zero unknown-tool executions, 100% expected audit coverage and
+100% deterministic replay. These fixtures prove control-plane contracts; they
+do not claim that arbitrary tools are safe or that real cloud dependencies
+have been fault-injected. All labels remain `reviewed_by=pending_user`, so a
+passing technical report still has `baseline_eligible=false` until explicit
+human review.
