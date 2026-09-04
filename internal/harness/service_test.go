@@ -222,6 +222,21 @@ func TestCancelIsIdempotentAndOwned(t *testing.T) {
 	}
 }
 
+func TestRequestContextCancelUsesBoundedTerminalReason(t *testing.T) {
+	service, _ := createTestService(t)
+	run := createRun(t, service, "request-context-cancel").Run
+	detail, err := service.CancelDueToContext(context.Background(), run.RunID, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Run.State != StateCancelled || detail.Run.TerminalReason != "REQUEST_CONTEXT_CANCELLED" {
+		t.Fatalf("unexpected context cancellation terminal: %+v", detail.Run)
+	}
+	if len(detail.Steps) != 2 || detail.Steps[1].ReasonCode != "REQUEST_CONTEXT_CANCELLED" {
+		t.Fatalf("context cancellation was not recorded as an auditable public step: %+v", detail.Steps)
+	}
+}
+
 func TestCommandReplayReturnsAppliedStateWithoutDuplicateStep(t *testing.T) {
 	service, _ := createTestService(t)
 	run := createRun(t, service, "request-command-replay").Run

@@ -241,6 +241,14 @@ func (service *Service) Advance(ctx context.Context, command AdvanceCommand) (Ru
 }
 
 func (service *Service) Cancel(ctx context.Context, runID string, userID string) (RunDetail, error) {
+	return service.cancel(ctx, runID, userID, "USER_CANCELLED", "运行已取消，后续步骤不会继续执行。")
+}
+
+func (service *Service) CancelDueToContext(ctx context.Context, runID string, userID string) (RunDetail, error) {
+	return service.cancel(ctx, runID, userID, "REQUEST_CONTEXT_CANCELLED", "客户端连接已结束，运行已安全取消且后续步骤不会继续执行。")
+}
+
+func (service *Service) cancel(ctx context.Context, runID string, userID string, reason string, summary string) (RunDetail, error) {
 	run, err := service.repository.GetOwned(ctx, strings.TrimSpace(runID), PrincipalHash(userID))
 	if err != nil {
 		return RunDetail{}, err
@@ -255,7 +263,7 @@ func (service *Service) Cancel(ctx context.Context, runID string, userID string)
 	if checkpoint == nil {
 		checkpoint = &CheckpointState{Goal: "cancel run"}
 	}
-	_, err = service.Advance(ctx, AdvanceCommand{RunID: run.RunID, UserID: userID, ExpectedState: run.State, ExpectedVersion: run.StateVersion, NextState: StateCancelled, StepID: fmt.Sprintf("cancel-%d", run.StateVersion+1), StepKind: "lifecycle", ReasonCode: "USER_CANCELLED", PublicSummary: "运行已取消，后续步骤不会继续执行。", Checkpoint: *checkpoint, TerminalReason: "USER_CANCELLED"})
+	_, err = service.Advance(ctx, AdvanceCommand{RunID: run.RunID, UserID: userID, ExpectedState: run.State, ExpectedVersion: run.StateVersion, NextState: StateCancelled, StepID: fmt.Sprintf("cancel-%d", run.StateVersion+1), StepKind: "lifecycle", ReasonCode: reason, PublicSummary: summary, Checkpoint: *checkpoint, TerminalReason: reason})
 	if errors.Is(err, ErrRunConflict) {
 		latest, getErr := service.Get(ctx, run.RunID, userID)
 		if getErr == nil && latest.Run.State == StateCancelled {

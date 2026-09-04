@@ -294,7 +294,7 @@ func boundedHarnessState(value harness.State) string {
 
 func boundedHarnessTerminalReason(value string) string {
 	switch value {
-	case "DIAGNOSTIC_HYPOTHESES_READY", "USER_CANCELLED", "TIME_BUDGET_EXCEEDED", "EXECUTION_BUDGET_EXCEEDED", "NO_PROGRESS":
+	case "DIAGNOSTIC_HYPOTHESES_READY", "USER_CANCELLED", "REQUEST_CONTEXT_CANCELLED", "TIME_BUDGET_EXCEEDED", "EXECUTION_BUDGET_EXCEEDED", "NO_PROGRESS":
 		return value
 	case "":
 		return "NONE"

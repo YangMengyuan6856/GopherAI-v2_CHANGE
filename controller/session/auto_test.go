@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -21,6 +22,11 @@ type capturingChatApplication struct {
 	input app.ChatInput
 }
 
+type cancellableStreamingApplication struct {
+	started chan struct{}
+	stopped chan struct{}
+}
+
 func (application *capturingChatApplication) Chat(_ context.Context, input app.ChatInput) (app.ChatOutput, error) {
 	application.input = input
 	return testOutput(input), nil
@@ -29,6 +35,17 @@ func (application *capturingChatApplication) Chat(_ context.Context, input app.C
 func (application *capturingChatApplication) Stream(_ context.Context, input app.ChatInput, _ app.StreamEmitter) (app.ChatOutput, error) {
 	application.input = input
 	return testOutput(input), nil
+}
+
+func (application *cancellableStreamingApplication) Chat(_ context.Context, input app.ChatInput) (app.ChatOutput, error) {
+	return testOutput(input), nil
+}
+
+func (application *cancellableStreamingApplication) Stream(ctx context.Context, input app.ChatInput, _ app.StreamEmitter) (app.ChatOutput, error) {
+	close(application.started)
+	defer close(application.stopped)
+	<-ctx.Done()
+	return testOutput(input), ctx.Err()
 }
 
 func (fakeChatApplication) Chat(_ context.Context, input app.ChatInput) (app.ChatOutput, error) {
@@ -108,5 +125,39 @@ func TestAutoStreamUsesNamedSSEEvents(t *testing.T) {
 	body := recorder.Body.String()
 	if !strings.Contains(body, "event: meta") || !strings.Contains(body, "event: delta") {
 		t.Fatalf("missing named SSE events: %s", body)
+	}
+}
+
+func TestAutoStreamDisconnectCancelsDownstreamWorkWithoutWritingAnErrorEvent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	application := &cancellableStreamingApplication{started: make(chan struct{}), stopped: make(chan struct{})}
+	recorder := httptest.NewRecorder()
+	ginContext, _ := gin.CreateTestContext(recorder)
+	ginContext.Set("userName", "user")
+	requestContext, cancel := context.WithCancel(context.Background())
+	ginContext.Request = httptest.NewRequest(http.MethodPost, "/api/v1/chat/auto/stream", bytes.NewBufferString(`{"message":"question"}`)).WithContext(requestContext)
+	ginContext.Request.Header.Set("Content-Type", "application/json")
+
+	handlerReturned := make(chan struct{})
+	go func() {
+		NewAutoHandler(application).Stream(ginContext)
+		close(handlerReturned)
+	}()
+	awaitSignal(t, application.started, "stream application did not start")
+	cancel()
+	awaitSignal(t, application.stopped, "stream application did not stop after disconnect")
+	awaitSignal(t, handlerReturned, "stream handler did not return after disconnect")
+
+	if strings.Contains(recorder.Body.String(), "event: error") {
+		t.Fatalf("handler wrote an error event after the client connection ended: %s", recorder.Body.String())
+	}
+}
+
+func awaitSignal(t *testing.T, signal <-chan struct{}, failure string) {
+	t.Helper()
+	select {
+	case <-signal:
+	case <-time.After(time.Second):
+		t.Fatal(failure)
 	}
 }

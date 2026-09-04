@@ -47,13 +47,25 @@ type persistedState struct {
 	Result    *Result        `json:"result,omitempty"`
 }
 
+type Lifecycle interface {
+	Create(context.Context, harness.CreateCommand) (harness.RunDetail, bool, error)
+	Get(context.Context, string, string) (harness.RunDetail, error)
+	Advance(context.Context, harness.AdvanceCommand) (harness.Run, error)
+	Cancel(context.Context, string, string) (harness.RunDetail, error)
+	CancelDueToContext(context.Context, string, string) (harness.RunDetail, error)
+}
+
+type Analyzer interface {
+	AnalyzeContext(context.Context, string) (ExtractedInput, Result, error)
+}
+
 type Workflow struct {
-	lifecycle *harness.Service
-	agent     *Agent
+	lifecycle Lifecycle
+	agent     Analyzer
 	running   sync.Map
 }
 
-func NewWorkflow(lifecycle *harness.Service, agent *Agent) (*Workflow, error) {
+func NewWorkflow(lifecycle Lifecycle, agent Analyzer) (*Workflow, error) {
 	if lifecycle == nil {
 		return nil, fmt.Errorf("lifecycle service is required")
 	}
@@ -103,8 +115,11 @@ func (workflow *Workflow) Resume(ctx context.Context, command ResumeCommand) (Ru
 		return RunResponse{}, err
 	}
 	combined := strings.TrimSpace(state.Extracted.SanitizedExcerpt + "\n" + message)
-	extracted, result, err := workflow.agent.Analyze(combined)
+	extracted, result, err := workflow.agent.AnalyzeContext(ctx, combined)
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return workflow.cancelDueToContext(detail.Run.RunID, command.UserID)
+		}
 		return RunResponse{}, err
 	}
 	checkpoint, err := diagnosticCheckpoint(detail.Checkpoint, extracted, &result, "plan_diagnosis")
@@ -138,12 +153,12 @@ func (workflow *Workflow) Get(ctx context.Context, runID string, userID string) 
 }
 
 func (workflow *Workflow) Cancel(ctx context.Context, runID string, userID string) (RunResponse, error) {
-	if value, exists := workflow.running.Load(runID); exists {
-		value.(context.CancelFunc)()
-	}
 	detail, err := workflow.lifecycle.Cancel(ctx, runID, userID)
 	if err != nil {
 		return RunResponse{}, err
+	}
+	if value, exists := workflow.running.Load(runID); exists {
+		value.(context.CancelFunc)()
 	}
 	return responseFromDetail(detail, false)
 }
@@ -166,8 +181,11 @@ func (workflow *Workflow) execute(parent context.Context, detail harness.RunDeta
 			result = *state.Result
 		}
 	} else {
-		extracted, result, err = workflow.agent.Analyze(raw)
+		extracted, result, err = workflow.agent.AnalyzeContext(ctx, raw)
 		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return workflow.cancelDueToContext(detail.Run.RunID, userID)
+			}
 			return RunResponse{}, err
 		}
 	}
@@ -286,6 +304,14 @@ func (workflow *Workflow) afterAdvanceError(runID string, userID string, err err
 		}
 	}
 	return RunResponse{}, err
+}
+
+func (workflow *Workflow) cancelDueToContext(runID string, userID string) (RunResponse, error) {
+	detail, err := workflow.lifecycle.CancelDueToContext(context.Background(), runID, userID)
+	if err != nil {
+		return RunResponse{}, err
+	}
+	return responseFromDetail(detail, false)
 }
 
 func diagnosticCheckpoint(previous *harness.CheckpointState, extracted ExtractedInput, result *Result, nextAction string) (harness.CheckpointState, error) {

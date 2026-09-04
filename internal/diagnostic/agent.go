@@ -1,6 +1,7 @@
 package diagnostic
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -15,6 +16,13 @@ type Agent struct {
 func NewAgent() *Agent { return &Agent{extractor: Extractor{}} }
 
 func (agent *Agent) Analyze(raw string) (ExtractedInput, Result, error) {
+	return agent.AnalyzeContext(context.Background(), raw)
+}
+
+func (agent *Agent) AnalyzeContext(ctx context.Context, raw string) (ExtractedInput, Result, error) {
+	if err := ctx.Err(); err != nil {
+		return ExtractedInput{}, Result{}, err
+	}
 	extracted, err := agent.extractor.Extract(raw)
 	if err != nil {
 		return ExtractedInput{}, Result{}, err
@@ -30,6 +38,9 @@ func (agent *Agent) Analyze(raw string) (ExtractedInput, Result, error) {
 		MissingInformation: missingInformation(extracted),
 	}
 	for _, signature := range extracted.ErrorSignatures {
+		if err := ctx.Err(); err != nil {
+			return ExtractedInput{}, Result{}, err
+		}
 		if playbook, exists := diagnosticPlaybooks[signature]; exists {
 			hypothesis := playbook.hypothesis(signature, extracted)
 			if index := hypothesisIndex(result.Hypotheses, hypothesis.ID); index >= 0 {
@@ -54,6 +65,9 @@ func (agent *Agent) Analyze(raw string) (ExtractedInput, Result, error) {
 		if len(result.Hypotheses) > 3 {
 			result.Hypotheses = result.Hypotheses[:3]
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return ExtractedInput{}, Result{}, err
 	}
 	if err := result.Validate(); err != nil {
 		return ExtractedInput{}, Result{}, err
