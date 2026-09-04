@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	embeddingArk "github.com/cloudwego/eino-ext/components/embedding/ark"
@@ -105,12 +106,13 @@ func run(ctx context.Context, datasetPath string, fixturePath string, jsonPath s
 	if err != nil {
 		return fmt.Errorf("create eval chat model: %w", err)
 	}
-	answerer, err := knowledgeagent.NewAgent(retriever, chatModel, rag.DefaultEvidenceGate(), rag.NewCitationBuilder())
+	cachedRetriever := newCachedSearcher(retriever)
+	answerer, err := knowledgeagent.NewAgent(cachedRetriever, chatModel, rag.DefaultEvidenceGate(), rag.NewCitationBuilder())
 	if err != nil {
 		return fmt.Errorf("create eval knowledge agent: %w", err)
 	}
 
-	report := evaluation.RunRAGCore(ctx, cases, fixture.Version, candidate, evalTenantID, evalUserID, retriever, answerer)
+	report := evaluation.RunRAGCore(ctx, cases, fixture.Version, candidate, evalTenantID, evalUserID, cachedRetriever, answerer)
 	if err := writeReports(report, jsonPath, markdownPath); err != nil {
 		return err
 	}
@@ -226,3 +228,33 @@ func fullHash(value string) string {
 func shortHash(value string) string {
 	return fullHash(value)[:16]
 }
+
+type cachedSearcher struct {
+	inner evaluation.RAGSearcher
+	mu    sync.Mutex
+	cache map[string]rag.SearchOutput
+}
+
+func newCachedSearcher(inner evaluation.RAGSearcher) *cachedSearcher {
+	return &cachedSearcher{inner: inner, cache: make(map[string]rag.SearchOutput)}
+}
+
+func (searcher *cachedSearcher) Search(ctx context.Context, input rag.SearchInput) (rag.SearchOutput, error) {
+	key := fmt.Sprintf("%s\x00%s\x00%d\x00%s", input.TenantID, input.UserID, input.TopK, input.Query)
+	searcher.mu.Lock()
+	cached, exists := searcher.cache[key]
+	searcher.mu.Unlock()
+	if exists {
+		return cached, nil
+	}
+	output, err := searcher.inner.Search(ctx, input)
+	if err != nil {
+		return rag.SearchOutput{}, err
+	}
+	searcher.mu.Lock()
+	searcher.cache[key] = output
+	searcher.mu.Unlock()
+	return output, nil
+}
+
+var _ evaluation.RAGSearcher = (*cachedSearcher)(nil)
