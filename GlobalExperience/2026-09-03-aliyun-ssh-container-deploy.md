@@ -1045,3 +1045,48 @@ Because every label is still `pending_user`, the report intentionally remains
 human-reviewed resume baseline yet. The initial post-fix runtime release was
 `20260904201438-2dbaf8184c77-dirty`; a clean documentation release must follow
 after committing the generated report.
+
+The clean report release is `20260904202008-72d678cd8689` (commit
+`72d678cd8689`). Bundle SHA-256:
+`26179a545ead9f8242de0276d13742a5f33b6b53c4990cbc205c91c695c6147a`.
+It passed the same Backend/Worker/MCP/Vue health gates and supersedes the dirty
+release as the reproducible M4 checkpoint.
+
+## 32. M5-01/02/03 Diagnostic Contract, Dataset, and Safe Input Boundary
+
+Release `20260904202409-9dfad3accb78` (commit
+`9dfad3accb7804f5e0e760f9c531fc3e3b646a03`) added
+`diagnostic-schema-v1`. The schema caps hypotheses at three, requires evidence
+and one to five read-only verification steps per hypothesis, enforces descending
+confidence, and prevents `confirmed` or `insufficient` conclusions from being
+formed without their required evidence or clarification state. Bundle SHA-256:
+`0ca3b08b8dcaf5cc4fa2db81913de44c0fa133b66a19eb1b53eb92b610b8a0f1`.
+
+Release `20260904203636-37367925f466` (commit
+`37367925f466a9422d2978b7c4b91ef834fdff80`) added the 40-case
+`devsupport-diagnostic-v1` candidate and strict JSONL loader. The set is exactly
+balanced across eight project-specific categories, has explicit acceptable root
+causes, necessary steps, read-only verification, forbidden claims/actions, and
+at least eight clarification cases. Unknown fields, duplicate IDs, category
+imbalance, invalid bounds, and credential-like material fail validation. Dataset
+SHA-256 is
+`521d9765c600015f85a2ca4981c6ba7e77ec57da65872b1a6039ce70c1c9adf8`;
+bundle SHA-256 is
+`fc9d8f4b3270b1c5d41bfc28fb7d69001250ea2483081e863daa38c6ffb8d285`.
+Labels remain `pending_user`, so this is not a human-reviewed baseline.
+
+Release `20260904204301-a39f81357885` (commit
+`a39f813578856caad5b28344e61278fb56f9be7f`) added the deterministic
+`diagnostic-extractor-v1` input boundary. It caps input, per-line, excerpt, and
+symptom sizes; redacts credential assignments, Bearer/JWT material, URI
+credentials, private-key blocks, and email addresses; removes instruction-like
+lines before extracting stable component/error signals; and emits bounded
+environment facts as unconfirmed user observations. Bundle SHA-256:
+`a39d28d1e0dcef8b1ae3220d2781275c04667615bd91f9b3eb0d0559154a2117`.
+
+All three releases used local Linux/amd64 builds and passed atomic bundle
+verification, Backend and Index Worker live/ready gates, MCP startup, Vue
+compile/HTTP, and unique-process checks. These M5 pieces are deliberately not
+wired into the live chat route yet. Do not activate `troubleshooting` until the
+DiagnosticAgent, evidence gate, fallback, and route tests in M5-04/05 are
+complete.
