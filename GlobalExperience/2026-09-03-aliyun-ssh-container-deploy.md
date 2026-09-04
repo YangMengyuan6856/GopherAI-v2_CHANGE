@@ -626,3 +626,38 @@ restart it after a new upload. Also set Gin release mode before MySQL/GORM is
 initialized; changing it later leaves verbose SQL logging enabled. The final
 release produced no new three-second document-list requests after the initial
 page load settled.
+
+## 19. M3-A4 Evidence-gated KnowledgeAgent Release
+
+Release `20260904110832-8e6e33213905` deployed feature commit
+`8e6e332139051799e313d2c66ae7bc14de01344a`.
+
+Verified results:
+
+- Root-module and nested MCP tests passed. Linux backend/index-worker/MCP
+  builds, health gates, and the real Vue compile all passed.
+- The Evidence Gate requires cross-retriever support and a normalized top
+  score before invoking the chat model. Empty, dense-only, keyword-only, and
+  low-score cases return a controlled insufficient-evidence result.
+- KnowledgeAgent receives only the bounded evidence pack. Evidence text is
+  explicitly treated as untrusted input, and conflicting chunks must be
+  surfaced rather than silently selecting one value.
+- Model output is accepted only as JSON containing inline `[E<n>]` markers and
+  a matching citation list. The verifier rejects unknown, missing,
+  undeclared, malformed, or cross-tenant evidence references before returning
+  an answer.
+- A public signed-in query for the `Blue-Gopher-904` default retry count
+  correctly reported the conflict between 7 and 9. The page exposed two
+  expandable citations with document, version, section, lines, and the exact
+  authoritative Chunk content.
+- A public query about a Kubernetes node-taint policy produced
+  `no_cross_retriever_support`, stated that no model was called, and requested
+  more precise project evidence.
+- Prometheus recorded one `answered/sufficient` and one
+  `insufficient/no_cross_retriever_support` KnowledgeAgent attempt.
+
+The standalone `/api/v1/knowledge/answer` endpoint is intentional for this
+slice: it makes the evidence contract independently testable without routing
+all ordinary chat through RAG before M4 intent recognition exists. The next
+slice may register `rag_fast` with the shared AppService behind an explicit
+feature/request gate; automatic `project_qa` selection remains an M4 concern.
