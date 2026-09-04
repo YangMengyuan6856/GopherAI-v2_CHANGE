@@ -25,7 +25,7 @@ func (auditor *GormAuditor) Record(ctx context.Context, invocation Invocation, m
 		ToolName: boundedAuditValue(message.ToolName, 64), ToolVersion: boundedAuditValue(message.ToolVersion, 32), ArgsHash: message.ArgsHash,
 		Intent: boundedAuditValue(invocation.Intent, 32), Strategy: boundedAuditValue(invocation.Strategy, 64), Status: boundedAuditValue(message.Status, 32),
 		ErrorCode: boundedAuditValue(message.ErrorCode, 64), Retryable: message.Retryable, LatencyMS: message.LatencyMS,
-		Cached: message.Cached, Truncated: message.Truncated,
+		Cached: message.Cached, Stale: message.Stale, DegradedReason: boundedAuditValue(message.DegradedReason, 64), Truncated: message.Truncated,
 	}
 	return auditor.database.WithContext(ctx).Create(&record).Error
 }

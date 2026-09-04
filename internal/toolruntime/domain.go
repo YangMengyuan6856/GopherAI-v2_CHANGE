@@ -47,6 +47,7 @@ type Definition struct {
 	Idempotent         bool        `json:"idempotent"`
 	RetryMaxAttempts   int         `json:"retry_max_attempts"`
 	CacheTTLMS         int64       `json:"cache_ttl_ms"`
+	StaleIfErrorMS     int64       `json:"stale_if_error_ms"`
 	CircuitFailures    int         `json:"circuit_failure_threshold"`
 	CircuitOpenMS      int64       `json:"circuit_open_ms"`
 }
@@ -83,18 +84,20 @@ type Output struct {
 // ToolMessage is the only result shape allowed to leave the governed runtime.
 // It intentionally excludes raw arguments, credentials and internal errors.
 type ToolMessage struct {
-	CallID       string          `json:"call_id"`
-	ToolName     string          `json:"tool_name"`
-	ToolVersion  string          `json:"tool_version"`
-	ArgsHash     string          `json:"args_hash"`
-	Status       string          `json:"status"`
-	Data         json.RawMessage `json:"data,omitempty"`
-	EvidenceRefs []string        `json:"evidence_refs,omitempty"`
-	ErrorCode    string          `json:"error_code,omitempty"`
-	Retryable    bool            `json:"retryable"`
-	LatencyMS    int64           `json:"latency_ms"`
-	Cached       bool            `json:"cached"`
-	Truncated    bool            `json:"truncated"`
+	CallID         string          `json:"call_id"`
+	ToolName       string          `json:"tool_name"`
+	ToolVersion    string          `json:"tool_version"`
+	ArgsHash       string          `json:"args_hash"`
+	Status         string          `json:"status"`
+	Data           json.RawMessage `json:"data,omitempty"`
+	EvidenceRefs   []string        `json:"evidence_refs,omitempty"`
+	ErrorCode      string          `json:"error_code,omitempty"`
+	Retryable      bool            `json:"retryable"`
+	LatencyMS      int64           `json:"latency_ms"`
+	Cached         bool            `json:"cached"`
+	Stale          bool            `json:"stale"`
+	DegradedReason string          `json:"degraded_reason,omitempty"`
+	Truncated      bool            `json:"truncated"`
 }
 
 const (

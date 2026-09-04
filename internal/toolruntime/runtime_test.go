@@ -261,3 +261,102 @@ func TestRuntimeCircuitOpensAndHalfOpenProbeRecovers(t *testing.T) {
 		t.Fatalf("unexpected circuit transitions: %v", observer.circuits)
 	}
 }
+
+func TestRuntimeStaleIfErrorIsExplicitAndCircuitAware(t *testing.T) {
+	tool := &testTool{definition: validTestDefinition()}
+	tool.definition.CacheTTLMS = 1000
+	tool.definition.StaleIfErrorMS = 10000
+	tool.definition.CircuitFailures = 1
+	tool.definition.CircuitOpenMS = 5000
+	shouldFail := false
+	tool.execute = func(context.Context, map[string]any) (Output, error) {
+		if shouldFail {
+			return Output{Retryable: true}, errors.New("dependency unavailable")
+		}
+		return Output{Data: map[string]any{"release": "r1"}, EvidenceRefs: []string{"source:r1"}}, nil
+	}
+	auditor, observer := &captureAuditor{}, &captureObserver{}
+	runtime := newTestRuntime(t, tool, auditor, observer)
+	now := time.Date(2026, 9, 5, 6, 30, 0, 0, time.UTC)
+	runtime.now = func() time.Time { return now }
+	if seeded := runtime.Invoke(context.Background(), validInvocation()); seeded.Status != StatusSuccess || seeded.Cached {
+		t.Fatalf("cache seed failed: %+v", seeded)
+	}
+	now = now.Add(1100 * time.Millisecond)
+	shouldFail = true
+	stale := runtime.Invoke(context.Background(), validInvocation())
+	if stale.Status != StatusSuccess || !stale.Cached || !stale.Stale || stale.DegradedReason != ErrorExecutionFailed {
+		t.Fatalf("dependency failure was not explicit stale fallback: %+v", stale)
+	}
+	if stale.ErrorCode != "" || stale.Retryable || len(stale.EvidenceRefs) != 2 || stale.EvidenceRefs[1] != "tool-cache-stale:deployment_manifest_lookup@1.0.0" {
+		t.Fatalf("stale provenance is incomplete: %+v", stale)
+	}
+	openCircuit := runtime.Invoke(context.Background(), validInvocation())
+	if !openCircuit.Stale || openCircuit.DegradedReason != ErrorCircuitOpen || tool.calls != 2 {
+		t.Fatalf("open circuit did not fail over without dependency execution: message=%+v calls=%d", openCircuit, tool.calls)
+	}
+	if len(observer.cache) != 3 || observer.cache[0] != "miss" || observer.cache[1] != "stale_fallback" || observer.cache[2] != "stale_fallback" {
+		t.Fatalf("unexpected stale cache observations: %v", observer.cache)
+	}
+	if len(auditor.messages) != 3 || !auditor.messages[1].Stale || auditor.messages[1].DegradedReason != ErrorExecutionFailed {
+		t.Fatalf("stale result was not audited: %+v", auditor.messages)
+	}
+}
+
+func TestRuntimeStaleWindowExpiryAndCallerCancellationFailClosed(t *testing.T) {
+	tool := &testTool{definition: validTestDefinition()}
+	tool.definition.CacheTTLMS = 100
+	tool.definition.StaleIfErrorMS = 200
+	shouldFail := false
+	tool.execute = func(ctx context.Context, _ map[string]any) (Output, error) {
+		if shouldFail {
+			if err := ctx.Err(); err != nil {
+				return Output{}, err
+			}
+			return Output{Retryable: true}, errors.New("dependency unavailable")
+		}
+		return Output{Data: map[string]any{"ok": true}}, nil
+	}
+	runtime := newTestRuntime(t, tool, &captureAuditor{}, &captureObserver{})
+	now := time.Date(2026, 9, 5, 6, 45, 0, 0, time.UTC)
+	runtime.now = func() time.Time { return now }
+	if seeded := runtime.Invoke(context.Background(), validInvocation()); seeded.Status != StatusSuccess {
+		t.Fatalf("cache seed failed: %+v", seeded)
+	}
+	shouldFail = true
+	now = now.Add(150 * time.Millisecond)
+	cancelledContext, cancel := context.WithCancel(context.Background())
+	cancel()
+	cancelled := runtime.Invoke(cancelledContext, validInvocation())
+	if cancelled.Status != StatusCancelled || cancelled.Stale || cancelled.Cached {
+		t.Fatalf("caller cancellation must not be hidden by stale data: %+v", cancelled)
+	}
+	now = now.Add(200 * time.Millisecond)
+	expired := runtime.Invoke(context.Background(), validInvocation())
+	if expired.Status != StatusError || expired.ErrorCode != ErrorExecutionFailed || expired.Stale || expired.Cached {
+		t.Fatalf("expired stale entry must fail closed: %+v", expired)
+	}
+}
+
+func TestRegistryRejectsUnsafeStalePolicies(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*Definition)
+	}{
+		{name: "without cache", mutate: func(definition *Definition) { definition.StaleIfErrorMS = 1000 }},
+		{name: "write tool", mutate: func(definition *Definition) {
+			definition.CacheTTLMS, definition.StaleIfErrorMS, definition.SideEffect = 1000, 1000, SideEffectInternalWrite
+		}},
+		{name: "outside bound", mutate: func(definition *Definition) { definition.CacheTTLMS, definition.StaleIfErrorMS = 1000, 300001 }},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			definition := validTestDefinition()
+			testCase.mutate(&definition)
+			tool := &testTool{definition: definition, execute: func(context.Context, map[string]any) (Output, error) { return Output{}, nil }}
+			if err := NewRegistry().Register(tool); err == nil {
+				t.Fatal("unsafe stale policy must be rejected")
+			}
+		})
+	}
+}

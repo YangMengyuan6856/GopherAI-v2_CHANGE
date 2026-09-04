@@ -70,11 +70,17 @@ func validateDefinition(definition Definition) error {
 	if definition.RetryMaxAttempts < 1 || definition.RetryMaxAttempts > 3 {
 		return errors.New("tool retry attempts must be between 1 and 3")
 	}
-	if !definition.Idempotent && (definition.RetryMaxAttempts > 1 || definition.CacheTTLMS > 0) {
+	if !definition.Idempotent && (definition.RetryMaxAttempts > 1 || definition.CacheTTLMS > 0 || definition.StaleIfErrorMS > 0) {
 		return errors.New("non-idempotent tools cannot retry or cache")
 	}
 	if definition.CacheTTLMS < 0 || definition.CacheTTLMS > 60000 {
 		return errors.New("tool cache TTL must be between 0 and 60000 milliseconds")
+	}
+	if definition.StaleIfErrorMS < 0 || definition.StaleIfErrorMS > 300000 {
+		return errors.New("tool stale-if-error window must be between 0 and 300000 milliseconds")
+	}
+	if definition.StaleIfErrorMS > 0 && (definition.CacheTTLMS == 0 || definition.SideEffect != SideEffectReadOnly) {
+		return errors.New("stale-if-error requires a cached read-only tool")
 	}
 	if (definition.CircuitFailures == 0) != (definition.CircuitOpenMS == 0) {
 		return errors.New("circuit threshold and open duration must be enabled together")

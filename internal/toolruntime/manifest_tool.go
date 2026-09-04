@@ -56,7 +56,7 @@ func (tool *DeploymentManifestTool) Definition() Definition {
 		InputSchema:    InputSchema{Type: "object", Properties: map[string]PropertySchema{}, AdditionalProperties: false},
 		AllowedIntents: []string{"tool_task", "troubleshooting"}, RequiredPermission: "devsupport:tools:read",
 		SideEffect: SideEffectReadOnly, TimeoutMS: 1000, MaxResultBytes: 8192,
-		Idempotent: true, RetryMaxAttempts: 2, CacheTTLMS: 5000, CircuitFailures: 3, CircuitOpenMS: 5000,
+		Idempotent: true, RetryMaxAttempts: 2, CacheTTLMS: 5000, StaleIfErrorMS: 30000, CircuitFailures: 3, CircuitOpenMS: 5000,
 	}
 }
 

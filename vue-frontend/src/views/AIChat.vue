@@ -111,7 +111,7 @@
           <ol v-if="toolAgentResult.plan.calls?.length">
             <li v-for="(call, index) in toolAgentResult.plan.calls" :key="`${call.tool_name}-${index}`">
               {{ call.tool_name }} · {{ call.reason_code }} · {{ formatToolData(call.arguments) }}
-              <span v-if="toolAgentResult.tool_messages[index]">→ {{ toolAgentResult.tool_messages[index].status }}<template v-if="toolAgentResult.tool_messages[index].cached"> · cache hit</template></span>
+              <span v-if="toolAgentResult.tool_messages[index]">→ {{ toolAgentResult.tool_messages[index].status }}<template v-if="toolAgentResult.tool_messages[index].stale"> · 陈旧证据降级</template><template v-else-if="toolAgentResult.tool_messages[index].cached"> · cache hit</template></span>
             </li>
           </ol>
           <div v-else>没有执行工具；普通知识问题交还回答模型，危险写操作在规划层拒绝。</div>
@@ -131,6 +131,7 @@
             <div class="tool-runtime-tags">
               <span>{{ tool.side_effect }}</span>
               <span>{{ tool.timeout_ms }} ms</span>
+              <span v-if="tool.stale_if_error_ms">失败时陈旧证据 ≤ {{ Math.round(tool.stale_if_error_ms / 1000) }} 秒</span>
               <span>{{ tool.required_permission }}</span>
               <span>意图：{{ tool.allowed_intents.join(' / ') }}</span>
             </div>
@@ -162,9 +163,10 @@
           </div>
           <div>Call {{ toolResult.call_id }} · Args SHA-256 {{ (toolResult.args_hash || '').slice(0, 16) }}…</div>
           <div v-if="toolResult.error_code">稳定错误码：{{ toolResult.error_code }} · 可重试：{{ toolResult.retryable ? '是' : '否' }}</div>
+          <div v-if="toolResult.stale" class="tool-stale-warning">⚠ 依赖刷新失败，返回有时间边界的陈旧证据 · 原因 {{ toolResult.degraded_reason }}</div>
           <pre v-if="toolResult.data">{{ formatToolData(toolResult.data) }}</pre>
           <div v-if="toolResult.evidence_refs?.length">证据：{{ toolResult.evidence_refs.join('；') }}</div>
-          <small>缓存 {{ toolResult.cached ? '命中' : '未命中' }} · 截断 {{ toolResult.truncated ? '是' : '否' }} · 原始参数与用户标识不写入审计</small>
+          <small>缓存 {{ toolResult.stale ? '陈旧回退' : (toolResult.cached ? '新鲜命中' : '未命中') }} · 截断 {{ toolResult.truncated ? '是' : '否' }} · 原始参数与用户标识不写入审计</small>
         </article>
       </section>
 
@@ -3533,6 +3535,14 @@ export default {
 
 .tool-result.success { border-left: 4px solid #34a879; }
 .tool-result.failed { border-left: 4px solid #d66b6b; }
+
+.tool-stale-warning {
+  padding: 7px 9px;
+  border-radius: 7px;
+  background: #fff4d8;
+  color: #875d0d;
+  font-weight: 700;
+}
 
 .tool-result pre {
   max-height: 220px;

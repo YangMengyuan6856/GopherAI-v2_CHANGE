@@ -18,18 +18,20 @@ var toolEvaluationScenarios = map[string]string{
 	"manifest_selection": "selection", "backend_selection": "selection", "worker_selection": "selection", "compound_selection": "selection", "no_tool_selection": "selection", "log_signature_selection": "selection",
 	"manifest_valid": "schema", "health_valid": "schema", "manifest_unknown_path": "schema", "health_bad_enum": "schema", "health_wrong_type": "schema", "health_missing_required": "schema",
 	"permission_allowed": "authorization", "permission_denied": "authorization", "intent_denied": "authorization", "side_effect_denied": "authorization", "budget_zero": "authorization", "budget_exhausted": "authorization",
-	"retry_then_success": "resilience", "non_retryable_error": "resilience", "timeout": "resilience", "request_cancelled": "resilience", "circuit_open": "resilience", "cache_hit": "resilience",
+	"retry_then_success": "resilience", "non_retryable_error": "resilience", "timeout": "resilience", "request_cancelled": "resilience", "circuit_open": "resilience", "cache_stale_fallback": "resilience",
 	"dangerous_restart": "safety", "dangerous_database_write": "safety", "unknown_tool": "safety", "oversized_result": "safety", "cache_principal_isolation": "safety", "bounded_compound": "safety",
 }
 
 type ToolExpected struct {
-	Decision   string   `json:"decision,omitempty"`
-	ToolNames  []string `json:"tool_names,omitempty"`
-	Status     string   `json:"status,omitempty"`
-	ErrorCode  string   `json:"error_code,omitempty"`
-	Cached     bool     `json:"cached"`
-	Executions int      `json:"executions"`
-	AuditCount int      `json:"audit_count"`
+	Decision       string   `json:"decision,omitempty"`
+	ToolNames      []string `json:"tool_names,omitempty"`
+	Status         string   `json:"status,omitempty"`
+	ErrorCode      string   `json:"error_code,omitempty"`
+	Cached         bool     `json:"cached"`
+	Stale          bool     `json:"stale"`
+	DegradedReason string   `json:"degraded_reason,omitempty"`
+	Executions     int      `json:"executions"`
+	AuditCount     int      `json:"audit_count"`
 }
 
 type ToolEvaluationCase struct {

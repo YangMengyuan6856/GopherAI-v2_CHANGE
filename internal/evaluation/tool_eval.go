@@ -29,13 +29,15 @@ type ToolEvaluationMetrics struct {
 }
 
 type ToolEvaluationOutcome struct {
-	Decision   string   `json:"decision,omitempty"`
-	ToolNames  []string `json:"tool_names,omitempty"`
-	Status     string   `json:"status,omitempty"`
-	ErrorCode  string   `json:"error_code,omitempty"`
-	Cached     bool     `json:"cached"`
-	Executions int      `json:"executions"`
-	AuditCount int      `json:"audit_count"`
+	Decision       string   `json:"decision,omitempty"`
+	ToolNames      []string `json:"tool_names,omitempty"`
+	Status         string   `json:"status,omitempty"`
+	ErrorCode      string   `json:"error_code,omitempty"`
+	Cached         bool     `json:"cached"`
+	Stale          bool     `json:"stale"`
+	DegradedReason string   `json:"degraded_reason,omitempty"`
+	Executions     int      `json:"executions"`
+	AuditCount     int      `json:"audit_count"`
 }
 
 type ToolEvaluationCaseResult struct {
@@ -157,7 +159,7 @@ func categoryRate(counts map[string]int, category string) float64 {
 }
 
 func outcomeMatches(actual ToolEvaluationOutcome, expected ToolExpected) bool {
-	return actual.Decision == expected.Decision && stringListsEqual(actual.ToolNames, expected.ToolNames) && actual.Status == expected.Status && actual.ErrorCode == expected.ErrorCode && actual.Cached == expected.Cached && actual.Executions == expected.Executions && actual.AuditCount == expected.AuditCount
+	return actual.Decision == expected.Decision && stringListsEqual(actual.ToolNames, expected.ToolNames) && actual.Status == expected.Status && actual.ErrorCode == expected.ErrorCode && actual.Cached == expected.Cached && actual.Stale == expected.Stale && actual.DegradedReason == expected.DegradedReason && actual.Executions == expected.Executions && actual.AuditCount == expected.AuditCount
 }
 
 func stringListsEqual(left, right []string) bool {
@@ -212,6 +214,7 @@ func runRuntimeScenario(item ToolEvaluationCase) ToolEvaluationOutcome {
 		definition = healthEvaluationDefinition()
 	}
 	tool := &evaluationTool{definition: definition}
+	dependencyUnavailable := false
 	tool.execute = func(context.Context, map[string]any, int) (toolruntime.Output, error) {
 		return toolruntime.Output{Data: map[string]any{"ok": true}, EvidenceRefs: []string{"eval:fixture"}}, nil
 	}
@@ -245,8 +248,17 @@ func runRuntimeScenario(item ToolEvaluationCase) ToolEvaluationOutcome {
 		tool.execute = func(context.Context, map[string]any, int) (toolruntime.Output, error) {
 			return toolruntime.Output{}, errors.New("dependency unavailable")
 		}
-	case "cache_hit", "cache_principal_isolation":
+	case "cache_principal_isolation":
 		tool.definition.CacheTTLMS = 1000
+	case "cache_stale_fallback":
+		tool.definition.CacheTTLMS = 10
+		tool.definition.StaleIfErrorMS = 500
+		tool.execute = func(context.Context, map[string]any, int) (toolruntime.Output, error) {
+			if dependencyUnavailable {
+				return toolruntime.Output{Retryable: true}, errors.New("dependency unavailable")
+			}
+			return toolruntime.Output{Data: map[string]any{"ok": true}, EvidenceRefs: []string{"eval:fixture"}}, nil
+		}
 	case "oversized_result":
 		tool.definition.MaxResultBytes = 128
 		tool.execute = func(context.Context, map[string]any, int) (toolruntime.Output, error) {
@@ -300,15 +312,19 @@ func runRuntimeScenario(item ToolEvaluationCase) ToolEvaluationOutcome {
 		invocation.CallID = "eval-call-3"
 		message = runtime.Invoke(ctx, invocation)
 	}
-	if item.Scenario == "cache_hit" {
+	if item.Scenario == "cache_stale_fallback" {
 		invocation.CallID = "eval-call-2"
+		runtime.Invoke(ctx, invocation)
+		dependencyUnavailable = true
+		time.Sleep(15 * time.Millisecond)
+		invocation.CallID = "eval-call-3"
 		message = runtime.Invoke(ctx, invocation)
 	}
 	if item.Scenario == "cache_principal_isolation" {
 		invocation.CallID, invocation.Principal.UserID = "eval-call-2", "other-eval-user"
 		message = runtime.Invoke(ctx, invocation)
 	}
-	return ToolEvaluationOutcome{Status: message.Status, ErrorCode: message.ErrorCode, Cached: message.Cached, Executions: tool.executions, AuditCount: auditor.count}
+	return ToolEvaluationOutcome{Status: message.Status, ErrorCode: message.ErrorCode, Cached: message.Cached, Stale: message.Stale, DegradedReason: message.DegradedReason, Executions: tool.executions, AuditCount: auditor.count}
 }
 
 func manifestEvaluationDefinition() toolruntime.Definition {

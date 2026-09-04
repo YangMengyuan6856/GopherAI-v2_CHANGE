@@ -62,7 +62,7 @@ func (tool *ServiceHealthTool) Definition() Definition {
 		}, Required: []string{"service", "probe"}, AdditionalProperties: false},
 		AllowedIntents: []string{"tool_task", "troubleshooting"}, RequiredPermission: "devsupport:tools:read",
 		SideEffect: SideEffectReadOnly, TimeoutMS: 1500, MaxResultBytes: 16384,
-		Idempotent: true, RetryMaxAttempts: 2, CacheTTLMS: 750, CircuitFailures: 2, CircuitOpenMS: 3000,
+		Idempotent: true, RetryMaxAttempts: 2, CacheTTLMS: 750, StaleIfErrorMS: 5000, CircuitFailures: 2, CircuitOpenMS: 3000,
 	}
 }
 

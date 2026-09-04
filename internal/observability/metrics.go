@@ -307,7 +307,7 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 			}
 			metrics.toolCircuitState.WithLabelValues(tool, state).Set(value)
 		}
-		for _, result := range []string{"hit", "miss", "bypass", "store_error"} {
+		for _, result := range []string{"hit", "miss", "stale_fallback", "bypass", "store_error"} {
 			metrics.toolCache.WithLabelValues(tool, result).Add(0)
 		}
 	}
@@ -369,7 +369,7 @@ func (metrics *Metrics) RecordToolCache(tool string, result string) {
 		return
 	}
 	switch result {
-	case "hit", "miss", "bypass", "store_error":
+	case "hit", "miss", "stale_fallback", "bypass", "store_error":
 	default:
 		result = "bypass"
 	}

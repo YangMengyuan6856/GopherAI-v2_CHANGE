@@ -78,7 +78,7 @@ func (tool *BoundedLogSignatureTool) Definition() Definition {
 		}, Required: []string{"service", "signature"}, AdditionalProperties: false},
 		AllowedIntents: []string{"tool_task", "troubleshooting"}, RequiredPermission: "devsupport:tools:read",
 		SideEffect: SideEffectReadOnly, TimeoutMS: 1000, MaxResultBytes: 32768,
-		Idempotent: true, RetryMaxAttempts: 2, CacheTTLMS: 1000, CircuitFailures: 3, CircuitOpenMS: 3000,
+		Idempotent: true, RetryMaxAttempts: 2, CacheTTLMS: 1000, StaleIfErrorMS: 5000, CircuitFailures: 3, CircuitOpenMS: 3000,
 	}
 }
 

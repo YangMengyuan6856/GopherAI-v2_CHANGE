@@ -83,18 +83,37 @@ func (runtime *Runtime) Invoke(ctx context.Context, invocation Invocation) ToolM
 
 	runtime.observer.RecordToolValidation(definition.Name, "accepted")
 	cacheKey := toolCacheKey(definition, invocation, message.ArgsHash)
+	var staleCandidate cachedToolResult
+	hasStaleCandidate := false
+	cacheOutcomeRecorded := false
 	if definition.CacheTTLMS > 0 {
-		if cached, ok := runtime.cache.get(cacheKey, runtime.now()); ok {
+		cached, freshness := runtime.cache.get(cacheKey, runtime.now(), time.Duration(definition.StaleIfErrorMS)*time.Millisecond)
+		switch freshness {
+		case cacheFresh:
 			message.Status, message.Data, message.EvidenceRefs, message.Cached = StatusSuccess, cached.data, cached.evidenceRefs, true
 			runtime.observer.RecordToolCache(definition.Name, "hit")
 			runtime.finish(ctx, startedAt, invocation, &message, "")
 			return message
+		case cacheStale:
+			staleCandidate, hasStaleCandidate = cached, true
+		default:
+			runtime.observer.RecordToolCache(definition.Name, "miss")
+			cacheOutcomeRecorded = true
 		}
-		runtime.observer.RecordToolCache(definition.Name, "miss")
 	} else {
 		runtime.observer.RecordToolCache(definition.Name, "bypass")
+		cacheOutcomeRecorded = true
 	}
 	if allowed, transition := runtime.circuits.allow(definition, runtime.now()); !allowed {
+		if hasStaleCandidate && ctx.Err() == nil {
+			runtime.applyStaleFallback(definition, &message, staleCandidate, ErrorCircuitOpen)
+			runtime.observer.RecordToolCache(definition.Name, "stale_fallback")
+			runtime.finish(ctx, startedAt, invocation, &message, "")
+			return message
+		}
+		if hasStaleCandidate && !cacheOutcomeRecorded {
+			runtime.observer.RecordToolCache(definition.Name, "miss")
+		}
 		message.Status, message.ErrorCode, message.Retryable = StatusError, ErrorCircuitOpen, true
 		runtime.finish(ctx, startedAt, invocation, &message, "")
 		return message
@@ -131,6 +150,17 @@ func (runtime *Runtime) Invoke(ctx context.Context, invocation Invocation) ToolM
 				runtime.observer.SetToolCircuitState(definition.Name, transition)
 			}
 		}
+		// Never convert caller cancellation/deadline into apparent success. Stale
+		// evidence is only a dependency fallback after all governance gates pass.
+		if hasStaleCandidate && ctx.Err() == nil && message.Status != StatusCancelled {
+			runtime.applyStaleFallback(definition, &message, staleCandidate, message.ErrorCode)
+			runtime.observer.RecordToolCache(definition.Name, "stale_fallback")
+			runtime.finish(ctx, startedAt, invocation, &message, "")
+			return message
+		}
+		if hasStaleCandidate && !cacheOutcomeRecorded {
+			runtime.observer.RecordToolCache(definition.Name, "miss")
+		}
 		runtime.finish(ctx, startedAt, invocation, &message, "")
 		return message
 	}
@@ -140,6 +170,9 @@ func (runtime *Runtime) Invoke(ctx context.Context, invocation Invocation) ToolM
 		if transition := runtime.circuits.failure(definition, runtime.now()); transition != "" {
 			runtime.observer.SetToolCircuitState(definition.Name, transition)
 		}
+		if hasStaleCandidate && !cacheOutcomeRecorded {
+			runtime.observer.RecordToolCache(definition.Name, "miss")
+		}
 		runtime.finish(ctx, startedAt, invocation, &message, "")
 		return message
 	}
@@ -148,6 +181,9 @@ func (runtime *Runtime) Invoke(ctx context.Context, invocation Invocation) ToolM
 		message.Data, _ = json.Marshal(map[string]any{"original_bytes": len(encoded), "max_result_bytes": definition.MaxResultBytes})
 		if transition := runtime.circuits.failure(definition, runtime.now()); transition != "" {
 			runtime.observer.SetToolCircuitState(definition.Name, transition)
+		}
+		if hasStaleCandidate && !cacheOutcomeRecorded {
+			runtime.observer.RecordToolCache(definition.Name, "miss")
 		}
 		runtime.finish(ctx, startedAt, invocation, &message, "")
 		return message
@@ -159,10 +195,25 @@ func (runtime *Runtime) Invoke(ctx context.Context, invocation Invocation) ToolM
 		runtime.observer.SetToolCircuitState(definition.Name, transition)
 	}
 	if definition.CacheTTLMS > 0 {
+		if hasStaleCandidate && !cacheOutcomeRecorded {
+			runtime.observer.RecordToolCache(definition.Name, "miss")
+		}
 		runtime.cache.put(cacheKey, cachedToolResult{data: encoded, evidenceRefs: message.EvidenceRefs}, runtime.now().Add(time.Duration(definition.CacheTTLMS)*time.Millisecond))
 	}
 	runtime.finish(ctx, startedAt, invocation, &message, "")
 	return message
+}
+
+func (runtime *Runtime) applyStaleFallback(definition Definition, message *ToolMessage, cached cachedToolResult, reason string) {
+	message.Status = StatusSuccess
+	message.Data = cached.data
+	message.EvidenceRefs = append([]string(nil), cached.evidenceRefs...)
+	message.EvidenceRefs = append(message.EvidenceRefs, "tool-cache-stale:"+definition.Name+"@"+definition.Version)
+	message.ErrorCode = ""
+	message.Retryable = false
+	message.Cached = true
+	message.Stale = true
+	message.DegradedReason = reason
 }
 
 func (runtime *Runtime) finish(ctx context.Context, startedAt time.Time, invocation Invocation, message *ToolMessage, validation string) {

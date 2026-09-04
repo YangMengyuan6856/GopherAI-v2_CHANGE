@@ -21,19 +21,32 @@ func newMemoryToolCache() *memoryToolCache {
 	return &memoryToolCache{entries: make(map[string]cachedToolResult)}
 }
 
-func (cache *memoryToolCache) get(key string, now time.Time) (cachedToolResult, bool) {
+type cacheFreshness string
+
+const (
+	cacheMiss  cacheFreshness = "miss"
+	cacheFresh cacheFreshness = "fresh"
+	cacheStale cacheFreshness = "stale"
+)
+
+func (cache *memoryToolCache) get(key string, now time.Time, staleIfError time.Duration) (cachedToolResult, cacheFreshness) {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	entry, ok := cache.entries[key]
-	if !ok || !now.Before(entry.expiresAt) {
-		if ok {
+	if !ok {
+		return cachedToolResult{}, cacheMiss
+	}
+	freshness := cacheFresh
+	if !now.Before(entry.expiresAt) {
+		if staleIfError <= 0 || !now.Before(entry.expiresAt.Add(staleIfError)) {
 			delete(cache.entries, key)
+			return cachedToolResult{}, cacheMiss
 		}
-		return cachedToolResult{}, false
+		freshness = cacheStale
 	}
 	entry.data = append(json.RawMessage(nil), entry.data...)
 	entry.evidenceRefs = append([]string(nil), entry.evidenceRefs...)
-	return entry, true
+	return entry, freshness
 }
 
 func (cache *memoryToolCache) put(key string, entry cachedToolResult, expiresAt time.Time) {
