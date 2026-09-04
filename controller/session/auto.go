@@ -5,6 +5,7 @@ import (
 	"GopherAI/internal/contract"
 	"GopherAI/internal/observability"
 	"GopherAI/internal/platform/feature"
+	intentplatform "GopherAI/internal/platform/intent"
 	knowledgeplatform "GopherAI/internal/platform/knowledge"
 	"GopherAI/internal/platform/legacy"
 	"GopherAI/internal/policy"
@@ -42,18 +43,19 @@ type AutoChatRequest struct {
 }
 
 type AutoChatResponse struct {
-	SchemaVersion  string              `json:"schema_version"`
-	TraceID        string              `json:"trace_id"`
-	RequestID      string              `json:"request_id"`
-	SessionID      string              `json:"session_id"`
-	Message        string              `json:"message"`
-	Intent         string              `json:"intent"`
-	Strategy       string              `json:"strategy"`
-	PolicyVersion  string              `json:"policy_version"`
-	Confidence     float64             `json:"confidence"`
-	Resolved       bool                `json:"resolved"`
-	NeedsUserInput bool                `json:"needs_user_input"`
-	Citations      []contract.Citation `json:"citations,omitempty"`
+	SchemaVersion  string                        `json:"schema_version"`
+	TraceID        string                        `json:"trace_id"`
+	RequestID      string                        `json:"request_id"`
+	SessionID      string                        `json:"session_id"`
+	Message        string                        `json:"message"`
+	Intent         string                        `json:"intent"`
+	Strategy       string                        `json:"strategy"`
+	PolicyVersion  string                        `json:"policy_version"`
+	Confidence     float64                       `json:"confidence"`
+	Resolved       bool                          `json:"resolved"`
+	NeedsUserInput bool                          `json:"needs_user_input"`
+	Citations      []contract.Citation           `json:"citations,omitempty"`
+	IntentShadow   *contract.ShadowIntentSummary `json:"intent_shadow,omitempty"`
 }
 
 func NewAutoHandler(application ChatApplication) *AutoHandler {
@@ -67,7 +69,14 @@ func NewObservedAutoHandler(application ChatApplication, observer ChatObserver) 
 func NewDefaultAutoHandler() *AutoHandler {
 	flags := feature.DefaultProvider()
 	selector := policy.NewFixedSelector(flags)
-	application, err := app.NewService(selector, app.SystemClock{}, app.UUIDGenerator{}, legacy.NewDefaultChatStrategy(), knowledgeplatform.NewDefaultChatStrategy())
+	strategies := []app.ChatStrategy{legacy.NewDefaultChatStrategy(), knowledgeplatform.NewDefaultChatStrategy()}
+	var application *app.Service
+	var err error
+	if flags.Enabled(feature.IntentShadowEnabled) {
+		application, err = app.NewServiceWithIntentShadow(selector, intentplatform.NewDefaultRecognizer(), app.SystemClock{}, app.UUIDGenerator{}, strategies...)
+	} else {
+		application, err = app.NewService(selector, app.SystemClock{}, app.UUIDGenerator{}, strategies...)
+	}
 	if err != nil {
 		panic(fmt.Sprintf("initialize auto chat application: %v", err))
 	}
@@ -101,6 +110,7 @@ func (handler *AutoHandler) Chat(context *gin.Context) {
 		Resolved:       output.Result.Resolved,
 		NeedsUserInput: output.Result.NeedsUserInput,
 		Citations:      output.Result.Citations,
+		IntentShadow:   app.SummarizeShadowIntent(output.ShadowIntent),
 	})
 }
 

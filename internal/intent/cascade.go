@@ -25,6 +25,8 @@ type CascadeInput struct {
 	Question          string
 	KnowledgeRequired bool
 	PreviousIntent    string
+	UserID            string
+	SessionID         string
 }
 
 type CascadeDiagnostics struct {

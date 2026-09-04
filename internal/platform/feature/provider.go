@@ -7,8 +7,9 @@ import (
 )
 
 const (
-	DevSupportEnabled = "devsupport.enabled"
-	RAGFastEnabled    = "rag.fast.enabled"
+	DevSupportEnabled   = "devsupport.enabled"
+	RAGFastEnabled      = "rag.fast.enabled"
+	IntentShadowEnabled = "intent.shadow.enabled"
 )
 
 type Provider interface {
@@ -29,7 +30,7 @@ func NewEnvProvider(defaults map[string]bool) *EnvProvider {
 }
 
 func DefaultProvider() *EnvProvider {
-	return NewEnvProvider(map[string]bool{DevSupportEnabled: true, RAGFastEnabled: true})
+	return NewEnvProvider(map[string]bool{DevSupportEnabled: true, RAGFastEnabled: true, IntentShadowEnabled: true})
 }
 
 func (provider *EnvProvider) Enabled(name string) bool {

@@ -3,6 +3,7 @@ package observability
 import (
 	"GopherAI/internal/app"
 	"GopherAI/internal/contract"
+	intentdomain "GopherAI/internal/intent"
 	"GopherAI/model"
 	"bytes"
 	"errors"
@@ -63,6 +64,40 @@ func TestRecorderPersistsSanitizedRunAndMetrics(t *testing.T) {
 	}
 	if count := testutil.ToFloat64(metrics.agentRuns.WithLabelValues("LegacyAdapter", "legacy_chat", "success")); count != 1 {
 		t.Fatalf("expected distinct agent and strategy labels, got %v", count)
+	}
+}
+
+func TestRecorderPersistsAndMeasuresShadowDecisionSeparately(t *testing.T) {
+	repository := new(memoryRunRepository)
+	registry := prometheus.NewRegistry()
+	metrics := NewMetrics(registry, registry)
+	output := testChatOutput()
+	output.ShadowIntent = &intentdomain.CascadeDecision{
+		Result: contract.IntentResult{Intent: intentdomain.Troubleshooting, Confidence: .93, Version: intentdomain.CascadeVersion,
+			Stages: []contract.IntentStageResult{{Stage: "llm", ReasonCode: "llm_structured_decision"}}},
+		Diagnostics: intentdomain.CascadeDiagnostics{FinalStage: "llm", PrototypeCalled: true, LLMCalled: true, LatencyMillis: 321,
+			LLMUsage: contract.ModelUsage{InputTokens: 12, OutputTokens: 4}},
+	}
+	NewRecorder(repository, metrics, nil).Record(output, nil)
+
+	run := repository.runs[0]
+	if run.Intent != "legacy" || run.Strategy != "legacy_chat" || run.ShadowIntent != intentdomain.Troubleshooting {
+		t.Fatalf("live and shadow decisions were not kept separate: %+v", run)
+	}
+	if run.ShadowFinalStage != "llm" || run.ShadowReasonCode != "llm_structured_decision" || run.ShadowLatencyMicros != 321000 {
+		t.Fatalf("shadow diagnostics were not persisted: %+v", run)
+	}
+	if count := testutil.ToFloat64(metrics.intentShadowDecisions.WithLabelValues("troubleshooting", "llm", "success")); count != 1 {
+		t.Fatalf("expected one shadow decision, got %v", count)
+	}
+	if count := testutil.ToFloat64(metrics.intentShadowStageCalls.WithLabelValues("prototype", "fallback")); count != 1 {
+		t.Fatalf("expected prototype fallback call, got %v", count)
+	}
+	if count := testutil.ToFloat64(metrics.intentShadowStageCalls.WithLabelValues("llm", "selected")); count != 1 {
+		t.Fatalf("expected selected llm call, got %v", count)
+	}
+	if count := testutil.ToFloat64(metrics.intentShadowDisagreements.WithLabelValues("legacy_chat", "troubleshooting")); count != 1 {
+		t.Fatalf("expected live/shadow disagreement, got %v", count)
 	}
 }
 

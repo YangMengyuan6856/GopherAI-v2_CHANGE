@@ -2,6 +2,7 @@ package app
 
 import (
 	"GopherAI/internal/contract"
+	intentdomain "GopherAI/internal/intent"
 	"context"
 	"errors"
 	"testing"
@@ -41,6 +42,16 @@ func (selector *capturingSelector) Select(_ context.Context, _ contract.RequestC
 }
 
 type fakeStrategy struct{ fail bool }
+
+type fakeShadowRecognizer struct {
+	input    intentdomain.CascadeInput
+	decision intentdomain.CascadeDecision
+}
+
+func (recognizer *fakeShadowRecognizer) Recognize(_ context.Context, input intentdomain.CascadeInput) intentdomain.CascadeDecision {
+	recognizer.input = input
+	return recognizer.decision
+}
 
 func (fakeStrategy) Name() string { return "legacy_chat" }
 func (strategy fakeStrategy) Execute(_ context.Context, request contract.RequestContext) (contract.AgentResult, error) {
@@ -102,6 +113,50 @@ func TestExplicitKnowledgeRequestCreatesProjectQAIntentStage(t *testing.T) {
 	}
 	if selector.intent.Intent != ProjectQAIntent || selector.intent.Version != ExplicitIntentVersion || selector.intent.Stages[0].Stage != "explicit_request" || !output.Request.KnowledgeRequired {
 		t.Fatalf("explicit knowledge intent was not preserved: intent=%+v request=%+v", selector.intent, output.Request)
+	}
+}
+
+func TestIntentShadowIsObservableButCannotChangeLiveRoute(t *testing.T) {
+	selector := &capturingSelector{decision: contract.StrategyDecision{
+		StrategyName: "legacy_chat", StrategyVersion: "legacy-v0", PolicyVersion: "policy-v0",
+		ReasonCode: "fixed", Budgets: defaultBudgets,
+	}}
+	shadow := &fakeShadowRecognizer{decision: intentdomain.CascadeDecision{
+		Result: contract.IntentResult{Intent: intentdomain.Troubleshooting, Confidence: .98, Version: intentdomain.CascadeVersion,
+			Stages: []contract.IntentStageResult{{Stage: "pattern", Intent: intentdomain.Troubleshooting, Confidence: .98, ReasonCode: "error_signal"}}},
+		Diagnostics: intentdomain.CascadeDiagnostics{FinalStage: "pattern", LatencyMillis: 2},
+	}}
+	service, err := NewServiceWithIntentShadow(selector, shadow, &fakeClock{now: time.Date(2026, 9, 3, 10, 0, 0, 0, time.UTC)}, &fakeIDs{values: []string{"request-1", "trace-1"}}, fakeStrategy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := service.Chat(context.Background(), ChatInput{UserID: "user", TenantID: "user", SessionID: "session-0", Question: "panic: nil pointer"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selector.intent.Intent != LegacyIntent || output.Decision.StrategyName != "legacy_chat" {
+		t.Fatalf("shadow changed live route: selector=%+v decision=%+v", selector.intent, output.Decision)
+	}
+	if output.ShadowIntent == nil || output.ShadowIntent.Result.Intent != intentdomain.Troubleshooting {
+		t.Fatalf("shadow decision missing: %+v", output.ShadowIntent)
+	}
+	if shadow.input.SessionID != "session-0" || shadow.input.UserID != "user" {
+		t.Fatalf("shadow context was not propagated: %+v", shadow.input)
+	}
+	if len(output.Trace.Steps) != 3 || output.Trace.Steps[0].Name != "intent_shadow" {
+		t.Fatalf("shadow trace missing: %+v", output.Trace.Steps)
+	}
+}
+
+func TestSummarizeShadowIntentIncludesBoundedDecisionReasons(t *testing.T) {
+	decision := &intentdomain.CascadeDecision{
+		Result: contract.IntentResult{Intent: intentdomain.General, Confidence: .4, Version: intentdomain.CascadeVersion,
+			Stages: []contract.IntentStageResult{{Stage: "cascade", ReasonCode: "cascade_degraded_requires_clarification"}}},
+		Diagnostics: intentdomain.CascadeDiagnostics{FinalStage: "degraded_clarification", PatternReasons: []string{"weak_signal"}, FallbackReasons: []string{"prototype_unavailable", "weak_signal"}},
+	}
+	summary := SummarizeShadowIntent(decision)
+	if len(summary.ReasonCodes) != 3 || summary.ReasonCodes[0] != "cascade_degraded_requires_clarification" || summary.Mode != "shadow" {
+		t.Fatalf("unexpected shadow summary: %+v", summary)
 	}
 }
 

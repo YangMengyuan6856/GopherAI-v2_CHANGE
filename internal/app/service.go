@@ -2,6 +2,7 @@ package app
 
 import (
 	"GopherAI/internal/contract"
+	intentdomain "GopherAI/internal/intent"
 	"context"
 	"fmt"
 	"time"
@@ -37,6 +38,10 @@ type PolicySelector interface {
 	Select(ctx context.Context, request contract.RequestContext, intent contract.IntentResult) (contract.StrategyDecision, error)
 }
 
+type IntentShadowRecognizer interface {
+	Recognize(ctx context.Context, input intentdomain.CascadeInput) intentdomain.CascadeDecision
+}
+
 type StreamEmitter func(contract.StreamEvent) error
 
 type ChatStrategy interface {
@@ -58,11 +63,12 @@ type ChatInput struct {
 }
 
 type ChatOutput struct {
-	Request  contract.RequestContext
-	Intent   contract.IntentResult
-	Decision contract.StrategyDecision
-	Result   contract.AgentResult
-	Trace    contract.TraceEnvelope
+	Request      contract.RequestContext
+	Intent       contract.IntentResult
+	ShadowIntent *intentdomain.CascadeDecision
+	Decision     contract.StrategyDecision
+	Result       contract.AgentResult
+	Trace        contract.TraceEnvelope
 }
 
 type Service struct {
@@ -71,9 +77,21 @@ type Service struct {
 	clock      Clock
 	ids        IDGenerator
 	budgets    contract.ExecutionBudgets
+	shadow     IntentShadowRecognizer
 }
 
 func NewService(selector PolicySelector, clock Clock, ids IDGenerator, strategies ...ChatStrategy) (*Service, error) {
+	return newService(selector, nil, clock, ids, strategies...)
+}
+
+func NewServiceWithIntentShadow(selector PolicySelector, shadow IntentShadowRecognizer, clock Clock, ids IDGenerator, strategies ...ChatStrategy) (*Service, error) {
+	if shadow == nil {
+		return nil, fmt.Errorf("intent shadow recognizer is required")
+	}
+	return newService(selector, shadow, clock, ids, strategies...)
+}
+
+func newService(selector PolicySelector, shadow IntentShadowRecognizer, clock Clock, ids IDGenerator, strategies ...ChatStrategy) (*Service, error) {
 	if selector == nil || clock == nil || ids == nil {
 		return nil, fmt.Errorf("selector, clock and id generator are required")
 	}
@@ -87,7 +105,7 @@ func NewService(selector PolicySelector, clock Clock, ids IDGenerator, strategie
 		}
 		registry[strategy.Name()] = strategy
 	}
-	return &Service{selector: selector, strategies: registry, clock: clock, ids: ids, budgets: defaultBudgets}, nil
+	return &Service{selector: selector, strategies: registry, clock: clock, ids: ids, budgets: defaultBudgets, shadow: shadow}, nil
 }
 
 func (service *Service) Chat(ctx context.Context, input ChatInput) (ChatOutput, error) {
@@ -120,6 +138,7 @@ func (service *Service) Stream(ctx context.Context, input ChatInput, emit Stream
 		event.Intent = output.Intent.Intent
 		event.Strategy = output.Decision.StrategyName
 		event.PolicyVersion = output.Decision.PolicyVersion
+		event.IntentShadow = SummarizeShadowIntent(output.ShadowIntent)
 		return emit(event)
 	}
 
@@ -173,6 +192,13 @@ func (service *Service) prepare(ctx context.Context, input ChatInput) (ChatOutpu
 			Stages: []contract.IntentStageResult{{Stage: "explicit_request", Intent: ProjectQAIntent, Confidence: 1, ReasonCode: "knowledge_required"}}}
 	}
 	output.Intent = intent
+	if service.shadow != nil {
+		shadow := service.shadow.Recognize(ctx, intentdomain.CascadeInput{
+			Question: request.Question, KnowledgeRequired: request.KnowledgeRequired,
+			UserID: request.UserID, SessionID: request.SessionID,
+		})
+		output.ShadowIntent = &shadow
+	}
 	decision, err := service.selector.Select(ctx, request, intent)
 	if err != nil {
 		return output, nil, contract.WithTrace(err, traceID)
@@ -183,17 +209,59 @@ func (service *Service) prepare(ctx context.Context, input ChatInput) (ChatOutpu
 	request.PolicyVersion = decision.PolicyVersion
 	output.Request = request
 	output.Decision = decision
+	steps := make([]contract.TraceStep, 0, 2)
+	if output.ShadowIntent != nil {
+		steps = append(steps, contract.TraceStep{Name: "intent_shadow", StartedAt: startedAt, FinishedAt: service.clock.Now(), Status: "ok",
+			Attributes: map[string]any{"intent": output.ShadowIntent.Result.Intent, "final_stage": output.ShadowIntent.Diagnostics.FinalStage,
+				"confidence": output.ShadowIntent.Result.Confidence, "mode": "shadow", "llm_called": output.ShadowIntent.Diagnostics.LLMCalled}})
+	}
+	steps = append(steps, contract.TraceStep{Name: "policy_select", StartedAt: startedAt, FinishedAt: service.clock.Now(), Status: "ok",
+		Attributes: map[string]any{"reason_code": decision.ReasonCode}})
 	output.Trace = contract.TraceEnvelope{
 		SchemaVersion: contract.SchemaVersion, TraceID: traceID, RequestID: requestID, SessionID: input.SessionID,
 		Intent: intent, Decision: decision, StartedAt: startedAt,
-		Steps: []contract.TraceStep{{Name: "policy_select", StartedAt: startedAt, FinishedAt: service.clock.Now(), Status: "ok",
-			Attributes: map[string]any{"reason_code": decision.ReasonCode}}},
+		Steps: steps,
 	}
 	strategy, exists := service.strategies[decision.StrategyName]
 	if !exists {
 		return output, nil, contract.WithTrace(contract.NewDomainError("STRATEGY_NOT_REGISTERED", contract.ErrorInternal, "策略暂时不可用", false, fmt.Errorf("strategy %s not registered", decision.StrategyName)), traceID)
 	}
 	return output, strategy, nil
+}
+
+func SummarizeShadowIntent(decision *intentdomain.CascadeDecision) *contract.ShadowIntentSummary {
+	if decision == nil {
+		return nil
+	}
+	reasonCodes := make([]string, 0, 8)
+	seen := make(map[string]struct{})
+	appendReason := func(reason string) {
+		if reason == "" || len(reason) > 64 || len(reasonCodes) >= 8 {
+			return
+		}
+		if _, exists := seen[reason]; exists {
+			return
+		}
+		seen[reason] = struct{}{}
+		reasonCodes = append(reasonCodes, reason)
+	}
+	for _, stage := range decision.Result.Stages {
+		appendReason(stage.ReasonCode)
+	}
+	for _, reason := range decision.Diagnostics.PatternReasons {
+		appendReason(reason)
+	}
+	for _, reason := range decision.Diagnostics.FallbackReasons {
+		appendReason(reason)
+	}
+	return &contract.ShadowIntentSummary{
+		Intent: decision.Result.Intent, Confidence: decision.Result.Confidence,
+		FinalStage: decision.Diagnostics.FinalStage, Version: decision.Result.Version,
+		ReasonCodes: reasonCodes,
+		IsCompound:  decision.Result.IsCompound, NeedsClarify: decision.Result.NeedsClarify,
+		PrototypeCalled: decision.Diagnostics.PrototypeCalled, LLMCalled: decision.Diagnostics.LLMCalled,
+		LatencyMillis: decision.Diagnostics.LatencyMillis, Mode: "shadow",
+	}
 }
 
 func (service *Service) finish(output ChatOutput, result contract.AgentResult, stepName string, startedAt time.Time, err error) (ChatOutput, error) {

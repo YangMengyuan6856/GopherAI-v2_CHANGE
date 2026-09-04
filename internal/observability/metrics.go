@@ -10,24 +10,28 @@ import (
 )
 
 type Metrics struct {
-	requests                *prometheus.CounterVec
-	requestDuration         *prometheus.HistogramVec
-	intentDecisions         *prometheus.CounterVec
-	intentConfidence        *prometheus.HistogramVec
-	agentRuns               *prometheus.CounterVec
-	agentDuration           *prometheus.HistogramVec
-	persistFailures         *prometheus.CounterVec
-	documentUploads         *prometheus.CounterVec
-	documentBytes           prometheus.Histogram
-	retrievals              *prometheus.CounterVec
-	retrievalDuration       *prometheus.HistogramVec
-	retrievalResults        *prometheus.HistogramVec
-	knowledgeAnswers        *prometheus.CounterVec
-	knowledgeAnswerDuration *prometheus.HistogramVec
-	ragStrategyRequests     *prometheus.CounterVec
-	ragStrategyDuration     *prometheus.HistogramVec
-	ragEnhancements         *prometheus.CounterVec
-	gatherer                prometheus.Gatherer
+	requests                  *prometheus.CounterVec
+	requestDuration           *prometheus.HistogramVec
+	intentDecisions           *prometheus.CounterVec
+	intentConfidence          *prometheus.HistogramVec
+	intentShadowDecisions     *prometheus.CounterVec
+	intentShadowDuration      *prometheus.HistogramVec
+	intentShadowStageCalls    *prometheus.CounterVec
+	intentShadowDisagreements *prometheus.CounterVec
+	agentRuns                 *prometheus.CounterVec
+	agentDuration             *prometheus.HistogramVec
+	persistFailures           *prometheus.CounterVec
+	documentUploads           *prometheus.CounterVec
+	documentBytes             prometheus.Histogram
+	retrievals                *prometheus.CounterVec
+	retrievalDuration         *prometheus.HistogramVec
+	retrievalResults          *prometheus.HistogramVec
+	knowledgeAnswers          *prometheus.CounterVec
+	knowledgeAnswerDuration   *prometheus.HistogramVec
+	ragStrategyRequests       *prometheus.CounterVec
+	ragStrategyDuration       *prometheus.HistogramVec
+	ragEnhancements           *prometheus.CounterVec
+	gatherer                  prometheus.Gatherer
 }
 
 func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) *Metrics {
@@ -50,6 +54,23 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 			Help:    "Intent confidence distribution.",
 			Buckets: prometheus.LinearBuckets(0, 0.1, 11),
 		}, []string{"intent", "final_stage"}),
+		intentShadowDecisions: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_intent_shadow_decisions_total",
+			Help: "Total bounded shadow intent decisions; shadow decisions never change live routing.",
+		}, []string{"intent", "final_stage", "status"}),
+		intentShadowDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "gopherai_intent_shadow_duration_seconds",
+			Help:    "Shadow intent cascade duration in seconds by bounded final stage.",
+			Buckets: []float64{0.0001, 0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 4, 8},
+		}, []string{"final_stage"}),
+		intentShadowStageCalls: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_intent_shadow_stage_calls_total",
+			Help: "Total downstream shadow intent stage calls by bounded outcome.",
+		}, []string{"stage", "outcome"}),
+		intentShadowDisagreements: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_intent_shadow_disagreements_total",
+			Help: "Total disagreements between the live route and the shadow intent suggestion.",
+		}, []string{"legacy_route", "new_intent"}),
 		agentRuns: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "gopherai_agent_runs_total",
 			Help: "Total agent strategy executions.",
@@ -115,6 +136,10 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 		metrics.requestDuration,
 		metrics.intentDecisions,
 		metrics.intentConfidence,
+		metrics.intentShadowDecisions,
+		metrics.intentShadowDuration,
+		metrics.intentShadowStageCalls,
+		metrics.intentShadowDisagreements,
 		metrics.agentRuns,
 		metrics.agentDuration,
 		metrics.persistFailures,
@@ -131,6 +156,13 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 	)
 	for _, status := range []string{"accepted", "duplicate", "rejected", "error"} {
 		metrics.documentUploads.WithLabelValues(status).Add(0)
+	}
+	for _, intent := range []string{"project_qa", "troubleshooting", "doc_task", "tool_task", "follow_up", "general", "unknown"} {
+		for _, stage := range []string{"pattern", "prototype", "llm", "degraded_clarification", "unavailable", "unknown"} {
+			for _, status := range []string{"success", "degraded"} {
+				metrics.intentShadowDecisions.WithLabelValues(intent, stage, status).Add(0)
+			}
+		}
 	}
 	for _, mode := range []string{"hybrid", "dense_only", "bm25_only", "unavailable"} {
 		for _, status := range []string{"success", "degraded", "empty", "rejected", "error"} {

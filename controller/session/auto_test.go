@@ -3,6 +3,7 @@ package session
 import (
 	"GopherAI/internal/app"
 	"GopherAI/internal/contract"
+	intentdomain "GopherAI/internal/intent"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -46,11 +47,16 @@ func (fakeChatApplication) Stream(_ context.Context, input app.ChatInput, emit a
 }
 
 func testOutput(input app.ChatInput) app.ChatOutput {
+	shadow := intentdomain.CascadeDecision{
+		Result:      contract.IntentResult{Intent: intentdomain.Troubleshooting, Confidence: .98, Version: intentdomain.CascadeVersion},
+		Diagnostics: intentdomain.CascadeDiagnostics{FinalStage: "pattern", LatencyMillis: 1},
+	}
 	return app.ChatOutput{
-		Request:  contract.RequestContext{TraceID: firstNonEmpty(input.TraceID, "trace-1"), RequestID: firstNonEmpty(input.RequestID, "request-1")},
-		Intent:   contract.IntentResult{Intent: "legacy"},
-		Decision: contract.StrategyDecision{StrategyName: "legacy_chat", PolicyVersion: "policy-v0"},
-		Result:   contract.AgentResult{SessionID: "session-1", Answer: "answer", Confidence: 1},
+		Request:      contract.RequestContext{TraceID: firstNonEmpty(input.TraceID, "trace-1"), RequestID: firstNonEmpty(input.RequestID, "request-1")},
+		Intent:       contract.IntentResult{Intent: "legacy"},
+		Decision:     contract.StrategyDecision{StrategyName: "legacy_chat", PolicyVersion: "policy-v0"},
+		Result:       contract.AgentResult{SessionID: "session-1", Answer: "answer", Confidence: 1},
+		ShadowIntent: &shadow,
 	}
 }
 
@@ -71,6 +77,9 @@ func TestAutoChatDoesNotRequireModelType(t *testing.T) {
 	}
 	if response.Message != "answer" || response.Strategy != "legacy_chat" || response.SessionID != "session-1" {
 		t.Fatalf("unexpected response: %#v", response)
+	}
+	if response.IntentShadow == nil || response.IntentShadow.Intent != intentdomain.Troubleshooting || response.IntentShadow.Mode != "shadow" {
+		t.Fatalf("shadow intent missing from response: %#v", response.IntentShadow)
 	}
 }
 

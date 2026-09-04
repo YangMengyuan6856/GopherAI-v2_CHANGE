@@ -82,6 +82,33 @@ func (metrics *Metrics) record(run model.AgentRun, confidence float64) {
 	metrics.intentConfidence.WithLabelValues(intent, stage).Observe(clampConfidence(confidence))
 	metrics.agentRuns.WithLabelValues(agent, strategy, status).Inc()
 	metrics.agentDuration.WithLabelValues(agent, strategy).Observe(duration)
+	if run.ShadowIntent != "" {
+		shadowIntent := boundedShadowIntent(run.ShadowIntent)
+		shadowStage := boundedShadowStage(run.ShadowFinalStage)
+		shadowStatus := "success"
+		if shadowStage == "unavailable" || shadowStage == "degraded_clarification" {
+			shadowStatus = "degraded"
+		}
+		metrics.intentShadowDecisions.WithLabelValues(shadowIntent, shadowStage, shadowStatus).Inc()
+		metrics.intentShadowDuration.WithLabelValues(shadowStage).Observe(float64(run.ShadowLatencyMicros) / float64(time.Second/time.Microsecond))
+		if run.ShadowPrototypeCalled {
+			outcome := "fallback"
+			if shadowStage == "prototype" {
+				outcome = "selected"
+			}
+			metrics.intentShadowStageCalls.WithLabelValues("prototype", outcome).Inc()
+		}
+		if run.ShadowLLMCalled {
+			outcome := "fallback"
+			if shadowStage == "llm" {
+				outcome = "selected"
+			}
+			metrics.intentShadowStageCalls.WithLabelValues("llm", outcome).Inc()
+		}
+		if run.Intent != run.ShadowIntent {
+			metrics.intentShadowDisagreements.WithLabelValues(boundedLiveRoute(run.Strategy), shadowIntent).Inc()
+		}
+	}
 }
 
 func agentForStrategy(strategy string) string {
@@ -107,6 +134,10 @@ func (recorder *Recorder) writeLog(run model.AgentRun, persistenceStatus string)
 		"event": "agent_run_completed", "trace_id": run.TraceID, "request_id": run.RequestID,
 		"session_id": run.SessionID, "user_id_hash": run.UserIDHash, "intent": run.Intent,
 		"intent_version": run.IntentVersion, "final_intent_stage": run.FinalIntentStage,
+		"shadow_intent": run.ShadowIntent, "shadow_intent_version": run.ShadowIntentVersion,
+		"shadow_final_stage": run.ShadowFinalStage, "shadow_reason_code": run.ShadowReasonCode,
+		"shadow_confidence": run.ShadowConfidence, "shadow_latency_micros": run.ShadowLatencyMicros,
+		"shadow_prototype_called": run.ShadowPrototypeCalled, "shadow_llm_called": run.ShadowLLMCalled,
 		"strategy": run.Strategy, "strategy_version": run.StrategyVersion,
 		"policy_version": run.PolicyVersion, "status": run.Status,
 		"duration_micros": run.DurationMicros, "error_code": run.ErrorCode,
@@ -149,7 +180,7 @@ func buildRun(output app.ChatOutput, requestError error) model.AgentRun {
 		}
 	}
 	traceJSON, _ := json.Marshal(output.Trace)
-	return model.AgentRun{
+	run := model.AgentRun{
 		TraceID: output.Request.TraceID, RequestID: output.Request.RequestID,
 		SessionID: output.Result.SessionID, UserIDHash: HashUserID(output.Request.UserID),
 		Intent: output.Intent.Intent, IntentVersion: output.Intent.Version,
@@ -159,6 +190,51 @@ func buildRun(output app.ChatOutput, requestError error) model.AgentRun {
 		OutputTokens: output.Result.Usage.OutputTokens, CostMicros: output.Result.Usage.CostMicros,
 		EvidenceCount: len(output.Result.Evidence), ToolCallCount: len(output.Result.ToolCalls),
 		ErrorCode: errorCode, TraceEnvelopeJSON: string(traceJSON), StartedAt: startedAt, FinishedAt: finishedAt,
+	}
+	if output.ShadowIntent != nil {
+		summary := app.SummarizeShadowIntent(output.ShadowIntent)
+		run.ShadowIntent = summary.Intent
+		run.ShadowIntentVersion = summary.Version
+		run.ShadowFinalStage = summary.FinalStage
+		run.ShadowConfidence = summary.Confidence
+		run.ShadowIsCompound = summary.IsCompound
+		run.ShadowNeedsClarify = summary.NeedsClarify
+		run.ShadowLatencyMicros = summary.LatencyMillis * int64(time.Millisecond/time.Microsecond)
+		run.ShadowPrototypeCalled = summary.PrototypeCalled
+		run.ShadowLLMCalled = summary.LLMCalled
+		run.ShadowLLMInputTokens = output.ShadowIntent.Diagnostics.LLMUsage.InputTokens
+		run.ShadowLLMOutputTokens = output.ShadowIntent.Diagnostics.LLMUsage.OutputTokens
+		if len(summary.ReasonCodes) > 0 {
+			run.ShadowReasonCode = summary.ReasonCodes[len(summary.ReasonCodes)-1]
+		}
+	}
+	return run
+}
+
+func boundedShadowIntent(value string) string {
+	switch strings.TrimSpace(value) {
+	case "project_qa", "troubleshooting", "doc_task", "tool_task", "follow_up", "general":
+		return strings.TrimSpace(value)
+	default:
+		return unknownLabel
+	}
+}
+
+func boundedShadowStage(value string) string {
+	switch strings.TrimSpace(value) {
+	case "pattern", "prototype", "llm", "degraded_clarification", "unavailable":
+		return strings.TrimSpace(value)
+	default:
+		return unknownLabel
+	}
+}
+
+func boundedLiveRoute(value string) string {
+	switch strings.TrimSpace(value) {
+	case "legacy_chat", "rag_fast", "rag_deep":
+		return strings.TrimSpace(value)
+	default:
+		return unknownLabel
 	}
 }
 

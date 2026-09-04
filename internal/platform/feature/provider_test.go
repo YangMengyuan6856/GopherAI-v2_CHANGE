@@ -11,6 +11,9 @@ func TestDefaultProviderEnablesDevSupport(t *testing.T) {
 	if !provider.Enabled(RAGFastEnabled) {
 		t.Fatal("rag_fast must default to enabled behind its explicit request gate")
 	}
+	if !provider.Enabled(IntentShadowEnabled) {
+		t.Fatal("intent shadow must default to enabled without changing live routing")
+	}
 }
 
 func TestEnvironmentOverridesDefault(t *testing.T) {

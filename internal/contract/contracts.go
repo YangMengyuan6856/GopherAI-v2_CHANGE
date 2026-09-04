@@ -202,19 +202,34 @@ const (
 	StreamEventError    StreamEventType = "error"
 )
 
+type ShadowIntentSummary struct {
+	Intent          string   `json:"intent"`
+	Confidence      float64  `json:"confidence"`
+	FinalStage      string   `json:"final_stage"`
+	Version         string   `json:"version"`
+	ReasonCodes     []string `json:"reason_codes,omitempty"`
+	IsCompound      bool     `json:"is_compound"`
+	NeedsClarify    bool     `json:"needs_clarify"`
+	PrototypeCalled bool     `json:"prototype_called"`
+	LLMCalled       bool     `json:"llm_called"`
+	LatencyMillis   int64    `json:"latency_ms"`
+	Mode            string   `json:"mode"`
+}
+
 type StreamEvent struct {
-	Type           StreamEventType `json:"-"`
-	SchemaVersion  string          `json:"schema_version"`
-	TraceID        string          `json:"trace_id"`
-	RequestID      string          `json:"request_id"`
-	SessionID      string          `json:"session_id,omitempty"`
-	Intent         string          `json:"intent,omitempty"`
-	Strategy       string          `json:"strategy,omitempty"`
-	PolicyVersion  string          `json:"policy_version,omitempty"`
-	Text           string          `json:"text,omitempty"`
-	Citation       *Citation       `json:"citation,omitempty"`
-	Confidence     float64         `json:"confidence,omitempty"`
-	NeedsUserInput bool            `json:"needs_user_input,omitempty"`
-	Usage          *ModelUsage     `json:"usage,omitempty"`
-	Error          *DomainError    `json:"error,omitempty"`
+	Type           StreamEventType      `json:"-"`
+	SchemaVersion  string               `json:"schema_version"`
+	TraceID        string               `json:"trace_id"`
+	RequestID      string               `json:"request_id"`
+	SessionID      string               `json:"session_id,omitempty"`
+	Intent         string               `json:"intent,omitempty"`
+	Strategy       string               `json:"strategy,omitempty"`
+	PolicyVersion  string               `json:"policy_version,omitempty"`
+	Text           string               `json:"text,omitempty"`
+	Citation       *Citation            `json:"citation,omitempty"`
+	Confidence     float64              `json:"confidence,omitempty"`
+	NeedsUserInput bool                 `json:"needs_user_input,omitempty"`
+	Usage          *ModelUsage          `json:"usage,omitempty"`
+	Error          *DomainError         `json:"error,omitempty"`
+	IntentShadow   *ShadowIntentSummary `json:"intent_shadow,omitempty"`
 }

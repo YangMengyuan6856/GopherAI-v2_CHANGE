@@ -23,7 +23,7 @@
       <div class="top-bar">
         <button class="back-btn" @click="$router.push('/menu')">← 返回</button>
         <button class="sync-btn" @click="syncHistory" :disabled="!currentSessionId || tempSession">同步历史数据</button>
-        <span class="route-mode" title="系统会根据问题自动选择意图、策略与 Agent">✨ 智能路由</span>
+        <span class="route-mode" title="新识别器只记录建议和指标；实际路由仍由当前显式开关决定">🧭 意图 Shadow（不切流）</span>
         <label for="streamingMode" style="margin-left: 20px;">
           <input type="checkbox" id="streamingMode" v-model="isStreaming" />
           流式响应
@@ -222,7 +222,13 @@
           </div>
           <div class="message-content" v-html="renderMarkdown(message.content)"></div>
           <div v-if="message.role === 'assistant' && message.meta && message.meta.traceId" class="routing-meta">
-            自动路由 · {{ message.meta.strategy }} · {{ message.meta.policyVersion }} · Trace {{ message.meta.traceId.slice(0, 8) }}
+            <div>实际路由 · {{ message.meta.strategy }} · {{ message.meta.policyVersion }} · Trace {{ message.meta.traceId.slice(0, 8) }}</div>
+            <div v-if="message.meta.intentShadow" class="shadow-intent-meta">
+              影子判断 · {{ intentLabel(message.meta.intentShadow.intent) }} ·
+              {{ intentStageLabel(message.meta.intentShadow.final_stage) }} ·
+              {{ Math.round((message.meta.intentShadow.confidence || 0) * 100) }}% · 不切流
+              <span v-if="message.meta.intentShadow.needs_clarify"> · 建议澄清</span>
+            </div>
           </div>
           <div v-if="message.role === 'assistant' && message.meta && message.meta.citations && message.meta.citations.length" class="chat-citations">
             <span v-for="(citation, citationIndex) in message.meta.citations" :key="citation.citation_id">
@@ -505,7 +511,7 @@ export default {
       const aiMessage = {
         role: 'assistant',
         content: '',
-        meta: { status: 'streaming', strategy: '自动选择', policyVersion: '加载中', traceId: '' }
+        meta: { status: 'streaming', strategy: '固定路由', policyVersion: '加载中', traceId: '', intentShadow: null }
       }
       const aiMessageIndex = currentMessages.value.length
       currentMessages.value.push(aiMessage)
@@ -559,8 +565,9 @@ export default {
             message.meta = {
               status: 'streaming',
               traceId: payload.trace_id || '',
-              strategy: payload.strategy || '自动选择',
-              policyVersion: payload.policy_version || ''
+              strategy: payload.strategy || '固定路由',
+              policyVersion: payload.policy_version || '',
+              intentShadow: payload.intent_shadow || null
             }
             if (payload.session_id && tempSession.value) {
               const newSessionId = String(payload.session_id)
@@ -631,7 +638,8 @@ export default {
             content: response.data.message || '',
             meta: {
               status: 'done', traceId: response.data.trace_id || '',
-              strategy: response.data.strategy || '自动选择', policyVersion: response.data.policy_version || '',
+              strategy: response.data.strategy || '固定路由', policyVersion: response.data.policy_version || '',
+              intentShadow: response.data.intent_shadow || null,
               citations: response.data.citations || [], needsUserInput: response.data.needs_user_input || false
             }
           }
@@ -666,7 +674,8 @@ export default {
             content: response.data.message || '',
             meta: {
               status: 'done', traceId: response.data.trace_id || '',
-              strategy: response.data.strategy || '自动选择', policyVersion: response.data.policy_version || '',
+              strategy: response.data.strategy || '固定路由', policyVersion: response.data.policy_version || '',
+              intentShadow: response.data.intent_shadow || null,
               citations: response.data.citations || [], needsUserInput: response.data.needs_user_input || false
             }
           }
@@ -680,6 +689,23 @@ export default {
       }
     }
 
+
+    const intentLabel = (intent) => ({
+      project_qa: '项目知识问答',
+      troubleshooting: '故障排查',
+      doc_task: '文档任务',
+      tool_task: '受治理的操作任务',
+      follow_up: '上下文追问',
+      general: '通用对话'
+    }[intent] || '未知意图')
+
+    const intentStageLabel = (stage) => ({
+      pattern: '规则高置信命中',
+      prototype: '语义原型匹配',
+      llm: '结构化模型判定',
+      degraded_clarification: '安全降级',
+      unavailable: '识别器暂不可用'
+    }[stage] || '未知阶段')
 
     const scrollToBottom = () => {
       if (messagesRef.value) {
@@ -1062,6 +1088,8 @@ export default {
       queryReasonLabel,
       deepOutcomeLabel,
       enhancementOutcomeLabel,
+      intentLabel,
+      intentStageLabel,
       renderMarkdown,
       playTTS,
       createNewSession,
@@ -1635,6 +1663,12 @@ export default {
   color: #8492a6;
   font-size: 11px;
   letter-spacing: 0.01em;
+}
+
+.shadow-intent-meta {
+  margin-top: 4px;
+  color: #7a5daf;
+  font-weight: 650;
 }
 
 .chat-citations {
