@@ -32,7 +32,7 @@ func TestToolDatasetAndEvaluator(t *testing.T) {
 	if report.Metrics.ToolSelectionAccuracy != 1 || report.Metrics.SchemaContractPassRate != 1 || report.Metrics.AuthorizationPolicyPassRate != 1 || report.Metrics.ResiliencePassRate != 1 || report.Metrics.SafetyPassRate != 1 {
 		t.Fatalf("category contract regression: %+v", report.Metrics)
 	}
-	if report.Metrics.DangerousActionExecutionRate != 0 || report.Metrics.UnknownToolExecutionCount != 0 || report.Metrics.AuditCoverageRate != 1 || report.Metrics.DeterministicReplayRate != 1 {
+	if report.Metrics.DangerousActionExecutionRate != 0 || report.Metrics.UnknownToolExecutionCount != 0 || report.Metrics.AuditCoverageRate != 1 || report.Metrics.DeterministicReplayRate != 1 || report.Metrics.BoundedRepairPassRate != 1 || report.Metrics.NoProgressTerminationRate != 1 {
 		t.Fatalf("safety or replay regression: %+v", report.Metrics)
 	}
 }

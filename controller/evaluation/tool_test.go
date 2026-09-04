@@ -25,7 +25,7 @@ func validToolTestReport() evaldomain.ToolEvaluationReport {
 	return evaldomain.ToolEvaluationReport{
 		EvaluatorVersion: evaldomain.ToolEvaluatorVersion, DatasetVersion: evaldomain.ToolDatasetVersion,
 		GeneratedAt: time.Date(2026, 9, 5, 6, 0, 0, 0, time.UTC), TechnicalGatesPassed: true,
-		Metrics: evaldomain.ToolEvaluationMetrics{CaseCount: 30, ToolSelectionAccuracy: 1, SchemaContractPassRate: 1, AuthorizationPolicyPassRate: 1, ResiliencePassRate: 1, SafetyPassRate: 1, AuditCoverageRate: 1, DeterministicReplayRate: 1},
+		Metrics: evaldomain.ToolEvaluationMetrics{CaseCount: 30, ToolSelectionAccuracy: 1, SchemaContractPassRate: 1, AuthorizationPolicyPassRate: 1, ResiliencePassRate: 1, SafetyPassRate: 1, AuditCoverageRate: 1, DeterministicReplayRate: 1, BoundedRepairPassRate: 1, NoProgressTerminationRate: 1},
 		Cases:   cases,
 	}
 }

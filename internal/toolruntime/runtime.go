@@ -80,6 +80,12 @@ func (runtime *Runtime) Invoke(ctx context.Context, invocation Invocation) ToolM
 		runtime.finish(ctx, startedAt, invocation, &message, "budget_exceeded")
 		return message
 	}
+	if !invocation.ActionGuard.reserve(definition.Name, definition.Version, message.ArgsHash) {
+		message.Status = StatusNoProgress
+		message.ErrorCode = ErrorNoProgress
+		runtime.finish(ctx, startedAt, invocation, &message, "no_progress")
+		return message
+	}
 
 	runtime.observer.RecordToolValidation(definition.Name, "accepted")
 	cacheKey := toolCacheKey(definition, invocation, message.ArgsHash)

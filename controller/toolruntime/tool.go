@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"GopherAI/common/mysql"
@@ -27,7 +26,7 @@ type Service interface {
 
 type Handler struct {
 	runtime Service
-	planner *toolagent.Planner
+	planner toolagent.CandidatePlanner
 }
 
 type InvokeRequest struct {
@@ -46,11 +45,15 @@ type AgentRequest struct {
 }
 
 type AgentResponse struct {
-	SchemaVersion string                    `json:"schema_version"`
-	Status        string                    `json:"status"`
-	Plan          toolagent.Plan            `json:"plan"`
-	ToolMessages  []toolruntime.ToolMessage `json:"tool_messages"`
-	CachedCount   int                       `json:"cached_count"`
+	SchemaVersion     string                    `json:"schema_version"`
+	Status            string                    `json:"status"`
+	Plan              toolagent.Plan            `json:"plan"`
+	ToolMessages      []toolruntime.ToolMessage `json:"tool_messages"`
+	AttemptMessages   []toolruntime.ToolMessage `json:"attempt_messages,omitempty"`
+	Repairs           []toolagent.RepairRecord  `json:"repairs,omitempty"`
+	RepairCount       int                       `json:"repair_count"`
+	TerminationReason string                    `json:"termination_reason,omitempty"`
+	CachedCount       int                       `json:"cached_count"`
 }
 
 type ErrorResponse struct {
@@ -62,7 +65,14 @@ type ErrorResponse struct {
 }
 
 func NewHandler(runtime Service) *Handler {
-	return &Handler{runtime: runtime, planner: toolagent.NewPlanner()}
+	return NewHandlerWithPlanner(runtime, toolagent.NewPlanner())
+}
+
+func NewHandlerWithPlanner(runtime Service, planner toolagent.CandidatePlanner) *Handler {
+	if planner == nil {
+		planner = toolagent.NewPlanner()
+	}
+	return &Handler{runtime: runtime, planner: planner}
 }
 
 func NewDefaultHandler() *Handler {
@@ -143,35 +153,22 @@ func (handler *Handler) RunAgent(ctx *gin.Context) {
 		handler.writeError(ctx, http.StatusBadRequest, "TOOL_AGENT_INPUT_INVALID", "请输入 1 到 2000 个字符的运维证据问题", false)
 		return
 	}
-	response := AgentResponse{SchemaVersion: "tool-agent-run-v1", Status: plan.Decision, Plan: plan, ToolMessages: []toolruntime.ToolMessage{}}
+	response := AgentResponse{SchemaVersion: "tool-agent-run-v1", Status: plan.Decision, Plan: plan, ToolMessages: []toolruntime.ToolMessage{}, AttemptMessages: []toolruntime.ToolMessage{}, Repairs: []toolagent.RepairRecord{}}
 	if plan.Decision != "execute" {
 		ctx.JSON(http.StatusOK, response)
 		return
 	}
 	requestID, traceID := requestid.IDs(ctx)
 	userID := ctx.GetString("userName")
-	failed := 0
-	for index, call := range plan.Calls {
-		message := handler.runtime.Invoke(ctx.Request.Context(), toolruntime.Invocation{
-			CallID: requestID + "-" + strconv.Itoa(index+1), TraceID: traceID, ToolName: call.ToolName, Arguments: call.Arguments,
-			Intent: "tool_task", Strategy: "tool_agent_v1",
-			Principal:         toolruntime.Principal{TenantID: userID, UserID: userID, Permissions: map[string]bool{"devsupport:tools:read": true}},
-			AllowedSideEffect: toolruntime.SideEffectReadOnly, Budget: toolruntime.CallBudget{MaxCalls: len(plan.Calls), UsedCalls: index},
-		})
-		response.ToolMessages = append(response.ToolMessages, message)
-		if message.Cached {
-			response.CachedCount++
-		}
-		if message.Status != toolruntime.StatusSuccess {
-			failed++
-		}
-	}
-	response.Status = "succeeded"
-	if failed == len(response.ToolMessages) {
-		response.Status = "failed"
-	} else if failed > 0 {
-		response.Status = "partial_failed"
-	}
+	execution := toolagent.ExecuteCandidatePlan(ctx.Request.Context(), handler.runtime, handler.planner, toolagent.ExecutionRequest{
+		Message: request.Message, Plan: plan, CallIDPrefix: requestID, TraceID: traceID, Strategy: "tool_agent_v1",
+		Principal:     toolruntime.Principal{TenantID: userID, UserID: userID, Permissions: map[string]bool{"devsupport:tools:read": true}},
+		AllowedEffect: toolruntime.SideEffectReadOnly,
+	})
+	response.Status, response.Plan = execution.Status, execution.Plan
+	response.ToolMessages, response.AttemptMessages = execution.ToolMessages, execution.AttemptMessages
+	response.Repairs, response.RepairCount = execution.Repairs, execution.RepairCount
+	response.TerminationReason, response.CachedCount = execution.TerminationReason, execution.CachedCount
 	ctx.JSON(http.StatusOK, response)
 }
 
@@ -185,6 +182,8 @@ func statusForMessage(message toolruntime.ToolMessage) int {
 		return http.StatusForbidden
 	case toolruntime.ErrorArgumentsInvalid, toolruntime.ErrorBudgetExceeded:
 		return http.StatusBadRequest
+	case toolruntime.ErrorNoProgress:
+		return http.StatusConflict
 	case toolruntime.ErrorTimeout:
 		return http.StatusGatewayTimeout
 	case toolruntime.ErrorCancelled:

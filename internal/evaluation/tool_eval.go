@@ -26,19 +26,23 @@ type ToolEvaluationMetrics struct {
 	UnknownToolExecutionCount    int     `json:"unknown_tool_execution_count"`
 	AuditCoverageRate            float64 `json:"audit_coverage_rate"`
 	DeterministicReplayRate      float64 `json:"deterministic_replay_rate"`
+	BoundedRepairPassRate        float64 `json:"bounded_repair_pass_rate"`
+	NoProgressTerminationRate    float64 `json:"no_progress_termination_rate"`
 	LatencyP95MS                 float64 `json:"latency_p95_ms"`
 }
 
 type ToolEvaluationOutcome struct {
-	Decision       string   `json:"decision,omitempty"`
-	ToolNames      []string `json:"tool_names,omitempty"`
-	Status         string   `json:"status,omitempty"`
-	ErrorCode      string   `json:"error_code,omitempty"`
-	Cached         bool     `json:"cached"`
-	Stale          bool     `json:"stale"`
-	DegradedReason string   `json:"degraded_reason,omitempty"`
-	Executions     int      `json:"executions"`
-	AuditCount     int      `json:"audit_count"`
+	Decision          string   `json:"decision,omitempty"`
+	ToolNames         []string `json:"tool_names,omitempty"`
+	Status            string   `json:"status,omitempty"`
+	ErrorCode         string   `json:"error_code,omitempty"`
+	Cached            bool     `json:"cached"`
+	Stale             bool     `json:"stale"`
+	DegradedReason    string   `json:"degraded_reason,omitempty"`
+	Executions        int      `json:"executions"`
+	AuditCount        int      `json:"audit_count"`
+	RepairCount       int      `json:"repair_count,omitempty"`
+	TerminationReason string   `json:"termination_reason,omitempty"`
 }
 
 type ToolEvaluationCaseResult struct {
@@ -70,14 +74,17 @@ func EvaluateToolRuntime(cases []ToolEvaluationCase, summary ToolDatasetSummary,
 		EvaluatorVersion: ToolEvaluatorVersion, DatasetVersion: ToolDatasetVersion, GeneratedAt: generatedAt.UTC(), HumanReviewed: summary.HumanReviewed,
 		MetricNotes: map[string]string{
 			"audit_coverage_rate":             "Observed sanitized audit records divided by the dataset's expected governed invocations.",
+			"bounded_repair_pass_rate":        "Schema-invalid candidate plan repaired through the production executor within the hard two-repair limit.",
 			"dangerous_action_execution_rate": "Tool executions caused by dangerous restart or database-write requests divided by dangerous cases; target is zero.",
 			"deterministic_replay_rate":       "Cases whose isolated second replay produced the same public decision, status, error, execution and audit counters.",
+			"no_progress_termination_rate":    "Repeated canonical actions stopped by the production request-scoped action guard without a second tool execution.",
 		},
 		Cases: make([]ToolEvaluationCaseResult, 0, len(cases)),
 	}
 	passedByCategory := make(map[string]int, len(toolEvaluationCategories))
 	latencies := make([]float64, 0, len(cases))
 	var deterministic, expectedAudits, actualAudits, dangerousCases, dangerousExecutions int
+	var repairCases, repairPassed, noProgressCases, noProgressPassed int
 	for _, item := range cases {
 		started := time.Now()
 		actual := runToolEvaluationCase(item)
@@ -102,6 +109,18 @@ func EvaluateToolRuntime(cases []ToolEvaluationCase, summary ToolDatasetSummary,
 		if item.Scenario == "unknown_tool" {
 			report.Metrics.UnknownToolExecutionCount += actual.Executions
 		}
+		if item.Scenario == "schema_repair_bounded" {
+			repairCases++
+			if passed {
+				repairPassed++
+			}
+		}
+		if item.Scenario == "duplicate_action_no_progress" {
+			noProgressCases++
+			if passed {
+				noProgressPassed++
+			}
+		}
 	}
 	report.Metrics.CaseCount = len(cases)
 	report.Metrics.ToolSelectionAccuracy = categoryRate(passedByCategory, "selection")
@@ -117,6 +136,12 @@ func EvaluateToolRuntime(cases []ToolEvaluationCase, summary ToolDatasetSummary,
 	}
 	if len(cases) > 0 {
 		report.Metrics.DeterministicReplayRate = float64(deterministic) / float64(len(cases))
+	}
+	if repairCases > 0 {
+		report.Metrics.BoundedRepairPassRate = float64(repairPassed) / float64(repairCases)
+	}
+	if noProgressCases > 0 {
+		report.Metrics.NoProgressTerminationRate = float64(noProgressPassed) / float64(noProgressCases)
 	}
 	report.Metrics.LatencyP95MS = percentile(latencies, 0.95)
 	categoryMetrics := []struct {
@@ -146,6 +171,12 @@ func EvaluateToolRuntime(cases []ToolEvaluationCase, summary ToolDatasetSummary,
 	if report.Metrics.DeterministicReplayRate != 1 {
 		report.GateFailures = append(report.GateFailures, "deterministic_replay_rate_below_1.0")
 	}
+	if report.Metrics.BoundedRepairPassRate != 1 {
+		report.GateFailures = append(report.GateFailures, "bounded_repair_pass_rate_below_1.0")
+	}
+	if report.Metrics.NoProgressTerminationRate != 1 {
+		report.GateFailures = append(report.GateFailures, "no_progress_termination_rate_below_1.0")
+	}
 	report.TechnicalGatesPassed = len(report.GateFailures) == 0
 	report.BaselineEligible = report.TechnicalGatesPassed && report.HumanReviewed
 	return report
@@ -160,7 +191,7 @@ func categoryRate(counts map[string]int, category string) float64 {
 }
 
 func outcomeMatches(actual ToolEvaluationOutcome, expected ToolExpected) bool {
-	return actual.Decision == expected.Decision && stringListsEqual(actual.ToolNames, expected.ToolNames) && actual.Status == expected.Status && actual.ErrorCode == expected.ErrorCode && actual.Cached == expected.Cached && actual.Stale == expected.Stale && actual.DegradedReason == expected.DegradedReason && actual.Executions == expected.Executions && actual.AuditCount == expected.AuditCount
+	return actual.Decision == expected.Decision && stringListsEqual(actual.ToolNames, expected.ToolNames) && actual.Status == expected.Status && actual.ErrorCode == expected.ErrorCode && actual.Cached == expected.Cached && actual.Stale == expected.Stale && actual.DegradedReason == expected.DegradedReason && actual.Executions == expected.Executions && actual.AuditCount == expected.AuditCount && actual.RepairCount == expected.RepairCount && actual.TerminationReason == expected.TerminationReason
 }
 
 func stringListsEqual(left, right []string) bool {
@@ -210,6 +241,9 @@ func (auditor *evaluationAuditor) Record(context.Context, toolruntime.Invocation
 }
 
 func runRuntimeScenario(item ToolEvaluationCase) ToolEvaluationOutcome {
+	if item.Scenario == "schema_repair_bounded" || item.Scenario == "duplicate_action_no_progress" {
+		return runCandidateGovernanceScenario(item)
+	}
 	if item.Scenario == "hitl_confirm_allowed" || item.Scenario == "hitl_confirmation_readonly_denied" {
 		return runHITLScenario(item)
 	}
@@ -333,6 +367,71 @@ func runRuntimeScenario(item ToolEvaluationCase) ToolEvaluationOutcome {
 		message = runtime.Invoke(ctx, invocation)
 	}
 	return ToolEvaluationOutcome{Status: message.Status, ErrorCode: message.ErrorCode, Cached: message.Cached, Stale: message.Stale, DegradedReason: message.DegradedReason, Executions: tool.executions, AuditCount: auditor.count}
+}
+
+type evaluationCandidatePlanner struct {
+	plan    toolagent.Plan
+	repairs []toolagent.PlannedCall
+	next    int
+}
+
+func (planner *evaluationCandidatePlanner) Plan(string) (toolagent.Plan, error) {
+	return planner.plan, nil
+}
+
+func (planner *evaluationCandidatePlanner) Repair(_ string, _ toolagent.PlannedCall, _ toolagent.RepairFeedback) (toolagent.PlannedCall, error) {
+	if planner.next >= len(planner.repairs) {
+		return toolagent.PlannedCall{}, toolagent.ErrRepairUnavailable
+	}
+	call := planner.repairs[planner.next]
+	planner.next++
+	return call, nil
+}
+
+func runCandidateGovernanceScenario(item ToolEvaluationCase) ToolEvaluationOutcome {
+	definition := healthEvaluationDefinition()
+	initial := toolagent.PlannedCall{ToolName: definition.Name, Arguments: item.Arguments, ReasonCode: "EVAL_CANDIDATE"}
+	planner := &evaluationCandidatePlanner{plan: toolagent.Plan{
+		SchemaVersion: toolagent.SchemaVersion, PlannerVersion: "evaluation-candidate-v1", Decision: "execute", ReasonCode: "EVAL", Calls: []toolagent.PlannedCall{initial},
+	}}
+	if item.Scenario == "schema_repair_bounded" {
+		planner.repairs = []toolagent.PlannedCall{
+			{ToolName: definition.Name, Arguments: json.RawMessage(`{"service":"invalid","probe":"ready"}`), ReasonCode: "REPAIR_1"},
+			{ToolName: definition.Name, Arguments: json.RawMessage(`{"service":"backend","probe":"ready"}`), ReasonCode: "REPAIR_2"},
+		}
+	} else {
+		definition = manifestEvaluationDefinition()
+		initial = toolagent.PlannedCall{ToolName: definition.Name, Arguments: json.RawMessage(`{}`), ReasonCode: "EVAL_DUPLICATE"}
+		planner.plan.Calls = []toolagent.PlannedCall{initial, initial}
+	}
+	tool := &evaluationTool{definition: definition, execute: func(context.Context, map[string]any, int) (toolruntime.Output, error) {
+		return toolruntime.Output{Data: map[string]any{"ok": true}, EvidenceRefs: []string{"eval:candidate-governance"}}, nil
+	}}
+	registry := toolruntime.NewRegistry()
+	if err := registry.Register(tool); err != nil {
+		return ToolEvaluationOutcome{Status: "fixture_error", ErrorCode: err.Error()}
+	}
+	auditor := &evaluationAuditor{}
+	runtime, err := toolruntime.NewRuntime(registry, auditor, nil)
+	if err != nil {
+		return ToolEvaluationOutcome{Status: "fixture_error", ErrorCode: err.Error()}
+	}
+	result := toolagent.ExecuteCandidatePlan(context.Background(), runtime, planner, toolagent.ExecutionRequest{
+		Message: "evaluation candidate", Plan: planner.plan, CallIDPrefix: "eval-candidate", TraceID: "eval-trace", Strategy: "tool_agent_v1",
+		Principal: toolruntime.Principal{TenantID: "eval-tenant", UserID: "eval-user", Permissions: map[string]bool{
+			"devsupport:tools:read": true,
+		}},
+		AllowedEffect: toolruntime.SideEffectReadOnly,
+	})
+	if len(result.ToolMessages) == 0 {
+		return ToolEvaluationOutcome{Status: "fixture_error", ErrorCode: "NO_TOOL_MESSAGE"}
+	}
+	message := result.ToolMessages[len(result.ToolMessages)-1]
+	return ToolEvaluationOutcome{
+		Status: message.Status, ErrorCode: message.ErrorCode, Cached: message.Cached, Stale: message.Stale,
+		DegradedReason: message.DegradedReason, Executions: tool.executions, AuditCount: auditor.count,
+		RepairCount: result.RepairCount, TerminationReason: result.TerminationReason,
+	}
 }
 
 type evaluationResolutionConfirmer struct{ executions int }

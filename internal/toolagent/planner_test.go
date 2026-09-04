@@ -1,6 +1,10 @@
 package toolagent
 
-import "testing"
+import (
+	"encoding/json"
+	"errors"
+	"testing"
+)
 
 func TestPlannerSelectsBoundedRealTools(t *testing.T) {
 	cases := []struct {
@@ -63,5 +67,22 @@ func TestPlannerRejectsEmptyAndOversizedInput(t *testing.T) {
 	}
 	if _, err := planner.Plan(string(oversized)); err == nil {
 		t.Fatal("oversized input must fail")
+	}
+}
+
+func TestPlannerRepairKeepsExactToolNameAndRequiresProgress(t *testing.T) {
+	planner := NewPlanner()
+	feedback := RepairFeedback{CallIndex: 0, Attempt: 1, ToolName: "deployment_manifest_lookup", ErrorCode: "TOOL_ARGUMENTS_INVALID", RejectedArgsHash: "hash"}
+	repaired, err := planner.Repair("查询当前发布清单", PlannedCall{ToolName: "deployment_manifest_lookup", Arguments: json.RawMessage(`{"path":"/tmp"}`)}, feedback)
+	if err != nil || repaired.ToolName != "deployment_manifest_lookup" || string(repaired.Arguments) != `{}` {
+		t.Fatalf("unexpected exact repair: call=%+v err=%v", repaired, err)
+	}
+	_, err = planner.Repair("查询当前发布清单", PlannedCall{ToolName: "deployment_manifest_looku", Arguments: json.RawMessage(`{"path":"/tmp"}`)}, feedback)
+	if !errors.Is(err, ErrRepairUnavailable) {
+		t.Fatalf("misspelled tool name must not be guessed: %v", err)
+	}
+	_, err = planner.Repair("查询当前发布清单", PlannedCall{ToolName: "deployment_manifest_lookup", Arguments: json.RawMessage("{\n}")}, feedback)
+	if !errors.Is(err, ErrRepairNoProgress) {
+		t.Fatalf("identical candidate must be no-progress: %v", err)
 	}
 }

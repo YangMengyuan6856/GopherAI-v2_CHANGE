@@ -109,7 +109,7 @@ func (handler *ToolHandler) LatestTool(context *gin.Context) {
 		TechnicalGatesPassed: report.TechnicalGatesPassed, GateFailures: report.GateFailures, Metrics: report.Metrics,
 		Limitations: []string{
 			"30 条标签仍待用户人工复核，因此当前只是一份技术候选报告。",
-			"本报告使用生产规划器与治理运行时，但工具依赖由确定性 Fixture 替代，不等同于云端网络故障演练。",
+			"本报告复用生产候选执行器、规划器与治理运行时；工具依赖由确定性 Fixture 替代，不等同于云端网络故障演练。",
 			"危险动作零执行、审计覆盖和确定性重放属于契约指标，不代表开放域 ToolAgent 已具备自主运维权限。",
 		},
 	})
@@ -124,6 +124,9 @@ func validateToolReport(report evaldomain.ToolEvaluationReport) error {
 	}
 	if report.TechnicalGatesPassed && len(report.GateFailures) > 0 {
 		return fmt.Errorf("tool evaluation gate status is inconsistent")
+	}
+	if report.TechnicalGatesPassed && (report.Metrics.BoundedRepairPassRate != 1 || report.Metrics.NoProgressTerminationRate != 1) {
+		return fmt.Errorf("tool evaluation candidate-governance gates are inconsistent")
 	}
 	return nil
 }

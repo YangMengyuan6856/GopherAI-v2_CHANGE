@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"GopherAI/internal/toolagent"
 	toolruntime "GopherAI/internal/toolruntime"
 	"GopherAI/middleware/requestid"
 
@@ -29,14 +30,75 @@ func (service *fakeService) Invoke(_ context.Context, invocation toolruntime.Inv
 }
 
 func newTestRouter(service Service) *gin.Engine {
+	return newTestRouterWithPlanner(service, nil)
+}
+
+func newTestRouterWithPlanner(service Service, planner toolagent.CandidatePlanner) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.Use(requestid.Attach(), func(ctx *gin.Context) { ctx.Set("userName", "alice"); ctx.Next() })
-	handler := NewHandler(service)
+	handler := NewHandlerWithPlanner(service, planner)
 	router.GET("/api/v1/tools", handler.Catalog)
 	router.POST("/api/v1/tools/invoke", handler.Invoke)
 	router.POST("/api/v1/tools/agent", handler.RunAgent)
 	return router
+}
+
+type scriptedPlanner struct {
+	plan        toolagent.Plan
+	repairs     []toolagent.PlannedCall
+	repairCalls int
+}
+
+func (planner *scriptedPlanner) Plan(string) (toolagent.Plan, error) { return planner.plan, nil }
+func (planner *scriptedPlanner) Repair(_ string, _ toolagent.PlannedCall, _ toolagent.RepairFeedback) (toolagent.PlannedCall, error) {
+	if planner.repairCalls >= len(planner.repairs) {
+		return toolagent.PlannedCall{}, toolagent.ErrRepairUnavailable
+	}
+	repaired := planner.repairs[planner.repairCalls]
+	planner.repairCalls++
+	return repaired, nil
+}
+
+type governedCandidateTool struct {
+	calls int
+}
+
+func (tool *governedCandidateTool) Definition() toolruntime.Definition {
+	return toolruntime.Definition{
+		Name: "guarded_read", Version: "1.0.0", Description: "test candidate governance",
+		InputSchema: toolruntime.InputSchema{Type: "object", Properties: map[string]toolruntime.PropertySchema{
+			"format": {Type: "string", Enum: []string{"summary"}, MinLength: 7, MaxLength: 7},
+		}, Required: []string{"format"}, AdditionalProperties: false},
+		AllowedIntents: []string{"tool_task"}, RequiredPermission: "devsupport:tools:read", SideEffect: toolruntime.SideEffectReadOnly,
+		TimeoutMS: 100, MaxResultBytes: 1024, Idempotent: true, RetryMaxAttempts: 1,
+	}
+}
+func (tool *governedCandidateTool) Execute(context.Context, map[string]any) (toolruntime.Output, error) {
+	tool.calls++
+	return toolruntime.Output{Data: map[string]any{"ok": true}, EvidenceRefs: []string{"test-evidence:guarded-read"}}, nil
+}
+
+type countAuditor struct{ count int }
+
+func (auditor *countAuditor) Record(context.Context, toolruntime.Invocation, toolruntime.ToolMessage) error {
+	auditor.count++
+	return nil
+}
+
+func newCandidateRuntime(t *testing.T) (*toolruntime.Runtime, *governedCandidateTool, *countAuditor) {
+	t.Helper()
+	registry := toolruntime.NewRegistry()
+	tool := &governedCandidateTool{}
+	if err := registry.Register(tool); err != nil {
+		t.Fatal(err)
+	}
+	auditor := &countAuditor{}
+	runtime, err := toolruntime.NewRuntime(registry, auditor, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return runtime, tool, auditor
 }
 
 func TestToolAgentExecutesBoundedCompoundPlanThroughRuntime(t *testing.T) {
@@ -70,6 +132,124 @@ func TestToolAgentRefusesUnsafeActionWithoutRuntimeCall(t *testing.T) {
 	router.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || service.calls != 0 || !bytes.Contains(response.Body.Bytes(), []byte(`"decision":"refuse"`)) {
 		t.Fatalf("unsafe action was not refused: %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestToolAgentRepairsArgumentsAtMostTwiceThroughRealRuntime(t *testing.T) {
+	runtime, tool, auditor := newCandidateRuntime(t)
+	planner := &scriptedPlanner{
+		plan: toolagent.Plan{SchemaVersion: toolagent.SchemaVersion, PlannerVersion: "scripted-candidate", Decision: "execute", ReasonCode: "TEST", Calls: []toolagent.PlannedCall{
+			{ToolName: "guarded_read", Arguments: json.RawMessage(`{"format":7}`), ReasonCode: "TEST"},
+		}},
+		repairs: []toolagent.PlannedCall{
+			{ToolName: "guarded_read", Arguments: json.RawMessage(`{"format":"invalid"}`), ReasonCode: "REPAIR_1"},
+			{ToolName: "guarded_read", Arguments: json.RawMessage(`{"format":"summary"}`), ReasonCode: "REPAIR_2"},
+		},
+	}
+	router := newTestRouterWithPlanner(runtime, planner)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/tools/agent", bytes.NewBufferString(`{"message":"repair candidate"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	var body AgentResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusOK || body.Status != "succeeded" || body.RepairCount != 2 || len(body.Repairs) != 2 || len(body.AttemptMessages) != 3 {
+		t.Fatalf("unexpected repaired run: code=%d body=%+v", response.Code, body)
+	}
+	if tool.calls != 1 || auditor.count != 3 || planner.repairCalls != 2 || body.ToolMessages[0].Status != toolruntime.StatusSuccess || string(body.Plan.Calls[0].Arguments) != `{"format":"summary"}` {
+		t.Fatalf("repair bypassed governance: calls=%d audits=%d body=%+v", tool.calls, auditor.count, body)
+	}
+}
+
+func TestToolAgentHardStopsAfterTwoRejectedRepairs(t *testing.T) {
+	runtime, tool, auditor := newCandidateRuntime(t)
+	invalid := toolagent.PlannedCall{ToolName: "guarded_read", Arguments: json.RawMessage(`{"format":7}`), ReasonCode: "INVALID"}
+	planner := &scriptedPlanner{
+		plan: toolagent.Plan{SchemaVersion: toolagent.SchemaVersion, PlannerVersion: "scripted-candidate", Decision: "execute", Calls: []toolagent.PlannedCall{invalid}},
+		repairs: []toolagent.PlannedCall{
+			{ToolName: "guarded_read", Arguments: json.RawMessage(`{"format":"bad-one"}`)},
+			{ToolName: "guarded_read", Arguments: json.RawMessage(`{"format":"bad-two"}`)},
+			{ToolName: "guarded_read", Arguments: json.RawMessage(`{"format":"summary"}`)},
+		},
+	}
+	router := newTestRouterWithPlanner(runtime, planner)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/tools/agent", bytes.NewBufferString(`{"message":"bounded repair"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	var body AgentResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "failed" || body.TerminationReason != "SCHEMA_REPAIR_LIMIT_REACHED" || body.RepairCount != 2 || planner.repairCalls != 2 || len(body.AttemptMessages) != 3 {
+		t.Fatalf("repair limit was not enforced: %+v", body)
+	}
+	if tool.calls != 0 || auditor.count != 3 {
+		t.Fatalf("invalid repair executed or escaped audit: calls=%d audits=%d", tool.calls, auditor.count)
+	}
+}
+
+func TestToolAgentNeverRepairsOrFuzzyMatchesUnknownName(t *testing.T) {
+	runtime, tool, auditor := newCandidateRuntime(t)
+	planner := &scriptedPlanner{plan: toolagent.Plan{SchemaVersion: toolagent.SchemaVersion, PlannerVersion: "scripted-candidate", Decision: "execute", Calls: []toolagent.PlannedCall{
+		{ToolName: "guarded_rea", Arguments: json.RawMessage(`{"format":"summary"}`)},
+	}}, repairs: []toolagent.PlannedCall{{ToolName: "guarded_read", Arguments: json.RawMessage(`{"format":"summary"}`)}}}
+	router := newTestRouterWithPlanner(runtime, planner)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/tools/agent", bytes.NewBufferString(`{"message":"wrong tool name"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	var body AgentResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "failed" || body.TerminationReason != "UNKNOWN_TOOL_REJECTED" || body.ToolMessages[0].ErrorCode != toolruntime.ErrorToolNotRegistered || planner.repairCalls != 0 || tool.calls != 0 || auditor.count != 1 {
+		t.Fatalf("unknown tool was guessed or executed: %+v", body)
+	}
+}
+
+func TestToolAgentExecutionBoundaryTruncatesUntrustedCandidatePlan(t *testing.T) {
+	service := &fakeService{message: toolruntime.ToolMessage{ToolName: "test", Status: toolruntime.StatusSuccess}}
+	calls := []toolagent.PlannedCall{
+		{ToolName: "one", Arguments: json.RawMessage(`{}`)},
+		{ToolName: "two", Arguments: json.RawMessage(`{}`)},
+		{ToolName: "three", Arguments: json.RawMessage(`{}`)},
+	}
+	planner := &scriptedPlanner{plan: toolagent.Plan{SchemaVersion: toolagent.SchemaVersion, PlannerVersion: "untrusted-candidate", Decision: "execute", Calls: calls}}
+	router := newTestRouterWithPlanner(service, planner)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/tools/agent", bytes.NewBufferString(`{"message":"oversized candidate plan"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	var body AgentResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "succeeded" || service.calls != toolagent.MaxPlanCalls || len(body.Plan.Calls) != toolagent.MaxPlanCalls || body.Plan.OmittedCount != 1 || service.invocation.Budget.MaxCalls != toolagent.MaxPlanCalls {
+		t.Fatalf("candidate plan boundary failed: calls=%d body=%+v", service.calls, body)
+	}
+}
+
+func TestToolAgentTerminatesDuplicateActionAsNoProgress(t *testing.T) {
+	runtime, tool, auditor := newCandidateRuntime(t)
+	call := toolagent.PlannedCall{ToolName: "guarded_read", Arguments: json.RawMessage(`{"format":"summary"}`), ReasonCode: "TEST"}
+	planner := &scriptedPlanner{plan: toolagent.Plan{SchemaVersion: toolagent.SchemaVersion, PlannerVersion: "scripted-candidate", Decision: "execute", Calls: []toolagent.PlannedCall{call, call}}}
+	router := newTestRouterWithPlanner(runtime, planner)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/tools/agent", bytes.NewBufferString(`{"message":"repeat action"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	var body AgentResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "partial_failed" || body.TerminationReason != "NO_PROGRESS" || len(body.ToolMessages) != 2 || body.ToolMessages[1].ErrorCode != toolruntime.ErrorNoProgress {
+		t.Fatalf("duplicate action did not terminate: %+v", body)
+	}
+	if tool.calls != 1 || auditor.count != 2 {
+		t.Fatalf("duplicate action executed: calls=%d audits=%d", tool.calls, auditor.count)
 	}
 }
 

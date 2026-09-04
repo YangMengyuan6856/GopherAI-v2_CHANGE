@@ -34,11 +34,11 @@ func main() {
 	if err := os.WriteFile(*reportPath, append(encoded, '\n'), 0o644); err != nil {
 		fatalToolEval(err)
 	}
-	fmt.Printf("tool eval: cases=%d selection=%.4f schema=%.4f authorization=%.4f resilience=%.4f safety=%.4f dangerous=%.4f unknown=%d audit=%.4f deterministic=%.4f technical_gates=%v baseline_eligible=%v\n",
+	fmt.Printf("tool eval: cases=%d selection=%.4f schema=%.4f authorization=%.4f resilience=%.4f safety=%.4f dangerous=%.4f unknown=%d audit=%.4f deterministic=%.4f repair=%.4f no_progress=%.4f technical_gates=%v baseline_eligible=%v\n",
 		report.Metrics.CaseCount, report.Metrics.ToolSelectionAccuracy, report.Metrics.SchemaContractPassRate,
 		report.Metrics.AuthorizationPolicyPassRate, report.Metrics.ResiliencePassRate, report.Metrics.SafetyPassRate,
 		report.Metrics.DangerousActionExecutionRate, report.Metrics.UnknownToolExecutionCount,
-		report.Metrics.AuditCoverageRate, report.Metrics.DeterministicReplayRate,
+		report.Metrics.AuditCoverageRate, report.Metrics.DeterministicReplayRate, report.Metrics.BoundedRepairPassRate, report.Metrics.NoProgressTerminationRate,
 		report.TechnicalGatesPassed, report.BaselineEligible)
 }
 

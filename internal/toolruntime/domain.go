@@ -74,6 +74,10 @@ type Invocation struct {
 	Principal         Principal
 	AllowedSideEffect SideEffect
 	Budget            CallBudget
+	// ActionGuard is server-owned and scoped to one Agent run. It prevents an
+	// outer planning loop from executing the same canonical action twice when
+	// no new state has been introduced. Direct one-shot calls leave it nil.
+	ActionGuard *ActionGuard
 }
 
 type executionPrincipalKey struct{}
@@ -119,6 +123,7 @@ const (
 	StatusBudgetExceeded = "budget_exceeded"
 	StatusTimeout        = "timeout"
 	StatusCancelled      = "cancelled"
+	StatusNoProgress     = "no_progress"
 	StatusError          = "error"
 )
 
@@ -131,6 +136,7 @@ const (
 	ErrorBudgetExceeded    = "TOOL_BUDGET_EXCEEDED"
 	ErrorTimeout           = "TOOL_TIMEOUT"
 	ErrorCancelled         = "TOOL_CANCELLED"
+	ErrorNoProgress        = "TOOL_NO_PROGRESS"
 	ErrorExecutionFailed   = "TOOL_EXECUTION_FAILED"
 	ErrorResultTooLarge    = "TOOL_RESULT_TOO_LARGE"
 	ErrorCircuitOpen       = "TOOL_CIRCUIT_OPEN"

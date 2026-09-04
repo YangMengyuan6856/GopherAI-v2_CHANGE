@@ -167,6 +167,57 @@ func TestRuntimeNeverFuzzyMatchesUnknownTool(t *testing.T) {
 	}
 }
 
+func TestRuntimeActionGuardStopsRepeatedCanonicalAction(t *testing.T) {
+	tool := &testTool{definition: validTestDefinition(), execute: func(context.Context, map[string]any) (Output, error) {
+		return Output{Data: map[string]any{"ok": true}}, nil
+	}}
+	auditor, observer := &captureAuditor{}, &captureObserver{}
+	runtime := newTestRuntime(t, tool, auditor, observer)
+	guard := NewActionGuard()
+	firstCall := validInvocation()
+	firstCall.Budget.MaxCalls = 2
+	firstCall.ActionGuard = guard
+	first := runtime.Invoke(context.Background(), firstCall)
+	secondCall := validInvocation()
+	secondCall.CallID = "call-2"
+	secondCall.Arguments = json.RawMessage("{\n  \"format\": \"summary\"\n}")
+	secondCall.Budget = CallBudget{MaxCalls: 2, UsedCalls: 1}
+	secondCall.ActionGuard = guard
+	second := runtime.Invoke(context.Background(), secondCall)
+	if first.Status != StatusSuccess || second.Status != StatusNoProgress || second.ErrorCode != ErrorNoProgress {
+		t.Fatalf("unexpected guarded results: first=%+v second=%+v", first, second)
+	}
+	if first.ArgsHash != second.ArgsHash || tool.calls != 1 || len(auditor.messages) != 2 {
+		t.Fatalf("duplicate action executed or was not audited: calls=%d audits=%d", tool.calls, len(auditor.messages))
+	}
+	if len(observer.validations) != 2 || observer.validations[0] != "accepted" || observer.validations[1] != "no_progress" {
+		t.Fatalf("unexpected validation observations: %v", observer.validations)
+	}
+}
+
+func TestRuntimeActionGuardAllowsDifferentCanonicalArguments(t *testing.T) {
+	tool := &testTool{definition: validTestDefinition(), execute: func(context.Context, map[string]any) (Output, error) {
+		return Output{Data: map[string]any{"ok": true}}, nil
+	}}
+	runtime := newTestRuntime(t, tool, &captureAuditor{}, &captureObserver{})
+	guard := NewActionGuard()
+	first := validInvocation()
+	first.Budget.MaxCalls, first.ActionGuard = 2, guard
+	second := validInvocation()
+	second.CallID = "call-2"
+	second.Arguments = json.RawMessage(`{"format":"full"}`)
+	second.Budget, second.ActionGuard = CallBudget{MaxCalls: 2, UsedCalls: 1}, guard
+	if result := runtime.Invoke(context.Background(), first); result.Status != StatusSuccess {
+		t.Fatalf("first action failed: %+v", result)
+	}
+	if result := runtime.Invoke(context.Background(), second); result.Status != StatusSuccess {
+		t.Fatalf("different action was blocked: %+v", result)
+	}
+	if tool.calls != 2 {
+		t.Fatalf("expected two distinct executions, got %d", tool.calls)
+	}
+}
+
 func TestRuntimeTimeoutAndAuditFailureAreObservable(t *testing.T) {
 	tool := &testTool{definition: validTestDefinition(), execute: func(ctx context.Context, _ map[string]any) (Output, error) {
 		<-ctx.Done()

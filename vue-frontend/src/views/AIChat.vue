@@ -81,6 +81,8 @@
               <span>安全用例 {{ metricPercent(toolEvaluation.metrics.safety_pass_rate) }}</span>
               <span>审计覆盖 {{ metricPercent(toolEvaluation.metrics.audit_coverage_rate) }}</span>
               <span>确定性重放 {{ metricPercent(toolEvaluation.metrics.deterministic_replay_rate) }}</span>
+              <span>错参有界修复 {{ metricPercent(toolEvaluation.metrics.bounded_repair_pass_rate) }}</span>
+              <span>重复动作熔断 {{ metricPercent(toolEvaluation.metrics.no_progress_termination_rate) }}</span>
               <span>危险动作执行率 {{ metricPercent(toolEvaluation.metrics.dangerous_action_execution_rate) }}</span>
               <span>未知工具执行 {{ toolEvaluation.metrics.unknown_tool_execution_count }} 次</span>
             </div>
@@ -108,6 +110,10 @@
             <span>{{ toolAgentResult.plan.planner_version }} · 最多 2 个调用</span>
           </div>
           <div>决策 {{ toolAgentResult.plan.decision }} · {{ toolAgentResult.plan.reason_code }}</div>
+          <div v-if="toolAgentResult.repair_count || toolAgentResult.termination_reason" class="tool-agent-governance">
+            <span>Schema 修复 {{ toolAgentResult.repair_count || 0 }}/2</span>
+            <span v-if="toolAgentResult.termination_reason">终止原因 {{ toolAgentResult.termination_reason }}</span>
+          </div>
           <ol v-if="toolAgentResult.plan.calls?.length">
             <li v-for="(call, index) in toolAgentResult.plan.calls" :key="`${call.tool_name}-${index}`">
               {{ call.tool_name }} · {{ call.reason_code }} · {{ formatToolData(call.arguments) }}
@@ -118,6 +124,10 @@
           <details v-if="toolAgentResult.tool_messages?.length">
             <summary>查看稳定 ToolMessage（{{ toolAgentResult.tool_messages.length }}）</summary>
             <pre>{{ formatToolData(toolAgentResult.tool_messages) }}</pre>
+          </details>
+          <details v-if="toolAgentResult.repairs?.length || toolAgentResult.attempt_messages?.length > toolAgentResult.tool_messages?.length">
+            <summary>查看候选修复账本（原始参数不出站）</summary>
+            <pre>{{ formatToolData({ repairs: toolAgentResult.repairs, attempts: toolAgentResult.attempt_messages }) }}</pre>
           </details>
         </article>
         <div v-if="loadingToolCatalog" class="tool-runtime-empty">正在读取服务端工具注册表...</div>
@@ -3462,6 +3472,21 @@ export default {
 .tool-agent-result ol {
   margin: 8px 0;
   padding-left: 20px;
+}
+
+.tool-agent-governance {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.tool-agent-governance span {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #fff4d8;
+  color: #8a5a00;
+  font-size: 12px;
 }
 
 .tool-agent-result li {

@@ -1,6 +1,7 @@
 package toolagent
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -8,12 +9,17 @@ import (
 )
 
 const (
-	SchemaVersion  = "tool-plan-v1"
-	PlannerVersion = "bounded-tool-planner-v1"
-	MaxPlanCalls   = 2
+	SchemaVersion     = "tool-plan-v1"
+	PlannerVersion    = "bounded-tool-planner-v1"
+	MaxPlanCalls      = 2
+	MaxRepairAttempts = 2
 )
 
-var ErrInvalidRequest = errors.New("tool agent request is invalid")
+var (
+	ErrInvalidRequest    = errors.New("tool agent request is invalid")
+	ErrRepairUnavailable = errors.New("candidate repair is unavailable")
+	ErrRepairNoProgress  = errors.New("candidate repair made no progress")
+)
 
 type PlannedCall struct {
 	ToolName    string          `json:"tool_name"`
@@ -29,6 +35,25 @@ type Plan struct {
 	ReasonCode     string        `json:"reason_code"`
 	Calls          []PlannedCall `json:"calls"`
 	OmittedCount   int           `json:"omitted_count"`
+}
+
+// RepairFeedback contains only stable, sanitized runtime output. A future LLM
+// planner may consume it without receiving credentials, raw tool output or an
+// internal stack trace.
+type RepairFeedback struct {
+	CallIndex        int    `json:"call_index"`
+	Attempt          int    `json:"attempt"`
+	ToolName         string `json:"tool_name"`
+	ErrorCode        string `json:"error_code"`
+	RejectedArgsHash string `json:"rejected_args_hash"`
+}
+
+// CandidatePlanner is the boundary between planning and governed execution.
+// Implementations may propose arguments, but the runtime remains authoritative
+// for exact tool lookup, schema validation, permissions and side effects.
+type CandidatePlanner interface {
+	Plan(message string) (Plan, error)
+	Repair(message string, current PlannedCall, feedback RepairFeedback) (PlannedCall, error)
 }
 
 type Planner struct{}
@@ -79,6 +104,40 @@ func (planner *Planner) Plan(message string) (Plan, error) {
 		plan.Decision, plan.ReasonCode = "execute", "SUPPORTED_READ_ONLY_EVIDENCE"
 	}
 	return plan, nil
+}
+
+// Repair never changes the exact tool name. The deterministic planner rebuilds
+// the requested call from the user's original message; future model-backed
+// planners can implement the same contract and are still capped by the caller.
+func (planner *Planner) Repair(message string, current PlannedCall, feedback RepairFeedback) (PlannedCall, error) {
+	if feedback.ErrorCode != "TOOL_ARGUMENTS_INVALID" || feedback.Attempt < 1 || feedback.Attempt > MaxRepairAttempts {
+		return PlannedCall{}, ErrRepairUnavailable
+	}
+	rebuilt, err := planner.Plan(message)
+	if err != nil {
+		return PlannedCall{}, err
+	}
+	for _, candidate := range rebuilt.Calls {
+		if candidate.ToolName != current.ToolName {
+			continue
+		}
+		if sameJSON(candidate.Arguments, current.Arguments) {
+			return PlannedCall{}, ErrRepairNoProgress
+		}
+		return candidate, nil
+	}
+	return PlannedCall{}, ErrRepairUnavailable
+}
+
+func sameJSON(left json.RawMessage, right json.RawMessage) bool {
+	var leftValue any
+	var rightValue any
+	if json.Unmarshal(left, &leftValue) != nil || json.Unmarshal(right, &rightValue) != nil {
+		return bytes.Equal(bytes.TrimSpace(left), bytes.TrimSpace(right))
+	}
+	leftCanonical, leftErr := json.Marshal(leftValue)
+	rightCanonical, rightErr := json.Marshal(rightValue)
+	return leftErr == nil && rightErr == nil && bytes.Equal(leftCanonical, rightCanonical)
 }
 
 func healthTarget(message string) string {
