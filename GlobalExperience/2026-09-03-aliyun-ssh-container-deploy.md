@@ -1114,3 +1114,41 @@ The release also corrects the legacy `LoginRequest.Password` tag from malformed
 `json:password` syntax to `json:"password"` and adds a regression test. Root
 `go test ./...`, root `go vet ./...`, the independent MCP module tests, and all
 cloud runtime/Vue gates pass.
+
+## 33. Structured Sibling Evidence and Safe Rebuild Migration
+
+Release `20260904221332-23dc387303ab` (commit
+`23dc387303ab4b6e8a089c57d2c2cd85d8db7291`) fixes a real acceptance failure
+where a cross-document configuration question retrieved
+`service.retry.dead_letter_exchange` but omitted its sibling
+`service.retry.max_attempts`. MySQL inspection confirmed that parsing and
+indexing had preserved both values; the loss occurred because every structured
+leaf previously used its full key path as a separate section, which forced tiny
+sibling fields into separate chunks before Top-K and reranking.
+
+The `key-path-sibling-context-v2` chunker now groups scalar siblings under their
+containing object or sequence item while keeping each complete leaf key path in
+the chunk content. This preserves precise citations and lets retrieval of one
+configuration field carry the adjacent fields required by multi-part
+questions. The repair is versioned rather than silently changing the meaning
+of `key-path-token-v1`.
+
+Existing JSON/YAML documents are migrated through the normal **安全重建** path.
+Rebuild reads and hashes the active immutable artifact, assigns the current
+parser/chunker metadata to a new candidate version, and leaves the old active
+alias queryable until indexing completes. It does not mutate active chunks in
+place. After this release, rebuild both `m3b-config.json` and
+`m3b-service.yaml` before repeating the C2 cross-document acceptance query.
+
+The same acceptance review found a test-design error: asking for a deployment
+manual's default backend port without uploading that manual correctly triggers
+the Evidence Gate. D5 now uses the already indexed `m3b-config.json` fixture to
+verify explicit RAG routing separately from Shadow intent. A missing source must
+continue to produce an evidence-insufficient refusal; the safety gate was not
+weakened to satisfy an invalid fixture.
+
+Bundle SHA-256:
+`3f9676995dcb736a8d5fb077ce2b44fa058b58a9ac33102dadffd38784ffca6e`.
+Root `go test ./...`, root `go vet ./...`, the independent MCP tests, three
+local Linux/amd64 builds, atomic bundle verification, Backend/Worker readiness,
+MCP startup, Vue compile/HTTP, and unique-process checks all passed.

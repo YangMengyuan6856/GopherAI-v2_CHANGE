@@ -2,9 +2,9 @@
 
 ## Tested release
 
-- Functional commit: `22cf5c50bf9474699e5e5865d427e6664656ae16`
-- Cloud release: `20260904205101-22cf5c50bf94`
-- Bundle SHA-256: `d46a8f5507419e3ca7556e9e8c50d8dfcb7d6a74a55e578ccb2b2c9159f6651e`
+- Functional commit: `23dc387303ab4b6e8a089c57d2c2cd85d8db7291`
+- Cloud release: `20260904221332-23dc387303ab`
+- Bundle SHA-256: `3f9676995dcb736a8d5fb077ce2b44fa058b58a9ac33102dadffd38784ffca6e`
 - Backend ready: MySQL, RabbitMQ, Redis cache, Redis vector, and model config all `up`
 - Index Worker ready; MCP, Vue compile, and public HTML checks passed
 
