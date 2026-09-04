@@ -1268,3 +1268,11 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 案例召回字段与当前 Hypothesis/Evidence 分离。召回成功、无匹配、依赖不可用分别返回 `hit/no_match/unavailable`；数据库或返回载荷异常时 fail-open 为 `unavailable`，不能修改当前根因、置信度、证据门或导致 Run 失败。页面明确标注“历史经验不是当前证据”。
 - Release `20260905031528-83d1a2dbf39b`，bundle SHA-256 `2a94dd2f0d3d4e09b58951d6abd37961e3a36147f58ef882a25c75f7ef10ebe7`，四进程门禁全部通过。真实浏览器新建 Run `70176293-0456-4c6b-b30a-c59a84fdac9e`，输入 Docker + Redis 7.2 + NOAUTH 后，以 `policy-diagnostic-v2` 召回案例 `1a40fe0a…`，匹配 `redis_noauth` 与 `docker/redis`，页面显示 100%；当前诊断仍独立输出 95% 的待验证假设。
 - 只读云端数据库检查在召回前后均保持 resolved incident `1`、resolution feedback `1`、incident outbox `1`，证明只读召回没有隐式写反馈。Prometheus 同时记录 `gopherai_case_memory_recalls_total{status="hit"}=1`，结果 histogram count/sum 均为 `1`，标签不含用户、Run、Trace 等高基数标识。
+
+## 40. 2026-09-05 Profile Memory 候选、冲突与用户治理
+
+- 提交 `407a0002` 上线第一版环境 Profile Memory。诊断输入只从固定 allowlist 提取 `os`、`go_version`、`deployment_mode`、`cloud_provider`、`redis_version`、`mysql_version`，并先写成 90 天候选；tenant/user 只保存 SHA-256，来源 Run、置信度、版本、最后观察时间和过期时间可追溯。候选提取 fail-open，失败不能阻断 Diagnostic Run，也不能修改当前 Hypothesis/Evidence。
+- Release `20260905033424-407a0002935c`，bundle SHA-256 `af2cf363c5e55ea80cbc733db9f290858638d9ae44c80f90c53d4b19f7198fa9`，Backend、Index Worker、MCP、Vue 编译/HTTP 和唯一进程门全部通过。
+- 真实浏览器输入“阿里云 ECS、Ubuntu 22.04、Docker、Go 1.24、Redis 7.2、NOAUTH”后，Profile 控制台显示 5 条待确认、0 条已确认；诊断仍按 `policy-diagnostic-v2` 独立形成 95% 待验证假设。将 Redis 值改成 7.4 并确认后生成 active v2、置信度 100%、有效期 180 天，其余 4 条仍为候选。
+- 随后另一个 Run 观察到 Redis 7.5，系统没有静默覆盖 7.4，而是把两个版本都标为 `conflicted`，已确认数降为 0、冲突数升为 2；用户再次选择 7.4 后生成 active v3 并 supersede 两个冲突版本。只读数据库最终证据为 active/user_corrected `1`、candidate/diagnostic_observation `4`、superseded observations `2`、superseded correction `1`。
+- 该版本只证明 M5-14 和 M5-16 的候选/CRUD/冲突纵向链路；active Profile 尚未进入 Context Assembler。候选、冲突、过期事实一律不得参与模型上下文，后续召回必须再次落实同用户 ACL、相关 TopK 和 Token 预算门，不能因为页面出现“三级记忆”就宣称 M5-15/M5-17/M5-29 已完成。
