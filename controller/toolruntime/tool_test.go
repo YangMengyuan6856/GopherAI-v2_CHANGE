@@ -35,7 +35,42 @@ func newTestRouter(service Service) *gin.Engine {
 	handler := NewHandler(service)
 	router.GET("/api/v1/tools", handler.Catalog)
 	router.POST("/api/v1/tools/invoke", handler.Invoke)
+	router.POST("/api/v1/tools/agent", handler.RunAgent)
 	return router
+}
+
+func TestToolAgentExecutesBoundedCompoundPlanThroughRuntime(t *testing.T) {
+	service := &fakeService{message: toolruntime.ToolMessage{ToolName: "test", Status: toolruntime.StatusSuccess}}
+	router := newTestRouter(service)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/tools/agent", bytes.NewBufferString(`{"message":"给出当前发布清单，并检查后端和 Worker 健康状态"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || service.calls != 2 {
+		t.Fatalf("unexpected response %d calls=%d body=%s", response.Code, service.calls, response.Body.String())
+	}
+	var body AgentResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "succeeded" || len(body.Plan.Calls) != 2 || body.Plan.Calls[0].ToolName != "deployment_manifest_lookup" || body.Plan.Calls[1].ToolName != "service_health_snapshot" {
+		t.Fatalf("unexpected bounded run: %+v", body)
+	}
+	if service.invocation.Strategy != "tool_agent_v1" || service.invocation.Budget.MaxCalls != 2 || service.invocation.Budget.UsedCalls != 1 {
+		t.Fatalf("unexpected runtime policy: %+v", service.invocation)
+	}
+}
+
+func TestToolAgentRefusesUnsafeActionWithoutRuntimeCall(t *testing.T) {
+	service := &fakeService{}
+	router := newTestRouter(service)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/tools/agent", bytes.NewBufferString(`{"message":"请重启后端并删除旧日志"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || service.calls != 0 || !bytes.Contains(response.Body.Bytes(), []byte(`"decision":"refuse"`)) {
+		t.Fatalf("unsafe action was not refused: %d %s", response.Code, response.Body.String())
+	}
 }
 
 func TestInvokeBuildsServerOwnedGovernanceContext(t *testing.T) {

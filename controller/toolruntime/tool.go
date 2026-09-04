@@ -6,10 +6,12 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"GopherAI/common/mysql"
 	"GopherAI/internal/observability"
+	"GopherAI/internal/toolagent"
 	toolruntime "GopherAI/internal/toolruntime"
 	"GopherAI/middleware/requestid"
 
@@ -23,7 +25,10 @@ type Service interface {
 	Invoke(context.Context, toolruntime.Invocation) toolruntime.ToolMessage
 }
 
-type Handler struct{ runtime Service }
+type Handler struct {
+	runtime Service
+	planner *toolagent.Planner
+}
 
 type InvokeRequest struct {
 	ToolName  string          `json:"tool_name"`
@@ -36,6 +41,18 @@ type CatalogResponse struct {
 	Tools         []toolruntime.Definition `json:"tools"`
 }
 
+type AgentRequest struct {
+	Message string `json:"message"`
+}
+
+type AgentResponse struct {
+	SchemaVersion string                    `json:"schema_version"`
+	Status        string                    `json:"status"`
+	Plan          toolagent.Plan            `json:"plan"`
+	ToolMessages  []toolruntime.ToolMessage `json:"tool_messages"`
+	CachedCount   int                       `json:"cached_count"`
+}
+
 type ErrorResponse struct {
 	SchemaVersion string `json:"schema_version"`
 	Code          string `json:"code"`
@@ -44,7 +61,9 @@ type ErrorResponse struct {
 	TraceID       string `json:"trace_id,omitempty"`
 }
 
-func NewHandler(runtime Service) *Handler { return &Handler{runtime: runtime} }
+func NewHandler(runtime Service) *Handler {
+	return &Handler{runtime: runtime, planner: toolagent.NewPlanner()}
+}
 
 func NewDefaultHandler() *Handler {
 	registry := toolruntime.NewRegistry()
@@ -98,6 +117,56 @@ func (handler *Handler) Invoke(ctx *gin.Context) {
 		AllowedSideEffect: toolruntime.SideEffectReadOnly, Budget: toolruntime.CallBudget{MaxCalls: 1},
 	})
 	ctx.JSON(statusForMessage(message), message)
+}
+
+func (handler *Handler) RunAgent(ctx *gin.Context) {
+	ctx.Request.Body = http.MaxBytesReader(ctx.Writer, ctx.Request.Body, maximumInvokeBodyBytes)
+	decoder := json.NewDecoder(ctx.Request.Body)
+	decoder.DisallowUnknownFields()
+	request := new(AgentRequest)
+	if err := decoder.Decode(request); err != nil {
+		handler.writeError(ctx, http.StatusBadRequest, "TOOL_AGENT_REQUEST_INVALID", "工具 Agent 请求必须是合法且字段受限的 JSON", false)
+		return
+	}
+	if err := ensureRequestEOF(decoder); err != nil {
+		handler.writeError(ctx, http.StatusBadRequest, "TOOL_AGENT_REQUEST_INVALID", "工具 Agent 请求只能包含一个 JSON 对象", false)
+		return
+	}
+	plan, err := handler.planner.Plan(request.Message)
+	if err != nil {
+		handler.writeError(ctx, http.StatusBadRequest, "TOOL_AGENT_INPUT_INVALID", "请输入 1 到 2000 个字符的运维证据问题", false)
+		return
+	}
+	response := AgentResponse{SchemaVersion: "tool-agent-run-v1", Status: plan.Decision, Plan: plan, ToolMessages: []toolruntime.ToolMessage{}}
+	if plan.Decision != "execute" {
+		ctx.JSON(http.StatusOK, response)
+		return
+	}
+	requestID, traceID := requestid.IDs(ctx)
+	userID := ctx.GetString("userName")
+	failed := 0
+	for index, call := range plan.Calls {
+		message := handler.runtime.Invoke(ctx.Request.Context(), toolruntime.Invocation{
+			CallID: requestID + "-" + strconv.Itoa(index+1), TraceID: traceID, ToolName: call.ToolName, Arguments: call.Arguments,
+			Intent: "tool_task", Strategy: "tool_agent_v1",
+			Principal:         toolruntime.Principal{TenantID: userID, UserID: userID, Permissions: map[string]bool{"devsupport:tools:read": true}},
+			AllowedSideEffect: toolruntime.SideEffectReadOnly, Budget: toolruntime.CallBudget{MaxCalls: len(plan.Calls), UsedCalls: index},
+		})
+		response.ToolMessages = append(response.ToolMessages, message)
+		if message.Cached {
+			response.CachedCount++
+		}
+		if message.Status != toolruntime.StatusSuccess {
+			failed++
+		}
+	}
+	response.Status = "succeeded"
+	if failed == len(response.ToolMessages) {
+		response.Status = "failed"
+	} else if failed > 0 {
+		response.Status = "partial_failed"
+	}
+	ctx.JSON(http.StatusOK, response)
 }
 
 func statusForMessage(message toolruntime.ToolMessage) int {

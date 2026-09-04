@@ -57,7 +57,7 @@ func (tool *ServiceHealthTool) Definition() Definition {
 		Name: "service_health_snapshot", Version: "1.0.0",
 		Description: "对固定 allowlist 中的 Backend 或 Index Worker 执行 live/ready 探测，返回受限健康快照；不接受 URL、主机或端口。",
 		InputSchema: InputSchema{Type: "object", Properties: map[string]PropertySchema{
-			"service": {Type: "string", Description: "固定服务标识", Enum: []string{"backend", "index_worker"}, MinLength: 7, MaxLength: 12},
+			"service": {Type: "string", Description: "固定服务标识", Enum: []string{"backend", "index_worker", "all"}, MinLength: 3, MaxLength: 12},
 			"probe":   {Type: "string", Description: "固定健康探针", Enum: []string{"live", "ready"}, MinLength: 4, MaxLength: 5},
 		}, Required: []string{"service", "probe"}, AdditionalProperties: false},
 		AllowedIntents: []string{"tool_task", "troubleshooting"}, RequiredPermission: "devsupport:tools:read",
@@ -69,6 +69,21 @@ func (tool *ServiceHealthTool) Definition() Definition {
 func (tool *ServiceHealthTool) Execute(ctx context.Context, arguments map[string]any) (Output, error) {
 	service, _ := arguments["service"].(string)
 	probe, _ := arguments["probe"].(string)
+	if service == "all" {
+		snapshots := make([]PublicHealthSnapshot, 0, 2)
+		for _, target := range []string{"backend", "index_worker"} {
+			output, err := tool.executeOne(ctx, target, probe)
+			if err != nil {
+				return output, err
+			}
+			snapshots = append(snapshots, output.Data.(PublicHealthSnapshot))
+		}
+		return Output{Data: map[string]any{"healthy": snapshots[0].Healthy && snapshots[1].Healthy, "snapshots": snapshots}, EvidenceRefs: []string{"health-probe:all:" + probe}}, nil
+	}
+	return tool.executeOne(ctx, service, probe)
+}
+
+func (tool *ServiceHealthTool) executeOne(ctx context.Context, service string, probe string) (Output, error) {
 	baseURL, ok := tool.endpoints[service]
 	if !ok || (probe != "live" && probe != "ready") {
 		return Output{}, errors.New("health target is outside the fixed allowlist")

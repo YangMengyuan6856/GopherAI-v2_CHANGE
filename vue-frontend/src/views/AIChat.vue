@@ -62,6 +62,34 @@
           </div>
           <span class="tool-runtime-schema">{{ toolCatalog?.schema_version || 'tool-message-v1' }}</span>
         </div>
+        <div class="tool-agent-console">
+          <input
+            v-model="toolAgentQuery"
+            placeholder="例如：给出当前发布清单，并检查后端和 Worker 健康状态"
+            @keydown.enter.prevent="runToolAgent"
+          />
+          <button :disabled="runningToolAgent || !toolAgentQuery.trim()" @click="runToolAgent">
+            {{ runningToolAgent ? '有界规划与执行中...' : '运行 ToolAgent' }}
+          </button>
+        </div>
+        <article v-if="toolAgentResult" class="tool-agent-result">
+          <div class="tool-result-heading">
+            <strong>有限计划 · {{ toolAgentResult.status }}</strong>
+            <span>{{ toolAgentResult.plan.planner_version }} · 最多 2 个调用</span>
+          </div>
+          <div>决策 {{ toolAgentResult.plan.decision }} · {{ toolAgentResult.plan.reason_code }}</div>
+          <ol v-if="toolAgentResult.plan.calls?.length">
+            <li v-for="(call, index) in toolAgentResult.plan.calls" :key="`${call.tool_name}-${index}`">
+              {{ call.tool_name }} · {{ call.reason_code }} · {{ formatToolData(call.arguments) }}
+              <span v-if="toolAgentResult.tool_messages[index]">→ {{ toolAgentResult.tool_messages[index].status }}<template v-if="toolAgentResult.tool_messages[index].cached"> · cache hit</template></span>
+            </li>
+          </ol>
+          <div v-else>没有执行工具；普通知识问题交还回答模型，危险写操作在规划层拒绝。</div>
+          <details v-if="toolAgentResult.tool_messages?.length">
+            <summary>查看稳定 ToolMessage（{{ toolAgentResult.tool_messages.length }}）</summary>
+            <pre>{{ formatToolData(toolAgentResult.tool_messages) }}</pre>
+          </details>
+        </article>
         <div v-if="loadingToolCatalog" class="tool-runtime-empty">正在读取服务端工具注册表...</div>
         <div v-else-if="toolCatalog?.tools?.length" class="tool-runtime-grid">
           <article v-for="tool in toolCatalog.tools" :key="`${tool.name}:${tool.version}`" class="tool-runtime-card">
@@ -720,6 +748,9 @@ export default {
     const toolCatalog = ref(null)
     const invokingTool = ref(false)
     const toolResult = ref(null)
+    const toolAgentQuery = ref('给出当前发布清单，并检查后端和 Worker 健康状态')
+    const runningToolAgent = ref(false)
+    const toolAgentResult = ref(null)
     const profileMemories = ref(null)
     const profileDrafts = ref({})
     const profileMemoryBusy = ref('')
@@ -1246,6 +1277,23 @@ export default {
     }
 
     const formatToolData = (data) => JSON.stringify(data, null, 2)
+
+    const runToolAgent = async () => {
+      if (!toolAgentQuery.value.trim()) return
+      try {
+        runningToolAgent.value = true
+        toolAgentResult.value = null
+        const response = await api.post('/tools/agent', { message: toolAgentQuery.value.trim() })
+        toolAgentResult.value = response.data
+        if (response.data.status === 'succeeded') ElMessage.success('ToolAgent 已按有限计划返回证据')
+        else if (response.data.plan?.decision === 'refuse') ElMessage.warning('危险动作已在规划层拒绝，未调用工具')
+        else ElMessage.info('该问题不需要当前受治理工具')
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || 'ToolAgent 暂时不可用')
+      } finally {
+        runningToolAgent.value = false
+      }
+    }
 
     const toggleMemoryEvaluation = async () => {
       memoryEvaluationOpen.value = !memoryEvaluationOpen.value
@@ -1922,6 +1970,9 @@ export default {
       toolCatalog,
       invokingTool,
       toolResult,
+      toolAgentQuery,
+      runningToolAgent,
+      toolAgentResult,
       profileMemories,
       profileDrafts,
       profileMemoryBusy,
@@ -1958,6 +2009,7 @@ export default {
       toggleToolRuntime,
       invokeGovernedTool,
       formatToolData,
+      runToolAgent,
       toggleDiagnosticEvaluation,
       toggleContextCompression,
       formattedFacts,
@@ -3261,6 +3313,65 @@ export default {
   grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
   gap: 10px;
   margin-top: 12px;
+}
+
+.tool-agent-console {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.tool-agent-console input {
+  flex: 1;
+  min-width: 220px;
+  padding: 9px 11px;
+  border: 1px solid rgba(64, 90, 125, 0.2);
+  border-radius: 9px;
+  outline: none;
+}
+
+.tool-agent-console button {
+  padding: 8px 13px;
+  border: none;
+  border-radius: 9px;
+  background: #7057b5;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tool-agent-result {
+  margin-top: 10px;
+  padding: 11px;
+  border: 1px solid rgba(112, 87, 181, 0.2);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #5c6680;
+  font-size: 12px;
+}
+
+.tool-agent-result ol {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+.tool-agent-result li {
+  margin: 5px 0;
+}
+
+.tool-agent-result li span {
+  color: #258965;
+  font-weight: 700;
+}
+
+.tool-agent-result pre {
+  max-height: 240px;
+  overflow: auto;
+  padding: 9px;
+  border-radius: 8px;
+  background: #172233;
+  color: #d8e8fb;
+  white-space: pre-wrap;
 }
 
 .tool-runtime-card,

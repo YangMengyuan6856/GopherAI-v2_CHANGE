@@ -404,7 +404,7 @@ func boundedToolName(value string) string {
 
 func boundedToolStrategy(value string) string {
 	switch value {
-	case "tool_primary", "diagnosis_standard":
+	case "tool_primary", "tool_agent_v1", "diagnosis_standard":
 		return value
 	default:
 		return "unknown"
