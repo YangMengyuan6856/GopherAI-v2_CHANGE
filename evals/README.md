@@ -1,5 +1,13 @@
 # GopherAI DevSupport evaluations
 
+`devsupport-intent-v1.jsonl` is the M4 150-case intent candidate. It is exactly
+balanced across `project_qa`, `troubleshooting`, `doc_task`, `tool_task`,
+`follow_up`, and `general`, with 25 cases per class. It includes difficult,
+compound, contextual follow-up, quoted-keyword, Prompt Injection, denied-write,
+and out-of-scope demo cases. Boundaries and serious-misroute rules are frozen in
+`intent-rubric-v1.md`. All labels remain `pending_user`, so this candidate is
+not eligible to be called a reviewed or interview baseline yet.
+
 `devsupport-rag-core-v1.jsonl` is the first 20-case versioned RAG release slice required by M3-18. It covers exact facts, paraphrases, multi-fact questions, cross-section questions and tenant-isolation decoys. Its labels remain `pending_user` until a human reviews them; technical metrics may run before that, but the report cannot be frozen as an interview or release baseline.
 
 The evaluator uses the production Dense + BM25 + RRF retriever, Evidence Gate, Citation Verifier and KnowledgeAgent, but writes its fixture to the dedicated Redis index `gopher:eval-rag-core-v1:v1:kb:chunks:idx`. It drops that exact index before and after the run, so evaluation documents cannot enter a user's knowledge base.
