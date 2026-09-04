@@ -1,5 +1,18 @@
 # GopherAI DevSupport evaluations
 
+## Diagnostic core dataset
+
+`devsupport-diagnostic-v1.jsonl` contains 40 sanitized, project-specific
+diagnostic cases. It is balanced across Redis, MySQL, HTTP/proxy, JWT/auth,
+Docker networking, RabbitMQ/indexing, RAG/citation, and frontend/SSE. Each case
+defines one to three acceptable root-cause candidates, two to four necessary
+diagnostic steps, a read-only verification action, and explicit forbidden
+claims/actions. Cases with insufficient evidence must require clarification.
+
+All labels currently use `reviewed_by=pending_user`. The loader may prove the
+schema, coverage, and sanitization gates, but the dataset is not a
+human-reviewed baseline until every label is reviewed.
+
 `devsupport-intent-v1.jsonl` is the M4 150-case intent candidate. It is exactly
 balanced across `project_qa`, `troubleshooting`, `doc_task`, `tool_task`,
 `follow_up`, and `general`, with 25 cases per class. It includes difficult,
