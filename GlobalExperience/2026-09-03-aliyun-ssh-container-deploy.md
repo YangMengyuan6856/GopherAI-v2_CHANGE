@@ -1305,3 +1305,10 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 首次 Release `20260905050617-bc84748ad34f` 通过四进程门并完成真实页面调用。现场审阅时发现工具审计虽有 Call ID，但还缺独立 Trace ID，不足以满足跨层 lineage；没有把缺口留到后续，而是由 `78784c47` 增加 Trace ID 持久化后再次完整发布。
 - 最终 Release `20260905051431-78784c4742b8`，bundle SHA-256 `11e74712aedddd4b192fafa8d1c4cadded4857564f795dc8c17bee8d9efeebf5`。浏览器真实返回当前 release、commit `78784c4742b84dbebb6a0cff3a477a7e20767c55` 和 `release-manifest:<release_id>` 证据引用。MySQL 最新审计只显示 tool/version/status 与三个哈希/追踪长度：Trace ID `36`、Args/User hash 均 `64`，不保存原始参数、结果或 principal；Prometheus 对 accepted/success/duration 各记录 `1`，标签不含 Call/Trace/User。
 - 本地 `go test ./...`、`go vet ./...`、Tool Runtime/Controller/Observability Race、三份 Linux 二进制和 Vue production build 均通过。当前只完成治理纵切和第一个工具；幂等瞬时重试、熔断、缓存、Health/Log 工具、ToolAgent 与 30 条评测仍按 M6 后续任务推进，不能提前宣称 G6 完成。
+
+## 45. 2026-09-05 Health Tool、幂等重试、缓存与熔断
+
+- 提交 `fc5af022` 新增 `service_health_snapshot@1.0.0`。调用参数只允许 `backend/index_worker × live/ready` 四种组合，目标被编译进服务端 allowlist；工具不接收 URL、host 或 port，HTTP Client 禁用代理与重定向，响应限制 32 KiB，再映射到固定健康 Schema。观察到 503/not_ready 属于“探测成功但目标不健康”，与网络/超时执行失败分开表达。
+- Tool Definition 增加可审计的幂等、最大尝试次数、Cache TTL、熔断阈值和打开时间。Runtime 只对 `idempotent + retryable` 的瞬时失败重试，所有 attempt 共用父 Context 总超时；连续执行失败打开 circuit，窗口结束仅允许一个 half-open probe，成功才回到 closed。缓存键包含 tool/version/args hash 和 tenant/user hash，先重新经过 Schema/Auth/SideEffect/Budget 再取缓存，不能借缓存绕过治理或跨用户复用。
+- Release `20260905052421-fc5af02246b2`，bundle SHA-256 `e67a77b51f27824d0d971f9fe5bdec19f9789e3e5e597677f1336febaa119197`，四进程门通过。真实浏览器 Backend ready 返回 MySQL/RabbitMQ/Redis/Model Config 全部 up；同参数在 750ms 内第二次调用显示 `cached=true`。Worker ready 返回 HTTP 200/ready。MySQL 审计汇总为 fresh success `2`、cached success `1`；Prometheus 为 calls success `3`、cache miss `2`、hit `1`、accepted `3`、circuit closed `1`。
+- 线上没有为了展示熔断而故意停止唯一服务。retry/open/half-open/closed 使用可控时钟与故障 Tool 的确定性单测验证，并通过 Race；后续 30 条评测会把这些状态迁移整理为独立证据报告。短 TTL 缓存已完成，stale fallback 尚未实现，因此 M6-06 仍保持部分完成。
