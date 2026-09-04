@@ -853,3 +853,34 @@ Acceptance fixtures `m3b-version-alias-v1.md`, `m3b-version-alias-v2.md`, and
 prove v1 remains visible while v2 is queued, v2 becomes the only authoritative
 version after success, and an invalid later candidate reports failure while the
 last successful version remains queryable.
+
+## 25. M3-B3 Safe Rebuild and Eventual Delete
+
+Release `20260904175427-c5236e91efb1` (commit `c5236e91efb1`) passed local root
+and nested MCP tests, locally cross-built Linux artifacts, bundle verification,
+the atomic release switch, Backend and Worker live/ready probes, MCP TCP, and
+Vue compile/HTTP. The deployed bundle SHA-256 is
+`ea0bb72530e3dc34cb040cc44ed801f3c0e938174e4649a9871e2bb7002a48d5`.
+
+Rebuild and delete have deliberately different consistency contracts:
+
+- Rebuild creates a new immutable version from the current stored artifact.
+  The existing version remains queryable until the candidate is fully parsed,
+  chunked, embedded, indexed, and atomically activated.
+- Delete marks the MySQL authority row `deleted` in the same transaction that
+  creates the delete Job and Outbox event. Therefore new queries stop seeing
+  the document immediately, even before asynchronous Redis cleanup finishes.
+- The Worker deletes only the exact Redis keys derived from MySQL Chunk IDs,
+  batching 100 keys at a time. A cleanup retry is idempotent; exhausted retries
+  preserve a stable failure code for operations rather than silently reviving
+  query authority.
+- Delete is rejected while an index job is queued, processing, or retrying.
+  This avoids a race in which a late index completion could restore a document
+  that the user thought was deleted.
+
+The deletion is intentionally recoverable: MySQL document/version/chunk rows
+and source storage remain as logically deleted audit data, while Redis serving
+keys are removed. Do not describe this endpoint as irreversible data erasure.
+If irreversible purge is ever required, add a separately authorized retention
+workflow with storage and database backup evidence rather than extending this
+request path.
