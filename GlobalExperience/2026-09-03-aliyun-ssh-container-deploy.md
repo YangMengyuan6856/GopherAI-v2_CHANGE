@@ -919,3 +919,18 @@ the first retrieval query. Model errors, timeouts, invalid JSON, and unusable
 variants return stable fallback outcomes instead of failing or replacing the
 baseline query. The production release contains the tested component but does
 not activate it in user traffic until the M3-27 deep strategy is complete.
+
+## 28. M3-B6 Conditional Rerank Boundary
+
+Release `20260904181709-890f6fb09ab8` (commit `890f6fb09ab8`) passed root/MCP
+tests, local Linux builds, bundle verification, atomic switch, all service
+health gates, and Vue compile/HTTP. Bundle SHA-256:
+`ed6e7dff482405d5d8f431d1103f5d164adebfbc869c9d639228f859a9a335ab`.
+
+Rerank is also fail-open. It is skipped unless recommended and given at least
+two candidates; the one model call receives at most ten candidates with each
+content field capped at 1200 runes. A valid response must be an exact
+permutation of every authorized Evidence ID. Unknown, duplicate, or omitted
+IDs, malformed JSON, model failure, and timeout all preserve the complete RRF
+ordering. Do not silently accept a partial ranking: appending omitted evidence
+would conceal an invalid model contract and weaken evaluation evidence.
