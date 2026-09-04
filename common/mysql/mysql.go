@@ -67,6 +67,10 @@ func migration() error {
 		new(model.ConversationSummary),
 		new(model.MemoryEntry),
 		new(model.AgentRun),
+		new(model.KnowledgeDocument),
+		new(model.KnowledgeDocumentVersion),
+		new(model.KnowledgeJob),
+		new(model.OutboxEvent),
 	)
 }
 

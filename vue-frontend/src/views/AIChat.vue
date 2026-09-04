@@ -38,6 +38,13 @@
         />
       </div>
 
+      <div v-if="knowledgeDocuments.length" class="knowledge-status">
+        <span>📚 已接收 {{ knowledgeDocuments.length }} 份文档</span>
+        <span class="knowledge-latest">
+          最近：{{ knowledgeDocuments[0].display_name }} · {{ documentStatusLabel(knowledgeDocuments[0].status) }}
+        </span>
+      </div>
+
       <div class="chat-messages" ref="messagesRef">
         <div
           v-for="(message, index) in currentMessages"
@@ -102,6 +109,7 @@ export default {
     const isStreaming = ref(false)
     const uploading = ref(false)
     const fileInput = ref(null)
+    const knowledgeDocuments = ref([])
 
     const renderMarkdown = (text) => {
       if (!text && text !== '') return ''
@@ -496,6 +504,25 @@ export default {
       }
     }
 
+    const documentStatusLabel = (status) => {
+      const labels = {
+        uploaded: '已接收，等待索引',
+        parsing: '正在解析与索引',
+        indexed: '索引完成，可用于问答',
+        failed: '索引失败'
+      }
+      return labels[status] || status
+    }
+
+    const loadKnowledgeDocuments = async () => {
+      try {
+        const response = await api.get('/knowledge/documents')
+        knowledgeDocuments.value = response.data?.documents || []
+      } catch (error) {
+        console.error('Load knowledge documents error:', error)
+      }
+    }
+
     const handleFileUpload = async (event) => {
       const file = event.target.files[0]
       if (!file) return
@@ -516,20 +543,25 @@ export default {
         const formData = new FormData()
         formData.append('file', file)
 
-        const response = await api.post('/file/upload', formData, {
+        const response = await api.post('/knowledge/documents', formData, {
           headers: {
             'Content-Type': 'multipart/form-data'
           }
         })
 
-        if (response.data && response.data.status_code === 1000) {
-          ElMessage.success(`文件上传成功`)
+        if (response.data?.document) {
+          if (response.data.duplicate) {
+            ElMessage.success('文档已存在，沿用原索引任务')
+          } else {
+            ElMessage.success('文档已接收，等待索引')
+          }
+          await loadKnowledgeDocuments()
         } else {
-          ElMessage.error(response.data?.status_msg || '上传失败')
+          ElMessage.error('上传失败')
         }
       } catch (error) {
         console.error('File upload error:', error)
-        ElMessage.error('文件上传失败')
+        ElMessage.error(error.response?.data?.message || '文件上传失败')
       } finally {
         uploading.value = false
         // 清空文件输入
@@ -541,6 +573,7 @@ export default {
 
     onMounted(() => {
       loadSessions()
+      loadKnowledgeDocuments()
     })
 
     // expose to template
@@ -556,6 +589,8 @@ export default {
       isStreaming,
       uploading,
       fileInput,
+      knowledgeDocuments,
+      documentStatusLabel,
       renderMarkdown,
       playTTS,
       createNewSession,
@@ -710,6 +745,23 @@ export default {
   box-shadow: 0 2px 14px rgba(0, 0, 0, 0.06);
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
   gap: 12px;
+}
+
+.knowledge-status {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 9px 24px;
+  color: #36506c;
+  background: rgba(239, 247, 255, 0.96);
+  border-bottom: 1px solid rgba(64, 158, 255, 0.18);
+  font-size: 13px;
+}
+
+.knowledge-latest {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .back-btn {

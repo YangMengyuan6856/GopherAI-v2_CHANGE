@@ -1,0 +1,14 @@
+package router
+
+import (
+	"GopherAI/controller/knowledge"
+
+	"github.com/gin-gonic/gin"
+)
+
+func RegisterKnowledgeRouter(group *gin.RouterGroup) {
+	handler := knowledge.NewDefaultHandler()
+	group.POST("/documents", handler.Upload)
+	group.GET("/documents", handler.List)
+	group.GET("/jobs/:job_id", handler.Job)
+}

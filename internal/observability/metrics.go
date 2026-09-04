@@ -16,6 +16,8 @@ type Metrics struct {
 	agentRuns        *prometheus.CounterVec
 	agentDuration    *prometheus.HistogramVec
 	persistFailures  *prometheus.CounterVec
+	documentUploads  *prometheus.CounterVec
+	documentBytes    prometheus.Histogram
 	gatherer         prometheus.Gatherer
 }
 
@@ -52,6 +54,15 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 			Name: "gopherai_observability_persist_failures_total",
 			Help: "Total sanitized observability persistence failures.",
 		}, []string{"record_type"}),
+		documentUploads: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_document_uploads_total",
+			Help: "Total knowledge document upload attempts by bounded outcome.",
+		}, []string{"status"}),
+		documentBytes: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "gopherai_document_upload_bytes",
+			Help:    "Accepted knowledge document size in bytes.",
+			Buckets: []float64{1024, 10 * 1024, 100 * 1024, 1024 * 1024, 5 * 1024 * 1024, 10 * 1024 * 1024},
+		}),
 		gatherer: gatherer,
 	}
 	registerer.MustRegister(
@@ -62,12 +73,21 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 		metrics.agentRuns,
 		metrics.agentDuration,
 		metrics.persistFailures,
+		metrics.documentUploads,
+		metrics.documentBytes,
 	)
 	return metrics
 }
 
 func (metrics *Metrics) Handler() http.Handler {
 	return promhttp.HandlerFor(metrics.gatherer, promhttp.HandlerOpts{})
+}
+
+func (metrics *Metrics) RecordDocumentUpload(status string, sizeBytes int64) {
+	metrics.documentUploads.WithLabelValues(status).Inc()
+	if status == "accepted" && sizeBytes >= 0 {
+		metrics.documentBytes.Observe(float64(sizeBytes))
+	}
 }
 
 var (

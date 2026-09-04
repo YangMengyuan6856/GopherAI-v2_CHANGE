@@ -28,6 +28,11 @@ func InitRouter() *gin.Engine {
 		ChatGroup.Use(requestid.Attach(), jwt.Auth())
 		ChatRouter(ChatGroup)
 	}
+	{
+		KnowledgeGroup := enterRouter.Group("/knowledge")
+		KnowledgeGroup.Use(requestid.Attach(), jwt.Auth())
+		RegisterKnowledgeRouter(KnowledgeGroup)
+	}
 
 	{
 		FileGroup := enterRouter.Group("/file")
