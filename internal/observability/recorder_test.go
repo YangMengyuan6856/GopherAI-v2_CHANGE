@@ -3,6 +3,7 @@ package observability
 import (
 	"GopherAI/internal/app"
 	"GopherAI/internal/contract"
+	"GopherAI/internal/harness"
 	intentdomain "GopherAI/internal/intent"
 	"GopherAI/model"
 	"bytes"
@@ -149,5 +150,38 @@ func TestRAGStrategyMetricsUseBoundedLabels(t *testing.T) {
 	}
 	if count := testutil.ToFloat64(metrics.ragEnhancements.WithLabelValues("rewrite", "unknown")); count != 1 {
 		t.Fatalf("untrusted component outcomes must collapse to unknown, got %v", count)
+	}
+}
+
+func TestHarnessMetricsTrackLifecycleWithoutIdentifierLabels(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	metrics := NewMetrics(registry, registry)
+	startedAt := time.Date(2026, 9, 5, 1, 0, 0, 0, time.UTC)
+	previous := harness.Run{
+		RunID: "must-not-be-a-label", Intent: "troubleshooting", Strategy: "diagnosis_standard",
+		State: harness.StateRunning, StartedAt: startedAt,
+		Budget: harness.Budget{MaxIterations: 6, UsedIterations: 3, MaxToolCalls: 4, UsedToolCalls: 1, MaxInputTokens: 100, UsedInputTokens: 50, MaxOutputTokens: 100, UsedOutputTokens: 10, MaxCostMicros: 100, UsedCostMicros: 20},
+	}
+	finishedAt := startedAt.Add(2 * time.Second)
+	current := previous
+	current.State = harness.StateSucceeded
+	current.TerminalReason = "DIAGNOSTIC_HYPOTHESES_READY"
+	current.UpdatedAt = finishedAt
+	current.FinishedAt = &finishedAt
+	metrics.RecordRunCreate(previous, true)
+	metrics.RecordRunCreate(previous, false)
+	metrics.RecordRunTransition(previous, current)
+
+	if got := testutil.ToFloat64(metrics.harnessRuns.WithLabelValues("troubleshooting", "diagnosis_standard", "created")); got != 1 {
+		t.Fatalf("expected one created run, got %v", got)
+	}
+	if got := testutil.ToFloat64(metrics.harnessRuns.WithLabelValues("troubleshooting", "diagnosis_standard", "idempotent_replay")); got != 1 {
+		t.Fatalf("expected one idempotent replay, got %v", got)
+	}
+	if got := testutil.ToFloat64(metrics.harnessTransitions.WithLabelValues("troubleshooting", "diagnosis_standard", "RUNNING", "SUCCEEDED")); got != 1 {
+		t.Fatalf("expected one persisted transition, got %v", got)
+	}
+	if got := testutil.ToFloat64(metrics.harnessTerminals.WithLabelValues("troubleshooting", "diagnosis_standard", "SUCCEEDED", "DIAGNOSTIC_HYPOTHESES_READY")); got != 1 {
+		t.Fatalf("expected one terminal outcome, got %v", got)
 	}
 }

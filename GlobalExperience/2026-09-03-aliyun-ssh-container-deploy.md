@@ -1198,3 +1198,19 @@ bundle SHA-256 为
 `d667e44bdb59a520b823c3ec68752152d634ebff50f3ab191bc46bd5ecb96ea8`。
 该 release 再次通过 Backend/Worker live/ready、MCP 启动、Vue 编译/HTTP 和唯一进程门，
 作为 R1 首次纵向版本的可复现云端检查点。
+
+## 35. `-SkipFrontend` 会造成线上前端停机
+
+Release `20260905010830-49750d32c53c` 在验证后端评测切片时使用了
+`-SkipFrontend`。原部署脚本会先停止四个旧进程并原子替换整个项目目录，然后只跳过
+新 Vue 进程的启动；因此该参数的实际语义是“允许前端停机”，并不是“保留原前端”。
+后端、Worker 与 MCP 当时均通过健康门，但 8080 页面不可用。
+
+发现后立即执行完整发布恢复，Release 为
+`20260905011135-49750d32c53c`，bundle SHA-256 为
+`2be4ef5f460a2778f149b687fb24d0fa78c5e1be53f6090fd9c5585b47a9bba8`；Backend、
+Worker、MCP、Vue 编译/HTTP 和四进程唯一性均重新通过。
+
+脚本现要求 `-SkipFrontend` 必须与显式的 `-AllowFrontendDowntime` 同时使用，否则在
+打包、上传和远程停进程之前直接失败。线上增量验证默认始终执行完整发布；只有明确由
+其他进程管理前端或刻意进行停机演练时，才允许使用这组参数。

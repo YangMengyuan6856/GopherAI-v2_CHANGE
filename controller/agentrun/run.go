@@ -8,6 +8,7 @@ import (
 	"GopherAI/common/mysql"
 	"GopherAI/internal/diagnostic"
 	"GopherAI/internal/harness"
+	"GopherAI/internal/observability"
 	"GopherAI/middleware/requestid"
 
 	"github.com/gin-gonic/gin"
@@ -59,7 +60,7 @@ type ErrorResponse struct {
 func NewHandler(workflow *diagnostic.Workflow) *Handler { return &Handler{workflow: workflow} }
 
 func NewDefaultHandler() *Handler {
-	lifecycle, err := harness.NewService(harness.NewGormRepository(mysql.DB), harness.SystemClock{}, harness.UUIDGenerator{})
+	lifecycle, err := harness.NewObservedService(harness.NewGormRepository(mysql.DB), harness.SystemClock{}, harness.UUIDGenerator{}, observability.DefaultMetrics())
 	if err != nil {
 		panic(err)
 	}

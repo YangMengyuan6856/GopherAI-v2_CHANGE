@@ -18,6 +18,19 @@ type sequenceIDs struct {
 	next int
 }
 
+type recordingObserver struct {
+	creates     []bool
+	transitions [][2]State
+}
+
+func (observer *recordingObserver) RecordRunCreate(_ Run, created bool) {
+	observer.creates = append(observer.creates, created)
+}
+
+func (observer *recordingObserver) RecordRunTransition(previous Run, current Run) {
+	observer.transitions = append(observer.transitions, [2]State{previous.State, current.State})
+}
+
 func (ids *sequenceIDs) NewID() string {
 	ids.mu.Lock()
 	defer ids.mu.Unlock()
@@ -161,6 +174,32 @@ func TestStateVersionIsMonotonicAndStaleTransitionConflicts(t *testing.T) {
 	_, err = service.Advance(context.Background(), AdvanceCommand{RunID: run.RunID, UserID: "alice", ExpectedState: StateReceived, ExpectedVersion: 1, NextState: StateContextReady, StepID: "stale", StepKind: "context", Checkpoint: CheckpointState{Goal: "diagnose"}})
 	if !errors.Is(err, ErrRunConflict) {
 		t.Fatalf("expected stale version conflict, got %v", err)
+	}
+}
+
+func TestObserverSeesOnlyDurableCreatesAndTransitions(t *testing.T) {
+	repository := newMemoryRepository()
+	observer := new(recordingObserver)
+	service, err := NewObservedService(repository, &fixedClock{now: time.Date(2026, 9, 5, 1, 0, 0, 0, time.UTC)}, &sequenceIDs{}, observer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	detail := createRun(t, service, "observed-request")
+	if _, _, err := service.Create(context.Background(), CreateCommand{TenantID: "alice", UserID: "alice", ClientRequestID: "observed-request", RequestID: "retry", TraceID: "retry", Intent: "troubleshooting", Strategy: "diagnosis_standard", PolicyVersion: "policy-diagnostic-v1", Goal: "retry"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(observer.creates) != 2 || !observer.creates[0] || observer.creates[1] {
+		t.Fatalf("unexpected create observations: %#v", observer.creates)
+	}
+	command := AdvanceCommand{RunID: detail.Run.RunID, UserID: "alice", ExpectedState: StateReceived, ExpectedVersion: 1, NextState: StateContextReady, StepID: "context", StepKind: "context", PublicSummary: "context", Checkpoint: CheckpointState{Goal: "diagnose"}}
+	if _, err := service.Advance(context.Background(), command); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Advance(context.Background(), command); !errors.Is(err, ErrRunConflict) {
+		t.Fatalf("expected stale conflict, got %v", err)
+	}
+	if len(observer.transitions) != 1 || observer.transitions[0] != [2]State{StateReceived, StateContextReady} {
+		t.Fatalf("observer recorded a failed or duplicate transition: %#v", observer.transitions)
 	}
 }
 

@@ -9,6 +9,7 @@ param(
     [string]$ContainerRuntimePath = "/root/GopherAI_Runtime",
     [string[]]$DependencyContainers = @("rabbitmq", "redis-vector", "gopherai2"),
     [switch]$SkipFrontend,
+    [switch]$AllowFrontendDowntime,
     [switch]$DeployConfig,
     [switch]$BuildInContainer,
     [switch]$DryRun,
@@ -17,6 +18,10 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+if ($SkipFrontend -and -not $AllowFrontendDowntime) {
+    throw "-SkipFrontend stops the live Vue process during the atomic release. Add -AllowFrontendDowntime only when frontend downtime is intentional."
+}
 
 function Require-Command {
     param([string]$Name)

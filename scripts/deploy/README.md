@@ -43,7 +43,9 @@ The script never deletes Docker containers or images.
 
 - `-DeployConfig`: intentionally include the local `config/config.toml`. Do not
   use this during normal deployment; the remote runtime config is preserved.
-- `-SkipFrontend`: deploy backend/MCP without starting the Vue development
+- `-SkipFrontend -AllowFrontendDowntime`: deploy backend/MCP without starting
+  Vue. The explicit acknowledgement is required because the atomic switch stops
+  the previous frontend process; this does not preserve the old frontend.
   server.
 - `-DryRun`: validate local packaging and print remote operations without
   uploading or switching a release.

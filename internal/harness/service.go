@@ -33,6 +33,18 @@ type UUIDGenerator struct{}
 
 func (UUIDGenerator) NewID() string { return uuid.NewString() }
 
+// Observer receives only bounded lifecycle domain data after durable writes
+// succeed. Implementations must never block or change the run result.
+type Observer interface {
+	RecordRunCreate(run Run, created bool)
+	RecordRunTransition(previous Run, current Run)
+}
+
+type noopObserver struct{}
+
+func (noopObserver) RecordRunCreate(Run, bool)    {}
+func (noopObserver) RecordRunTransition(Run, Run) {}
+
 type CreateCommand struct {
 	TenantID        string
 	UserID          string
@@ -74,9 +86,14 @@ type Service struct {
 	repository Repository
 	clock      Clock
 	ids        IDGenerator
+	observer   Observer
 }
 
 func NewService(repository Repository, clock Clock, ids IDGenerator) (*Service, error) {
+	return NewObservedService(repository, clock, ids, nil)
+}
+
+func NewObservedService(repository Repository, clock Clock, ids IDGenerator, observer Observer) (*Service, error) {
 	if repository == nil {
 		return nil, fmt.Errorf("harness repository is required")
 	}
@@ -86,7 +103,10 @@ func NewService(repository Repository, clock Clock, ids IDGenerator) (*Service, 
 	if ids == nil {
 		ids = UUIDGenerator{}
 	}
-	return &Service{repository: repository, clock: clock, ids: ids}, nil
+	if observer == nil {
+		observer = noopObserver{}
+	}
+	return &Service{repository: repository, clock: clock, ids: ids, observer: observer}, nil
 }
 
 func (service *Service) Create(ctx context.Context, command CreateCommand) (RunDetail, bool, error) {
@@ -136,6 +156,7 @@ func (service *Service) Create(ctx context.Context, command CreateCommand) (RunD
 	if err != nil {
 		return RunDetail{}, false, err
 	}
+	service.observer.RecordRunCreate(persisted, created)
 	detail, err := service.Get(ctx, persisted.RunID, command.UserID)
 	return detail, created, err
 }
@@ -206,7 +227,11 @@ func (service *Service) Advance(ctx context.Context, command AdvanceCommand) (Ru
 	now := service.clock.Now().UTC()
 	finished := now
 	step := PublicStep{StepID: command.StepID, Attempt: 1, Kind: command.StepKind, Status: "completed", ReasonCode: command.ReasonCode, PublicSummary: command.PublicSummary, EvidenceRefs: command.EvidenceRefs, ToolCallIDs: command.ToolCallIDs, BudgetDelta: command.BudgetDelta, StartedAt: now, FinishedAt: &finished}
-	return service.repository.TransitionCAS(ctx, Transition{RunID: run.RunID, UserIDHash: run.UserIDHash, ExpectedState: run.State, ExpectedVersion: run.StateVersion, NextState: command.NextState, Step: step, Checkpoint: checkpoint, BudgetDelta: command.BudgetDelta, TerminalReason: command.TerminalReason, ErrorCode: command.ErrorCode, CommandID: command.CommandID, CommandKind: command.CommandKind, At: now})
+	current, err := service.repository.TransitionCAS(ctx, Transition{RunID: run.RunID, UserIDHash: run.UserIDHash, ExpectedState: run.State, ExpectedVersion: run.StateVersion, NextState: command.NextState, Step: step, Checkpoint: checkpoint, BudgetDelta: command.BudgetDelta, TerminalReason: command.TerminalReason, ErrorCode: command.ErrorCode, CommandID: command.CommandID, CommandKind: command.CommandKind, At: now})
+	if err == nil {
+		service.observer.RecordRunTransition(run, current)
+	}
+	return current, err
 }
 
 func (service *Service) Cancel(ctx context.Context, runID string, userID string) (RunDetail, error) {
@@ -255,7 +280,11 @@ func (service *Service) transitionBudgetTerminal(ctx context.Context, run Run, c
 		stepID = fmt.Sprintf("budget-stop-%d", run.StateVersion+1)
 	}
 	step := PublicStep{StepID: stepID, Attempt: 1, Kind: "guardrail", Status: "stopped", ReasonCode: reason, PublicSummary: "运行已由预算或无进展护栏安全终止。", ErrorCode: reason, StartedAt: now, FinishedAt: &finished}
-	return service.repository.TransitionCAS(ctx, Transition{RunID: run.RunID, UserIDHash: run.UserIDHash, ExpectedState: run.State, ExpectedVersion: run.StateVersion, NextState: StateBudgetExceeded, Step: step, Checkpoint: checkpoint, TerminalReason: reason, ErrorCode: reason, At: now})
+	current, err := service.repository.TransitionCAS(ctx, Transition{RunID: run.RunID, UserIDHash: run.UserIDHash, ExpectedState: run.State, ExpectedVersion: run.StateVersion, NextState: StateBudgetExceeded, Step: step, Checkpoint: checkpoint, TerminalReason: reason, ErrorCode: reason, At: now})
+	if err == nil {
+		service.observer.RecordRunTransition(run, current)
+	}
+	return current, err
 }
 
 func PrincipalHash(value string) string {

@@ -1,6 +1,7 @@
 package observability
 
 import (
+	"GopherAI/internal/harness"
 	"net/http"
 	"sync"
 	"time"
@@ -31,6 +32,11 @@ type Metrics struct {
 	ragStrategyRequests       *prometheus.CounterVec
 	ragStrategyDuration       *prometheus.HistogramVec
 	ragEnhancements           *prometheus.CounterVec
+	harnessRuns               *prometheus.CounterVec
+	harnessTransitions        *prometheus.CounterVec
+	harnessTerminals          *prometheus.CounterVec
+	harnessDuration           *prometheus.HistogramVec
+	harnessBudgetUtilization  *prometheus.HistogramVec
 	gatherer                  prometheus.Gatherer
 }
 
@@ -129,6 +135,28 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 			Name: "gopherai_rag_enhancements_total",
 			Help: "Total conditional RAG enhancement component outcomes.",
 		}, []string{"component", "outcome"}),
+		harnessRuns: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_harness_runs_total",
+			Help: "Total durable harness create requests by bounded intent, strategy and idempotency outcome.",
+		}, []string{"intent", "strategy", "outcome"}),
+		harnessTransitions: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_harness_transitions_total",
+			Help: "Total successfully persisted harness state transitions; run identifiers are intentionally excluded.",
+		}, []string{"intent", "strategy", "from_state", "to_state"}),
+		harnessTerminals: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_harness_terminals_total",
+			Help: "Total terminal harness outcomes by bounded state and reason.",
+		}, []string{"intent", "strategy", "state", "reason"}),
+		harnessDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "gopherai_harness_duration_seconds",
+			Help:    "Elapsed duration of terminal harness runs by bounded outcome.",
+			Buckets: []float64{0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 15, 30, 60, 300, 600},
+		}, []string{"intent", "strategy", "state"}),
+		harnessBudgetUtilization: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "gopherai_harness_budget_utilization_ratio",
+			Help:    "Terminal harness budget utilization ratio by bounded resource and outcome.",
+			Buckets: []float64{0, 0.1, 0.25, 0.5, 0.75, 0.9, 1, 1.1},
+		}, []string{"resource", "state"}),
 		gatherer: gatherer,
 	}
 	registerer.MustRegister(
@@ -153,6 +181,11 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 		metrics.ragStrategyRequests,
 		metrics.ragStrategyDuration,
 		metrics.ragEnhancements,
+		metrics.harnessRuns,
+		metrics.harnessTransitions,
+		metrics.harnessTerminals,
+		metrics.harnessDuration,
+		metrics.harnessBudgetUtilization,
 	)
 	for _, status := range []string{"accepted", "duplicate", "rejected", "error"} {
 		metrics.documentUploads.WithLabelValues(status).Add(0)
@@ -180,6 +213,94 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 		}
 	}
 	return metrics
+}
+
+// RecordRunCreate implements harness.Observer. Only fixed-domain values reach
+// Prometheus labels; principal, request, trace and run identifiers are omitted.
+func (metrics *Metrics) RecordRunCreate(run harness.Run, created bool) {
+	if metrics == nil {
+		return
+	}
+	outcome := "idempotent_replay"
+	if created {
+		outcome = "created"
+	}
+	metrics.harnessRuns.WithLabelValues(boundedHarnessIntent(run.Intent), boundedHarnessStrategy(run.Strategy), outcome).Inc()
+}
+
+// RecordRunTransition implements harness.Observer after a successful durable
+// CAS transition. Terminal observations are emitted exactly once.
+func (metrics *Metrics) RecordRunTransition(previous harness.Run, current harness.Run) {
+	if metrics == nil {
+		return
+	}
+	intent := boundedHarnessIntent(current.Intent)
+	strategy := boundedHarnessStrategy(current.Strategy)
+	fromState := boundedHarnessState(previous.State)
+	toState := boundedHarnessState(current.State)
+	metrics.harnessTransitions.WithLabelValues(intent, strategy, fromState, toState).Inc()
+	if !harness.IsTerminal(current.State) {
+		return
+	}
+	reason := boundedHarnessTerminalReason(current.TerminalReason)
+	metrics.harnessTerminals.WithLabelValues(intent, strategy, toState, reason).Inc()
+	duration := current.UpdatedAt.Sub(current.StartedAt)
+	if current.FinishedAt != nil {
+		duration = current.FinishedAt.Sub(current.StartedAt)
+	}
+	if duration < 0 {
+		duration = 0
+	}
+	metrics.harnessDuration.WithLabelValues(intent, strategy, toState).Observe(duration.Seconds())
+	recordBudgetRatio(metrics.harnessBudgetUtilization, "iterations", toState, current.Budget.UsedIterations, current.Budget.MaxIterations)
+	recordBudgetRatio(metrics.harnessBudgetUtilization, "tool_calls", toState, current.Budget.UsedToolCalls, current.Budget.MaxToolCalls)
+	recordBudgetRatio(metrics.harnessBudgetUtilization, "input_tokens", toState, current.Budget.UsedInputTokens, current.Budget.MaxInputTokens)
+	recordBudgetRatio(metrics.harnessBudgetUtilization, "output_tokens", toState, current.Budget.UsedOutputTokens, current.Budget.MaxOutputTokens)
+	if current.Budget.MaxCostMicros > 0 {
+		metrics.harnessBudgetUtilization.WithLabelValues("cost", toState).Observe(float64(current.Budget.UsedCostMicros) / float64(current.Budget.MaxCostMicros))
+	}
+}
+
+func recordBudgetRatio(metric *prometheus.HistogramVec, resource string, state string, used int, maximum int) {
+	if maximum > 0 {
+		metric.WithLabelValues(resource, state).Observe(float64(used) / float64(maximum))
+	}
+}
+
+func boundedHarnessIntent(value string) string {
+	if value == "troubleshooting" {
+		return value
+	}
+	return "unknown"
+}
+
+func boundedHarnessStrategy(value string) string {
+	if value == "diagnosis_standard" {
+		return value
+	}
+	return "unknown"
+}
+
+func boundedHarnessState(value harness.State) string {
+	switch value {
+	case harness.StateReceived, harness.StateContextReady, harness.StatePlanned, harness.StateRunning,
+		harness.StateWaitingUser, harness.StateSucceeded, harness.StateFailed, harness.StateCancelled,
+		harness.StateBudgetExceeded:
+		return string(value)
+	default:
+		return "UNKNOWN"
+	}
+}
+
+func boundedHarnessTerminalReason(value string) string {
+	switch value {
+	case "DIAGNOSTIC_HYPOTHESES_READY", "USER_CANCELLED", "TIME_BUDGET_EXCEEDED", "EXECUTION_BUDGET_EXCEEDED", "NO_PROGRESS":
+		return value
+	case "":
+		return "NONE"
+	default:
+		return "OTHER"
+	}
 }
 
 func (metrics *Metrics) RecordRAGStrategy(strategy string, status string, enhancement string, duration time.Duration, rewriteOutcome string, rerankOutcome string) {
