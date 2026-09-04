@@ -85,6 +85,9 @@ func (planner *Planner) Plan(message string) (Plan, error) {
 			plan.Calls = append(plan.Calls, PlannedCall{ToolName: "deployment_manifest_lookup", Arguments: json.RawMessage(`{}`), ReasonCode: "RELEASE_EVIDENCE_REQUIRED", EvidenceRef: "release-manifest:<release_id>"})
 		}
 	}
+	if documentationCall, ok := officialDocumentationCall(normalized); ok {
+		plan.Calls = append(plan.Calls, documentationCall)
+	}
 	if wantsHealth {
 		service := healthTarget(normalized)
 		arguments, _ := json.Marshal(map[string]string{"service": service, "probe": "ready"})
@@ -104,6 +107,31 @@ func (planner *Planner) Plan(message string) (Plan, error) {
 		plan.Decision, plan.ReasonCode = "execute", "SUPPORTED_READ_ONLY_EVIDENCE"
 	}
 	return plan, nil
+}
+
+func officialDocumentationCall(message string) (PlannedCall, bool) {
+	if !containsAny(message, []string{"官方文档", "official docs", "official documentation", "规范依据", "文档证据"}) {
+		return PlannedCall{}, false
+	}
+	documentID := ""
+	query := ""
+	switch {
+	case containsAny(message, []string{"redis", "noauth", "acl", "auth"}):
+		documentID, query = "redis_acl", "AUTH ACL"
+	case containsAny(message, []string{"rabbitmq", "rabbit", "dlq", "dlx", "死信"}):
+		documentID, query = "rabbitmq_dlx", "dead letter exchange"
+	case containsAny(message, []string{"prometheus", "promql", "告警", "alert"}):
+		documentID, query = "prometheus_alerting", "alerting rules"
+	case containsAny(message, []string{"context", "cancellation", "cancel", "取消传播", "截止时间", "deadline"}):
+		documentID, query = "go_context_cancel", "context cancel"
+	default:
+		return PlannedCall{}, false
+	}
+	arguments, _ := json.Marshal(map[string]string{"document_id": documentID, "query": query})
+	return PlannedCall{
+		ToolName: "official_document_search", Arguments: arguments, ReasonCode: "OFFICIAL_DOCUMENT_EVIDENCE_REQUIRED",
+		EvidenceRef: "official-doc:" + documentID + ":<content-hash>",
+	}, true
 }
 
 // Repair never changes the exact tool name. The deterministic planner rebuilds

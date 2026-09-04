@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
 	"reflect"
 	"strings"
 	"time"
@@ -247,6 +249,9 @@ func runRuntimeScenario(item ToolEvaluationCase) ToolEvaluationOutcome {
 	if item.Scenario == "hitl_confirm_allowed" || item.Scenario == "hitl_confirmation_readonly_denied" {
 		return runHITLScenario(item)
 	}
+	if item.Scenario == "official_document_valid" {
+		return runOfficialDocumentScenario(item)
+	}
 	definition := manifestEvaluationDefinition()
 	if strings.HasPrefix(item.Scenario, "health_") {
 		definition = healthEvaluationDefinition()
@@ -367,6 +372,40 @@ func runRuntimeScenario(item ToolEvaluationCase) ToolEvaluationOutcome {
 		message = runtime.Invoke(ctx, invocation)
 	}
 	return ToolEvaluationOutcome{Status: message.Status, ErrorCode: message.ErrorCode, Cached: message.Cached, Stale: message.Stale, DegradedReason: message.DegradedReason, Executions: tool.executions, AuditCount: auditor.count}
+}
+
+type evaluationDocumentDoer struct{ executions int }
+
+func (doer *evaluationDocumentDoer) Do(*http.Request) (*http.Response, error) {
+	doer.executions++
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/html; charset=utf-8"}},
+		Body:       io.NopCloser(strings.NewReader(`<html><body><h1>Redis ACL</h1><p>Use AUTH with named ACL users and least privilege.</p></body></html>`)),
+	}, nil
+}
+
+func runOfficialDocumentScenario(item ToolEvaluationCase) ToolEvaluationOutcome {
+	doer := &evaluationDocumentDoer{}
+	tool := toolruntime.NewOfficialDocumentSearchToolWithClient(doer)
+	registry := toolruntime.NewRegistry()
+	if err := registry.Register(tool); err != nil {
+		return ToolEvaluationOutcome{Status: "fixture_error", ErrorCode: err.Error()}
+	}
+	auditor := &evaluationAuditor{}
+	runtime, err := toolruntime.NewRuntime(registry, auditor, nil)
+	if err != nil {
+		return ToolEvaluationOutcome{Status: "fixture_error", ErrorCode: err.Error()}
+	}
+	message := runtime.Invoke(context.Background(), toolruntime.Invocation{
+		CallID: "eval-doc-1", TraceID: "eval-trace", ToolName: "official_document_search", Arguments: item.Arguments,
+		Intent: "tool_task", Strategy: "tool_agent_v1",
+		Principal: toolruntime.Principal{TenantID: "eval-tenant", UserID: "eval-user", Permissions: map[string]bool{
+			"devsupport:tools:read": true,
+		}},
+		AllowedSideEffect: toolruntime.SideEffectReadOnly, Budget: toolruntime.CallBudget{MaxCalls: 1},
+	})
+	return ToolEvaluationOutcome{Status: message.Status, ErrorCode: message.ErrorCode, Cached: message.Cached, Stale: message.Stale, DegradedReason: message.DegradedReason, Executions: doer.executions, AuditCount: auditor.count}
 }
 
 type evaluationCandidatePlanner struct {

@@ -305,9 +305,16 @@ func TestCatalogReturnsVersionedDefinitions(t *testing.T) {
 
 func TestPublicToolCatalogNeverExposesResolutionWriteAdapter(t *testing.T) {
 	handler := NewDefaultHandler()
+	foundOfficialDocumentTool := false
 	for _, definition := range handler.runtime.Definitions() {
 		if definition.Name == "confirm_resolution" || definition.SideEffect != toolruntime.SideEffectReadOnly {
 			t.Fatalf("internal write adapter leaked into public tool catalog: %+v", definition)
 		}
+		if definition.Name == "official_document_search" {
+			foundOfficialDocumentTool = true
+		}
+	}
+	if !foundOfficialDocumentTool {
+		t.Fatal("official document evidence tool is missing from governed catalog")
 	}
 }

@@ -1,7 +1,7 @@
 {
   "evaluator_version": "tool-runtime-evaluator-v1",
   "dataset_version": "devsupport-tool-runtime-v1",
-  "generated_at": "2026-09-04T23:28:13.7566803Z",
+  "generated_at": "2026-09-04T23:47:47.484438Z",
   "human_reviewed": false,
   "baseline_eligible": false,
   "technical_gates_passed": true,
@@ -25,7 +25,7 @@
     "deterministic_replay_rate": 1,
     "bounded_repair_pass_rate": 1,
     "no_progress_termination_rate": 1,
-    "latency_p95_ms": 0.518
+    "latency_p95_ms": 0.5326
   },
   "cases": [
     {
@@ -115,13 +115,13 @@
     {
       "id": "tool-selection-004",
       "category": "selection",
-      "scenario": "compound_selection",
+      "scenario": "official_document_selection",
       "passed": true,
       "deterministic": true,
       "expected": {
         "decision": "execute",
         "tool_names": [
-          "deployment_manifest_lookup",
+          "official_document_search",
           "service_health_snapshot"
         ],
         "cached": false,
@@ -132,7 +132,7 @@
       "actual": {
         "decision": "execute",
         "tool_names": [
-          "deployment_manifest_lookup",
+          "official_document_search",
           "service_health_snapshot"
         ],
         "cached": false,
@@ -217,7 +217,7 @@
     {
       "id": "tool-schema-002",
       "category": "schema",
-      "scenario": "health_valid",
+      "scenario": "official_document_valid",
       "passed": true,
       "deterministic": true,
       "expected": {
@@ -306,7 +306,7 @@
         "audit_count": 3,
         "repair_count": 2
       },
-      "latency_ms": 0
+      "latency_ms": 0.5326
     },
     {
       "id": "tool-schema-006",
@@ -494,7 +494,7 @@
         "executions": 2,
         "audit_count": 1
       },
-      "latency_ms": 0.518
+      "latency_ms": 0
     },
     {
       "id": "tool-resilience-002",
@@ -542,7 +542,7 @@
         "executions": 1,
         "audit_count": 1
       },
-      "latency_ms": 20.4465
+      "latency_ms": 21.0457
     },
     {
       "id": "tool-resilience-004",
@@ -614,7 +614,7 @@
         "executions": 2,
         "audit_count": 3
       },
-      "latency_ms": 30.8119
+      "latency_ms": 30.9996
     },
     {
       "id": "tool-safety-001",

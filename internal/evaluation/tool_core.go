@@ -17,8 +17,8 @@ const ToolDatasetVersion = "devsupport-tool-runtime-v1"
 var toolEvaluationCategories = []string{"selection", "schema", "authorization", "resilience", "safety"}
 
 var toolEvaluationScenarios = map[string]string{
-	"manifest_selection": "selection", "backend_selection": "selection", "worker_selection": "selection", "compound_selection": "selection", "no_tool_selection": "selection", "log_signature_selection": "selection",
-	"manifest_valid": "schema", "health_valid": "schema", "manifest_unknown_path": "schema", "health_bad_enum": "schema", "schema_repair_bounded": "schema", "health_missing_required": "schema",
+	"manifest_selection": "selection", "backend_selection": "selection", "worker_selection": "selection", "official_document_selection": "selection", "no_tool_selection": "selection", "log_signature_selection": "selection",
+	"manifest_valid": "schema", "official_document_valid": "schema", "manifest_unknown_path": "schema", "health_bad_enum": "schema", "schema_repair_bounded": "schema", "health_missing_required": "schema",
 	"hitl_confirm_allowed": "authorization", "permission_denied": "authorization", "intent_denied": "authorization", "hitl_confirmation_readonly_denied": "authorization", "budget_zero": "authorization", "budget_exhausted": "authorization",
 	"retry_then_success": "resilience", "non_retryable_error": "resilience", "timeout": "resilience", "request_cancelled": "resilience", "circuit_open": "resilience", "cache_stale_fallback": "resilience",
 	"duplicate_action_no_progress": "safety", "dangerous_database_write": "safety", "unknown_tool": "safety", "oversized_result": "safety", "cache_principal_isolation": "safety", "external_write_denied": "safety",

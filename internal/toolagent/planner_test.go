@@ -3,6 +3,7 @@ package toolagent
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -13,6 +14,7 @@ func TestPlannerSelectsBoundedRealTools(t *testing.T) {
 		decision  string
 		tools     []string
 		healthArg string
+		omitted   int
 	}{
 		{name: "manifest", message: "当前发布版本、Git SHA 和回滚策略是什么？", decision: "execute", tools: []string{"deployment_manifest_lookup"}},
 		{name: "backend", message: "检查后端 Redis 和 MySQL 是否正常", decision: "execute", tools: []string{"service_health_snapshot"}, healthArg: `"service":"backend"`},
@@ -23,6 +25,7 @@ func TestPlannerSelectsBoundedRealTools(t *testing.T) {
 		{name: "backend auth logs", message: "查看后端 NOAUTH 报错日志", decision: "execute", tools: []string{"service_health_snapshot", "bounded_log_signature"}, healthArg: `"service":"backend"`},
 		{name: "worker warning logs", message: "检索 Worker slow sql 日志", decision: "execute", tools: []string{"service_health_snapshot", "bounded_log_signature"}, healthArg: `"service":"index_worker"`},
 		{name: "MCP release", message: "请通过 MCP 协议源查询当前发布清单", decision: "execute", tools: []string{"mcp_deployment_evidence"}},
+		{name: "official Redis evidence", message: "Redis NOAUTH 报错，请查询官方文档并检查依赖状态", decision: "execute", tools: []string{"official_document_search", "service_health_snapshot"}, healthArg: `"service":"backend"`, omitted: 1},
 	}
 	planner := NewPlanner()
 	for _, testCase := range cases {
@@ -34,6 +37,9 @@ func TestPlannerSelectsBoundedRealTools(t *testing.T) {
 			if plan.Decision != testCase.decision || len(plan.Calls) != len(testCase.tools) || len(plan.Calls) > MaxPlanCalls {
 				t.Fatalf("unexpected plan: %+v", plan)
 			}
+			if plan.OmittedCount != testCase.omitted {
+				t.Fatalf("unexpected omitted count: %+v", plan)
+			}
 			for index, name := range testCase.tools {
 				if plan.Calls[index].ToolName != name {
 					t.Fatalf("unexpected tool order: %+v", plan.Calls)
@@ -43,6 +49,27 @@ func TestPlannerSelectsBoundedRealTools(t *testing.T) {
 				t.Fatalf("unexpected health arguments: %s", plan.Calls[len(plan.Calls)-1].Arguments)
 			}
 		})
+	}
+}
+
+func TestPlannerMapsOnlyExplicitOfficialDocumentationRequests(t *testing.T) {
+	cases := []struct {
+		message    string
+		documentID string
+	}{
+		{message: "Go context 取消传播的官方文档", documentID: "go_context_cancel"},
+		{message: "Redis ACL 规范依据", documentID: "redis_acl"},
+		{message: "RabbitMQ DLX 官方文档", documentID: "rabbitmq_dlx"},
+		{message: "Prometheus 告警的文档证据", documentID: "prometheus_alerting"},
+	}
+	for _, testCase := range cases {
+		call, ok := officialDocumentationCall(strings.ToLower(testCase.message))
+		if !ok || call.ToolName != "official_document_search" || !strings.Contains(string(call.Arguments), `"document_id":"`+testCase.documentID+`"`) {
+			t.Fatalf("unexpected official documentation mapping for %q: %+v", testCase.message, call)
+		}
+	}
+	if _, ok := officialDocumentationCall("解释 redis acl"); ok {
+		t.Fatal("implicit network lookup must not be planned")
 	}
 }
 

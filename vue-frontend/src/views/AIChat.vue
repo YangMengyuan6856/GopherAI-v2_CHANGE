@@ -110,6 +110,7 @@
             <span>{{ toolAgentResult.plan.planner_version }} · 最多 2 个调用</span>
           </div>
           <div>决策 {{ toolAgentResult.plan.decision }} · {{ toolAgentResult.plan.reason_code }}</div>
+          <div v-if="toolAgentResult.plan.omitted_count">调用预算只保留前 2 步，另有 {{ toolAgentResult.plan.omitted_count }} 个候选动作未执行。</div>
           <div v-if="toolAgentResult.repair_count || toolAgentResult.termination_reason" class="tool-agent-governance">
             <span>Schema 修复 {{ toolAgentResult.repair_count || 0 }}/2</span>
             <span v-if="toolAgentResult.termination_reason">终止原因 {{ toolAgentResult.termination_reason }}</span>
@@ -163,6 +164,12 @@
               :disabled="invokingTool"
               @click="invokeGovernedTool(tool.name, {})"
             >查询 MCP 部署证据</button>
+            <div v-if="tool.name === 'official_document_search'" class="tool-health-actions">
+              <button :disabled="invokingTool" @click="invokeGovernedTool(tool.name, { document_id: 'redis_acl', query: 'AUTH ACL' })">Redis ACL 官方证据</button>
+              <button :disabled="invokingTool" @click="invokeGovernedTool(tool.name, { document_id: 'rabbitmq_dlx', query: 'dead letter exchange' })">RabbitMQ DLX 官方证据</button>
+              <button :disabled="invokingTool" @click="invokeGovernedTool(tool.name, { document_id: 'go_context_cancel', query: 'context cancel' })">Go Context 官方证据</button>
+              <button :disabled="invokingTool" @click="invokeGovernedTool(tool.name, { document_id: 'prometheus_alerting', query: 'alerting rules' })">Prometheus 告警证据</button>
+            </div>
           </article>
         </div>
         <div v-else class="tool-runtime-empty">当前没有通过治理注册的工具。</div>
