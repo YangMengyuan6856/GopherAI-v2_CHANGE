@@ -737,6 +737,13 @@ evaluation fixes and checked-in report. Backend/worker ready checks, MCP TCP,
 Vue compile/HTTP, bundle checksum, and the four expected application processes
 all passed.
 
+The user then completed the final five public-page acceptance checks against
+release `20260904161139-4b1d4d0e3307`. Legacy routing isolation, the conflicting
+7-versus-9 grounded answer with two citations, citation persistence after
+refresh, streaming RAG completion with final citations, and repeated-query
+citation safety fallback all behaved as expected. This closes the M3-A5 user
+acceptance gate.
+
 ### 21.1 Restart recovery sequence
 
 After an ECS reboot, first run read-only checks for uptime, memory, and
