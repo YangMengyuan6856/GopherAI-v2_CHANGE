@@ -38,7 +38,7 @@ func (store *fakeConversationStore) SaveExchange(_ context.Context, userID strin
 
 func TestChatStrategyExecutesKnowledgeAgentAndPersistsExchange(t *testing.T) {
 	answerer := &fakeAnswerer{output: knowledgeagent.Output{Result: contract.AgentResult{
-		Answer: "回答 [1]", Resolved: true, Citations: []contract.Citation{{ID: "C1"}},
+		Answer: "回答 [1]", Resolved: true, Citations: []contract.Citation{{ID: "C1", Document: "project.md", Version: "1", Section: "Run", LineStart: 2, LineEnd: 3}},
 	}}}
 	store := &fakeConversationStore{sessionID: "session-1"}
 	strategy, err := NewChatStrategy(answerer, store)
@@ -49,8 +49,22 @@ func TestChatStrategyExecutesKnowledgeAgentAndPersistsExchange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.SessionID != "session-1" || answerer.input.TenantID != "tenant-a" || len(store.saved) != 4 || store.saved[3] != "回答 [1]" {
+	if result.SessionID != "session-1" || answerer.input.TenantID != "tenant-a" || len(store.saved) != 4 || store.saved[3] != "回答 [1]\n\n引用：\n[1] project.md · v1 · Run · L2-3" {
 		t.Fatalf("unexpected execute result=%+v input=%+v saved=%+v", result, answerer.input, store.saved)
+	}
+}
+
+func TestAnswerForHistoryPreservesVerifiedCitationLocations(t *testing.T) {
+	result := contract.AgentResult{
+		Answer: "重试次数存在冲突。[1][2]",
+		Citations: []contract.Citation{
+			{Document: "a.md", Version: "1", Section: "Retry", LineStart: 3, LineEnd: 4},
+			{Document: "b.txt", Version: "2", LineStart: 8, LineEnd: 9},
+		},
+	}
+	want := "重试次数存在冲突。[1][2]\n\n引用：\n[1] a.md · v1 · Retry · L3-4\n[2] b.txt · v2 · 未命名章节 · L8-9"
+	if got := answerForHistory(result); got != want {
+		t.Fatalf("unexpected persisted answer:\n%s", got)
 	}
 }
 

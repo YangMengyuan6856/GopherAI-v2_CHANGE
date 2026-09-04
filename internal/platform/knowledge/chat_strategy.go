@@ -68,7 +68,7 @@ func (strategy *ChatStrategy) Execute(ctx context.Context, request contract.Requ
 		return contract.AgentResult{SessionID: sessionID}, answerError(err)
 	}
 	output.Result.SessionID = sessionID
-	if err := strategy.store.SaveExchange(ctx, request.UserID, sessionID, request.Question, output.Result.Answer); err != nil {
+	if err := strategy.store.SaveExchange(ctx, request.UserID, sessionID, request.Question, answerForHistory(output.Result)); err != nil {
 		return contract.AgentResult{SessionID: sessionID}, sessionError(err)
 	}
 	return output.Result, nil
@@ -89,7 +89,7 @@ func (strategy *ChatStrategy) Stream(ctx context.Context, request contract.Reque
 		return contract.AgentResult{SessionID: sessionID}, answerError(err)
 	}
 	output.Result.SessionID = sessionID
-	if err := strategy.store.SaveExchange(ctx, request.UserID, sessionID, request.Question, output.Result.Answer); err != nil {
+	if err := strategy.store.SaveExchange(ctx, request.UserID, sessionID, request.Question, answerForHistory(output.Result)); err != nil {
 		return contract.AgentResult{SessionID: sessionID}, sessionError(err)
 	}
 	if err := emit(contract.StreamEvent{Type: contract.StreamEventDelta, SessionID: sessionID, Text: output.Result.Answer}); err != nil {
@@ -176,6 +176,23 @@ func boundedTitle(title string) string {
 		runes = runes[:100]
 	}
 	return string(runes)
+}
+
+func answerForHistory(result contract.AgentResult) string {
+	if len(result.Citations) == 0 {
+		return result.Answer
+	}
+	var builder strings.Builder
+	builder.WriteString(strings.TrimSpace(result.Answer))
+	builder.WriteString("\n\n引用：")
+	for index, citation := range result.Citations {
+		section := strings.TrimSpace(citation.Section)
+		if section == "" {
+			section = "未命名章节"
+		}
+		fmt.Fprintf(&builder, "\n[%d] %s · v%s · %s · L%d-%d", index+1, citation.Document, citation.Version, section, citation.LineStart, citation.LineEnd)
+	}
+	return builder.String()
 }
 
 type lazyDefaultAnswerer struct {
