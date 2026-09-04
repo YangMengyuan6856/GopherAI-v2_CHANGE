@@ -87,10 +87,10 @@ func (handler *Handler) Invoke(ctx *gin.Context) {
 	if request.Intent == "" {
 		request.Intent = "tool_task"
 	}
-	requestID, _ := requestid.IDs(ctx)
+	requestID, traceID := requestid.IDs(ctx)
 	userID := ctx.GetString("userName")
 	message := handler.runtime.Invoke(ctx.Request.Context(), toolruntime.Invocation{
-		CallID: requestID, ToolName: request.ToolName, Arguments: request.Arguments, Intent: request.Intent, Strategy: "tool_primary",
+		CallID: requestID, TraceID: traceID, ToolName: request.ToolName, Arguments: request.Arguments, Intent: request.Intent, Strategy: "tool_primary",
 		Principal:         toolruntime.Principal{TenantID: userID, UserID: userID, Permissions: map[string]bool{"devsupport:tools:read": true}},
 		AllowedSideEffect: toolruntime.SideEffectReadOnly, Budget: toolruntime.CallBudget{MaxCalls: 1},
 	})

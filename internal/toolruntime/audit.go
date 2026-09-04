@@ -21,7 +21,7 @@ func (auditor *GormAuditor) Record(ctx context.Context, invocation Invocation, m
 		return errors.New("tool audit database is unavailable")
 	}
 	record := model.ToolAudit{
-		CallID: message.CallID, TenantIDHash: hashPrincipal(invocation.Principal.TenantID), UserIDHash: hashPrincipal(invocation.Principal.UserID),
+		CallID: message.CallID, TraceID: boundedAuditValue(invocation.TraceID, 36), TenantIDHash: hashPrincipal(invocation.Principal.TenantID), UserIDHash: hashPrincipal(invocation.Principal.UserID),
 		ToolName: boundedAuditValue(message.ToolName, 64), ToolVersion: boundedAuditValue(message.ToolVersion, 32), ArgsHash: message.ArgsHash,
 		Intent: boundedAuditValue(invocation.Intent, 32), Strategy: boundedAuditValue(invocation.Strategy, 64), Status: boundedAuditValue(message.Status, 32),
 		ErrorCode: boundedAuditValue(message.ErrorCode, 64), Retryable: message.Retryable, LatencyMS: message.LatencyMS,

@@ -50,7 +50,7 @@ func TestInvokeBuildsServerOwnedGovernanceContext(t *testing.T) {
 		t.Fatalf("unexpected response %d: %s", response.Code, response.Body.String())
 	}
 	call := service.invocation
-	if call.Principal.UserID != "alice" || !call.Principal.Permissions["devsupport:tools:read"] || call.AllowedSideEffect != toolruntime.SideEffectReadOnly {
+	if call.Principal.UserID != "alice" || !call.Principal.Permissions["devsupport:tools:read"] || call.AllowedSideEffect != toolruntime.SideEffectReadOnly || call.TraceID == "" {
 		t.Fatalf("governance context was not server-owned: %+v", call)
 	}
 	if call.Intent != "tool_task" || call.Strategy != "tool_primary" || call.Budget.MaxCalls != 1 {

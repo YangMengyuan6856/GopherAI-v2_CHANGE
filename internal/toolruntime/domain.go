@@ -59,6 +59,7 @@ type CallBudget struct {
 
 type Invocation struct {
 	CallID            string
+	TraceID           string
 	ToolName          string
 	Arguments         json.RawMessage
 	Intent            string

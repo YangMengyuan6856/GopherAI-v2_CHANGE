@@ -7,6 +7,7 @@ import "time"
 type ToolAudit struct {
 	ID           uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
 	CallID       string    `gorm:"index;not null;type:varchar(128)" json:"call_id"`
+	TraceID      string    `gorm:"index;not null;type:varchar(36)" json:"trace_id"`
 	TenantIDHash string    `gorm:"index;not null;type:char(64)" json:"tenant_id_hash"`
 	UserIDHash   string    `gorm:"index;not null;type:char(64)" json:"user_id_hash"`
 	ToolName     string    `gorm:"index;not null;type:varchar(64)" json:"tool_name"`
