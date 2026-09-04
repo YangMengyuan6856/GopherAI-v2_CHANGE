@@ -22,17 +22,18 @@ After the first verified test run for a change, a retry may omit
 The default path is:
 
 1. Optionally run root-module and MCP-module tests with `-p 1`.
-2. Build the backend and MCP as `linux/amd64`, `CGO_ENABLED=0` binaries.
+2. Build the backend, index worker, and MCP as `linux/amd64`,
+   `CGO_ENABLED=0` binaries.
 3. Create a release manifest and SHA-256 checksum.
-4. Package source plus the two binaries, excluding `.git`, `.claude`, runtime
+4. Package source plus the three binaries, excluding `.git`, `.claude`, runtime
    uploads, remote configuration, logs, frontend `node_modules`, and `dist`.
 5. Upload through the SSH alias and verify the checksum on the host and again
    inside `gopherai2`.
 6. Extract into a new versioned directory before stopping the current release.
 7. Preserve the remote `config/config.toml`; move `uploads` and frontend
    `node_modules` without duplicating their disk usage.
-8. Switch `/root/GopherAI-`, start MySQL/backend/MCP/frontend with PID files,
-   and wait for ports 9090, 8081, and 8080.
+8. Switch `/root/GopherAI-`, start MySQL/backend/index worker/MCP/frontend with
+   PID files, and wait for ports 9090, 9091, 8081, and 8080.
 9. Keep the previous directory for rollback. If startup fails after switching,
    restore the previous directory and runtime folders automatically.
 

@@ -8,6 +8,8 @@ import (
 	"GopherAI/router"
 	"fmt"
 	"log"
+
+	"github.com/gin-gonic/gin"
 )
 
 func StartServer(addr string, port int) error {
@@ -18,6 +20,7 @@ func StartServer(addr string, port int) error {
 }
 
 func main() {
+	gin.SetMode(gin.ReleaseMode)
 	conf := config.GetConfig()
 	host := conf.MainConfig.Host
 	port := conf.MainConfig.Port

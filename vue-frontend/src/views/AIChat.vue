@@ -593,8 +593,29 @@ export default {
       try {
         const response = await api.get('/knowledge/documents')
         knowledgeDocuments.value = response.data?.documents || []
+        const hasPendingDocument = knowledgeDocuments.value.some(document =>
+          document.status === 'uploaded' || document.status === 'parsing'
+        )
+        if (hasPendingDocument) {
+          startKnowledgePolling()
+        } else {
+          stopKnowledgePolling()
+        }
       } catch (error) {
         console.error('Load knowledge documents error:', error)
+      }
+    }
+
+    const startKnowledgePolling = () => {
+      if (!knowledgePollTimer) {
+        knowledgePollTimer = window.setInterval(loadKnowledgeDocuments, 3000)
+      }
+    }
+
+    const stopKnowledgePolling = () => {
+      if (knowledgePollTimer) {
+        window.clearInterval(knowledgePollTimer)
+        knowledgePollTimer = null
       }
     }
 
@@ -649,13 +670,10 @@ export default {
     onMounted(() => {
       loadSessions()
       loadKnowledgeDocuments()
-      knowledgePollTimer = window.setInterval(loadKnowledgeDocuments, 3000)
     })
 
     onUnmounted(() => {
-      if (knowledgePollTimer) {
-        window.clearInterval(knowledgePollTimer)
-      }
+      stopKnowledgePolling()
     })
 
     // expose to template
