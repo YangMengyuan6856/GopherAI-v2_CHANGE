@@ -10,14 +10,18 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"sort"
 	"strings"
 	"time"
 )
 
 const (
-	RAGCoreDatasetVersion = "devsupport-rag-core-v1"
-	RAGCoreCaseCount      = 20
+	RAGCoreDatasetVersion = "devsupport-rag-core-v2"
+	RAGCoreCaseCount      = 60
 	RAGCoreCaseTimeout    = 90 * time.Second
+
+	ragCoreDatasetV1   = "devsupport-rag-core-v1"
+	ragCoreCaseCountV1 = 20
 )
 
 type RAGExpected struct {
@@ -27,6 +31,7 @@ type RAGExpected struct {
 	ForbiddenClaims []string `json:"forbidden_claims"`
 	ShouldUseTool   bool     `json:"should_use_tool"`
 	ShouldClarify   bool     `json:"should_clarify"`
+	ShouldResolve   *bool    `json:"should_resolve,omitempty"`
 }
 
 type RAGCase struct {
@@ -43,12 +48,14 @@ type RAGCase struct {
 }
 
 type FixtureChunk struct {
-	ID        string `json:"id"`
-	Document  string `json:"document"`
-	Section   string `json:"section"`
-	LineStart int    `json:"line_start"`
-	LineEnd   int    `json:"line_end"`
-	Content   string `json:"content"`
+	ID              string `json:"id"`
+	Document        string `json:"document"`
+	Section         string `json:"section"`
+	LineStart       int    `json:"line_start"`
+	LineEnd         int    `json:"line_end"`
+	Content         string `json:"content"`
+	DocumentVersion int    `json:"document_version,omitempty"`
+	Status          string `json:"status,omitempty"`
 }
 
 type RAGFixture struct {
@@ -77,44 +84,61 @@ type RAGCaseResult struct {
 	NDCGAt5              float64  `json:"ndcg_at_5"`
 	ReciprocalRank       float64  `json:"reciprocal_rank"`
 	AnswerResolved       bool     `json:"answer_resolved"`
+	ExpectedToResolve    bool     `json:"expected_to_resolve"`
 	CitationCovered      bool     `json:"citation_covered"`
+	SafeRejection        bool     `json:"safe_rejection"`
 	UnauthorizedHits     int      `json:"unauthorized_hits"`
+	SearchLatencyMillis  int64    `json:"search_latency_ms"`
+	AnswerLatencyMillis  int64    `json:"answer_latency_ms"`
+	TotalLatencyMillis   int64    `json:"total_latency_ms"`
 	Error                string   `json:"error,omitempty"`
 }
 
 type RAGMetrics struct {
-	RecallAt5          float64 `json:"recall_at_5"`
-	NDCGAt5            float64 `json:"ndcg_at_5"`
-	MRR                float64 `json:"mrr"`
-	CitationPrecision  float64 `json:"citation_precision"`
-	CitationCoverage   float64 `json:"citation_coverage"`
-	UnauthorizedRecall int     `json:"unauthorized_recall"`
-	ResolvedAnswerRate float64 `json:"resolved_answer_rate"`
-	ErrorRate          float64 `json:"error_rate"`
+	RecallAt5              float64 `json:"recall_at_5"`
+	NDCGAt5                float64 `json:"ndcg_at_5"`
+	MRR                    float64 `json:"mrr"`
+	CitationPrecision      float64 `json:"citation_precision"`
+	CitationCoverage       float64 `json:"citation_coverage"`
+	UnauthorizedRecall     int     `json:"unauthorized_recall"`
+	ResolvedAnswerRate     float64 `json:"resolved_answer_rate"`
+	EvidenceGatePrecision  float64 `json:"evidence_gate_precision"`
+	NoEvidenceSafeRate     float64 `json:"no_evidence_safe_rate"`
+	UnsupportedAnswerRate  float64 `json:"unsupported_answer_rate"`
+	ErrorRate              float64 `json:"error_rate"`
+	P95SearchLatencyMillis float64 `json:"p95_search_latency_ms"`
+	P95AnswerLatencyMillis float64 `json:"p95_answer_latency_ms"`
+	P95TotalLatencyMillis  float64 `json:"p95_total_latency_ms"`
 }
 
 type RAGTargets struct {
-	RecallAt5          float64 `json:"recall_at_5"`
-	NDCGAt5            float64 `json:"ndcg_at_5"`
-	CitationPrecision  float64 `json:"citation_precision"`
-	CitationCoverage   float64 `json:"citation_coverage"`
-	UnauthorizedRecall int     `json:"unauthorized_recall"`
+	RecallAt5             float64 `json:"recall_at_5"`
+	NDCGAt5               float64 `json:"ndcg_at_5"`
+	CitationPrecision     float64 `json:"citation_precision"`
+	CitationCoverage      float64 `json:"citation_coverage"`
+	UnauthorizedRecall    int     `json:"unauthorized_recall"`
+	EvidenceGatePrecision float64 `json:"evidence_gate_precision"`
+	NoEvidenceSafeRate    float64 `json:"no_evidence_safe_rate"`
+	UnsupportedAnswerRate float64 `json:"unsupported_answer_rate"`
+	P95TotalLatencyMillis float64 `json:"p95_total_latency_ms"`
 }
 
 type RAGReport struct {
-	SchemaVersion    string          `json:"schema_version"`
-	DatasetVersion   string          `json:"dataset_version"`
-	FixtureVersion   string          `json:"fixture_version"`
-	CandidateVersion string          `json:"candidate_version"`
-	Runtime          RAGRuntime      `json:"runtime"`
-	HumanReviewed    bool            `json:"human_reviewed"`
-	BaselineEligible bool            `json:"baseline_eligible"`
-	GeneratedAt      time.Time       `json:"generated_at"`
-	CaseCount        int             `json:"case_count"`
-	Metrics          RAGMetrics      `json:"metrics"`
-	Targets          RAGTargets      `json:"targets"`
-	Passed           bool            `json:"passed"`
-	Cases            []RAGCaseResult `json:"cases"`
+	SchemaVersion       string          `json:"schema_version"`
+	DatasetVersion      string          `json:"dataset_version"`
+	FixtureVersion      string          `json:"fixture_version"`
+	CandidateVersion    string          `json:"candidate_version"`
+	Runtime             RAGRuntime      `json:"runtime"`
+	HumanReviewed       bool            `json:"human_reviewed"`
+	BaselineEligible    bool            `json:"baseline_eligible"`
+	GeneratedAt         time.Time       `json:"generated_at"`
+	CaseCount           int             `json:"case_count"`
+	PositiveCaseCount   int             `json:"positive_case_count"`
+	NoEvidenceCaseCount int             `json:"no_evidence_case_count"`
+	Metrics             RAGMetrics      `json:"metrics"`
+	Targets             RAGTargets      `json:"targets"`
+	Passed              bool            `json:"passed"`
+	Cases               []RAGCaseResult `json:"cases"`
 }
 
 type RAGRuntime struct {
@@ -129,7 +153,11 @@ type RAGRuntime struct {
 }
 
 func DefaultRAGTargets() RAGTargets {
-	return RAGTargets{RecallAt5: 0.85, NDCGAt5: 0.75, CitationPrecision: 0.90, CitationCoverage: 0.90, UnauthorizedRecall: 0}
+	return RAGTargets{
+		RecallAt5: 0.85, NDCGAt5: 0.75, CitationPrecision: 0.90, CitationCoverage: 0.90,
+		UnauthorizedRecall: 0, EvidenceGatePrecision: 0.85, NoEvidenceSafeRate: 0.90,
+		UnsupportedAnswerRate: 0.05, P95TotalLatencyMillis: 8000,
+	}
 }
 
 func LoadRAGCases(reader io.Reader) ([]RAGCase, error) {
@@ -180,6 +208,9 @@ func LoadRAGFixture(reader io.Reader) (RAGFixture, error) {
 		if strings.TrimSpace(chunk.ID) == "" || strings.TrimSpace(chunk.Document) == "" || strings.TrimSpace(chunk.Content) == "" || chunk.LineStart < 1 || chunk.LineEnd < chunk.LineStart {
 			return RAGFixture{}, fmt.Errorf("invalid fixture chunk %q", chunk.ID)
 		}
+		if chunk.DocumentVersion < 0 || (chunk.Status != "" && chunk.Status != "active" && chunk.Status != "superseded") {
+			return RAGFixture{}, fmt.Errorf("invalid fixture authority metadata for chunk %q", chunk.ID)
+		}
 		if _, duplicate := seen[chunk.ID]; duplicate {
 			return RAGFixture{}, fmt.Errorf("duplicate fixture chunk id %s", chunk.ID)
 		}
@@ -189,14 +220,27 @@ func LoadRAGFixture(reader io.Reader) (RAGFixture, error) {
 }
 
 func ValidateRAGCore(cases []RAGCase, fixture RAGFixture) error {
-	if len(cases) != RAGCoreCaseCount {
-		return fmt.Errorf("core dataset must contain %d cases, got %d", RAGCoreCaseCount, len(cases))
+	if len(cases) == 0 {
+		return errors.New("core dataset is empty")
+	}
+	datasetVersion := cases[0].DatasetVersion
+	expectedCount, knownVersion := map[string]int{ragCoreDatasetV1: ragCoreCaseCountV1, RAGCoreDatasetVersion: RAGCoreCaseCount}[datasetVersion]
+	if !knownVersion {
+		return fmt.Errorf("unsupported core dataset version %s", datasetVersion)
+	}
+	if len(cases) != expectedCount {
+		return fmt.Errorf("core dataset %s must contain %d cases, got %d", datasetVersion, expectedCount, len(cases))
 	}
 	known := make(map[string]struct{}, len(fixture.Chunks))
 	for _, chunk := range fixture.Chunks {
-		known[chunk.ID] = struct{}{}
+		if chunk.Status != "superseded" {
+			known[chunk.ID] = struct{}{}
+		}
 	}
 	for _, item := range cases {
+		if item.DatasetVersion != datasetVersion {
+			return fmt.Errorf("case %s mixes dataset version %s into %s", item.ID, item.DatasetVersion, datasetVersion)
+		}
 		if item.Fixture != fixture.Version {
 			return fmt.Errorf("case %s requires fixture %s, got %s", item.ID, item.Fixture, fixture.Version)
 		}
@@ -215,8 +259,12 @@ func RunRAGCore(ctx context.Context, cases []RAGCase, fixtureVersion string, can
 
 func RunRAGCoreWithObserver(ctx context.Context, cases []RAGCase, fixtureVersion string, candidateVersion string, tenantID string, userID string, searcher RAGSearcher, answerer RAGAnswerer, observer RAGProgressObserver) RAGReport {
 	targets := DefaultRAGTargets()
+	datasetVersion := RAGCoreDatasetVersion
+	if len(cases) > 0 && strings.TrimSpace(cases[0].DatasetVersion) != "" {
+		datasetVersion = cases[0].DatasetVersion
+	}
 	report := RAGReport{
-		SchemaVersion: "1", DatasetVersion: RAGCoreDatasetVersion, FixtureVersion: fixtureVersion,
+		SchemaVersion: "2", DatasetVersion: datasetVersion, FixtureVersion: fixtureVersion,
 		CandidateVersion: strings.TrimSpace(candidateVersion), GeneratedAt: time.Now().UTC(), CaseCount: len(cases), Targets: targets,
 		Cases: make([]RAGCaseResult, 0, len(cases)),
 	}
@@ -233,12 +281,26 @@ func RunRAGCoreWithObserver(ctx context.Context, cases []RAGCase, fixtureVersion
 
 	var recallSum, ndcgSum, mrrSum float64
 	var relevantCitations, totalCitations, coveredCases, resolvedCases, errorCases, unauthorized int
+	var positiveCases, noEvidenceCases, rejectedAnswers, correctRejections, unsupportedAnswers int
+	searchLatencies := make([]int64, 0, len(cases))
+	answerLatencies := make([]int64, 0, len(cases))
+	totalLatencies := make([]int64, 0, len(cases))
 	for _, item := range cases {
 		caseContext, cancelCase := context.WithTimeout(ctx, RAGCoreCaseTimeout)
-		result := RAGCaseResult{ID: item.ID, Question: item.Question, ExpectedEvidenceIDs: append([]string(nil), item.Expected.EvidenceIDs...)}
+		caseStartedAt := time.Now()
+		expectedToResolve := expectsResolution(item)
+		result := RAGCaseResult{ID: item.ID, Question: item.Question, ExpectedEvidenceIDs: append([]string(nil), item.Expected.EvidenceIDs...), ExpectedToResolve: expectedToResolve}
+		if expectedToResolve {
+			positiveCases++
+		} else {
+			noEvidenceCases++
+		}
+		searchStartedAt := time.Now()
 		searchOutput, searchErr := searcher.Search(caseContext, rag.SearchInput{TenantID: tenantID, UserID: userID, Query: item.Question, TopK: 5})
+		result.SearchLatencyMillis = time.Since(searchStartedAt).Milliseconds()
 		if searchErr != nil {
 			result.Error = "search: " + searchErr.Error()
+			result.TotalLatencyMillis = time.Since(caseStartedAt).Milliseconds()
 			errorCases++
 			report.Cases = append(report.Cases, result)
 			notifyRAGProgress(observer, len(report.Cases), len(cases), result)
@@ -251,13 +313,18 @@ func RunRAGCoreWithObserver(ctx context.Context, cases []RAGCase, fixtureVersion
 				result.UnauthorizedHits++
 			}
 		}
-		result.RecallAt5, result.NDCGAt5, result.ReciprocalRank = retrievalScores(result.RetrievedEvidenceIDs, item.Expected.EvidenceIDs)
-		recallSum += result.RecallAt5
-		ndcgSum += result.NDCGAt5
-		mrrSum += result.ReciprocalRank
+		if expectedToResolve {
+			result.RecallAt5, result.NDCGAt5, result.ReciprocalRank = retrievalScores(result.RetrievedEvidenceIDs, item.Expected.EvidenceIDs)
+			recallSum += result.RecallAt5
+			ndcgSum += result.NDCGAt5
+			mrrSum += result.ReciprocalRank
+		}
 		unauthorized += result.UnauthorizedHits
 
+		answerStartedAt := time.Now()
 		answerOutput, answerErr := answerer.Answer(caseContext, knowledgeagent.Input{TenantID: tenantID, UserID: userID, Question: item.Question, TopK: 5})
+		result.AnswerLatencyMillis = time.Since(answerStartedAt).Milliseconds()
+		result.TotalLatencyMillis = time.Since(caseStartedAt).Milliseconds()
 		if answerErr != nil {
 			result.Error = "answer: " + answerErr.Error()
 			errorCases++
@@ -267,8 +334,17 @@ func RunRAGCoreWithObserver(ctx context.Context, cases []RAGCase, fixtureVersion
 			continue
 		}
 		result.AnswerResolved = answerOutput.Result.Resolved
-		if result.AnswerResolved {
+		if result.AnswerResolved && expectedToResolve {
 			resolvedCases++
+		}
+		if !result.AnswerResolved {
+			rejectedAnswers++
+			if !expectedToResolve {
+				correctRejections++
+				result.SafeRejection = true
+			}
+		} else if !expectedToResolve {
+			unsupportedAnswers++
 		}
 		for _, citation := range answerOutput.Result.Citations {
 			result.CitedEvidenceIDs = append(result.CitedEvidenceIDs, citation.EvidenceID)
@@ -276,31 +352,40 @@ func RunRAGCoreWithObserver(ctx context.Context, cases []RAGCase, fixtureVersion
 			// was inspected while making no factual claim. Keep those citations in
 			// the case trace, but do not score them as answer citations. Safety
 			// fallback quality is already reflected by coverage/resolved rate.
-			if result.AnswerResolved {
+			if result.AnswerResolved && expectedToResolve {
 				totalCitations++
 				if contains(item.Expected.EvidenceIDs, citation.EvidenceID) {
 					relevantCitations++
 				}
 			}
 		}
-		result.CitationCovered = result.AnswerResolved && containsAll(result.CitedEvidenceIDs, item.Expected.EvidenceIDs)
+		result.CitationCovered = expectedToResolve && result.AnswerResolved && containsAll(result.CitedEvidenceIDs, item.Expected.EvidenceIDs)
 		if result.CitationCovered {
 			coveredCases++
 		}
 		report.Cases = append(report.Cases, result)
 		notifyRAGProgress(observer, len(report.Cases), len(cases), result)
 		cancelCase()
+		searchLatencies = append(searchLatencies, result.SearchLatencyMillis)
+		answerLatencies = append(answerLatencies, result.AnswerLatencyMillis)
+		totalLatencies = append(totalLatencies, result.TotalLatencyMillis)
 	}
 
-	caseCount := float64(len(cases))
+	positiveCount := float64(positiveCases)
 	report.Metrics = RAGMetrics{
-		RecallAt5: recallSum / caseCount, NDCGAt5: ndcgSum / caseCount, MRR: mrrSum / caseCount,
-		CitationPrecision: safeRatio(relevantCitations, totalCitations), CitationCoverage: float64(coveredCases) / caseCount,
-		UnauthorizedRecall: unauthorized, ResolvedAnswerRate: float64(resolvedCases) / caseCount, ErrorRate: float64(errorCases) / caseCount,
+		RecallAt5: safeFloatRatio(recallSum, positiveCount), NDCGAt5: safeFloatRatio(ndcgSum, positiveCount), MRR: safeFloatRatio(mrrSum, positiveCount),
+		CitationPrecision: safeRatio(relevantCitations, totalCitations), CitationCoverage: safeRatio(coveredCases, positiveCases),
+		UnauthorizedRecall: unauthorized, ResolvedAnswerRate: safeRatio(resolvedCases, positiveCases),
+		EvidenceGatePrecision: safeRatioOrOne(correctRejections, rejectedAnswers), NoEvidenceSafeRate: safeRatioOrOne(correctRejections, noEvidenceCases),
+		UnsupportedAnswerRate: safeRatio(unsupportedAnswers, noEvidenceCases), ErrorRate: safeRatio(errorCases, len(cases)),
+		P95SearchLatencyMillis: percentile95(searchLatencies), P95AnswerLatencyMillis: percentile95(answerLatencies), P95TotalLatencyMillis: percentile95(totalLatencies),
 	}
+	report.PositiveCaseCount = positiveCases
+	report.NoEvidenceCaseCount = noEvidenceCases
 	report.Passed = report.Metrics.RecallAt5 >= targets.RecallAt5 && report.Metrics.NDCGAt5 >= targets.NDCGAt5 &&
 		report.Metrics.CitationPrecision >= targets.CitationPrecision && report.Metrics.CitationCoverage >= targets.CitationCoverage &&
-		report.Metrics.UnauthorizedRecall == targets.UnauthorizedRecall && errorCases == 0
+		report.Metrics.UnauthorizedRecall == targets.UnauthorizedRecall && report.Metrics.EvidenceGatePrecision >= targets.EvidenceGatePrecision &&
+		report.Metrics.NoEvidenceSafeRate >= targets.NoEvidenceSafeRate && report.Metrics.UnsupportedAnswerRate <= targets.UnsupportedAnswerRate && errorCases == 0
 	report.BaselineEligible = report.Passed && report.HumanReviewed
 	return report
 }
@@ -323,6 +408,7 @@ func WriteRAGReportMarkdown(writer io.Writer, report RAGReport) error {
 
 - Technical metric status: **%s**
 - Dataset: %s (%d cases)
+- Positive / no-evidence cases: %d / %d
 - Fixture: %s
 - Candidate: %s
 - Generated at: %s
@@ -346,19 +432,28 @@ func WriteRAGReportMarkdown(writer io.Writer, report RAGReport) error {
 | Citation Coverage | %.4f | >= %.2f |
 | Unauthorized Recall | %d | = %d |
 | Resolved Answer Rate | %.4f | report |
+| Evidence Gate Precision | %.4f | >= %.2f |
+| No-evidence Safe Rate | %.4f | >= %.2f |
+| Unsupported Answer Rate | %.4f | <= %.2f |
 | Error Rate | %.4f | = 0 |
+| Search P95 | %.0f ms | report |
+| Answer P95 | %.0f ms | report |
+| End-to-end P95 | %.0f ms | <= %.0f ms (G3 observation) |
 
 Citation Coverage in this M3 core slice is a conservative evidence-reference proxy: a case passes only when the answer is resolved and every human-labelled relevant chunk is cited. Claim-level semantic coverage and LLM-as-a-Judge remain M8 scope.
 
 | Case | Recall@5 | nDCG@5 | RR | Resolved | Citation covered | Error |
 |---|---:|---:|---:|---|---|---|
-`, status, report.DatasetVersion, report.CaseCount, report.FixtureVersion, report.CandidateVersion, report.GeneratedAt.Format(time.RFC3339),
+`, status, report.DatasetVersion, report.CaseCount, report.PositiveCaseCount, report.NoEvidenceCaseCount, report.FixtureVersion, report.CandidateVersion, report.GeneratedAt.Format(time.RFC3339),
 		report.Runtime.DatasetSHA256, report.Runtime.FixtureSHA256, report.Runtime.RetrieverVersion, report.Runtime.EmbeddingModel,
 		report.Runtime.ChatModel, report.Runtime.Environment, report.Runtime.CaseTimeoutSeconds, report.Runtime.ExternalModelMutable,
 		report.HumanReviewed, report.BaselineEligible,
 		report.Metrics.RecallAt5, report.Targets.RecallAt5, report.Metrics.NDCGAt5, report.Targets.NDCGAt5, report.Metrics.MRR,
 		report.Metrics.CitationPrecision, report.Targets.CitationPrecision, report.Metrics.CitationCoverage, report.Targets.CitationCoverage,
-		report.Metrics.UnauthorizedRecall, report.Targets.UnauthorizedRecall, report.Metrics.ResolvedAnswerRate, report.Metrics.ErrorRate)
+		report.Metrics.UnauthorizedRecall, report.Targets.UnauthorizedRecall, report.Metrics.ResolvedAnswerRate,
+		report.Metrics.EvidenceGatePrecision, report.Targets.EvidenceGatePrecision, report.Metrics.NoEvidenceSafeRate, report.Targets.NoEvidenceSafeRate,
+		report.Metrics.UnsupportedAnswerRate, report.Targets.UnsupportedAnswerRate, report.Metrics.ErrorRate,
+		report.Metrics.P95SearchLatencyMillis, report.Metrics.P95AnswerLatencyMillis, report.Metrics.P95TotalLatencyMillis, report.Targets.P95TotalLatencyMillis)
 	if err != nil {
 		return err
 	}
@@ -402,13 +497,30 @@ func retrievalScores(actual []string, relevant []string) (float64, float64, floa
 }
 
 func validateRAGCase(item RAGCase) error {
-	if strings.TrimSpace(item.ID) == "" || item.Type != "rag" || strings.TrimSpace(item.Question) == "" || strings.TrimSpace(item.Fixture) == "" || len(item.Expected.EvidenceIDs) == 0 {
-		return errors.New("id, rag type, question, fixture and expected evidence are required")
+	if strings.TrimSpace(item.ID) == "" || item.Type != "rag" || strings.TrimSpace(item.Question) == "" || strings.TrimSpace(item.Fixture) == "" {
+		return errors.New("id, rag type, question and fixture are required")
 	}
-	if item.Expected.Intent != "project_qa" || item.DatasetVersion != RAGCoreDatasetVersion || (item.ReviewedBy != "human" && item.ReviewedBy != "pending_user") {
+	if item.Expected.Intent != "project_qa" || (item.DatasetVersion != RAGCoreDatasetVersion && item.DatasetVersion != ragCoreDatasetV1) || (item.ReviewedBy != "human" && item.ReviewedBy != "pending_user") {
 		return errors.New("core case must be project_qa with the current dataset version and an explicit review state")
 	}
+	if item.DatasetVersion == RAGCoreDatasetVersion {
+		if item.Expected.ShouldResolve == nil {
+			return errors.New("v2 core case requires explicit should_resolve")
+		}
+		if *item.Expected.ShouldResolve != (len(item.Expected.EvidenceIDs) > 0) {
+			return errors.New("should_resolve must agree with the presence of expected evidence")
+		}
+	} else if len(item.Expected.EvidenceIDs) == 0 {
+		return errors.New("v1 core case requires expected evidence")
+	}
 	return nil
+}
+
+func expectsResolution(item RAGCase) bool {
+	if item.Expected.ShouldResolve != nil {
+		return *item.Expected.ShouldResolve
+	}
+	return len(item.Expected.EvidenceIDs) > 0
 }
 
 func contains(values []string, target string) bool {
@@ -437,6 +549,33 @@ func safeRatio(numerator int, denominator int) float64 {
 		return 0
 	}
 	return float64(numerator) / float64(denominator)
+}
+
+func safeRatioOrOne(numerator int, denominator int) float64 {
+	if denominator == 0 {
+		return 1
+	}
+	return float64(numerator) / float64(denominator)
+}
+
+func safeFloatRatio(numerator float64, denominator float64) float64 {
+	if denominator == 0 {
+		return 0
+	}
+	return numerator / denominator
+}
+
+func percentile95(values []int64) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+	ordered := append([]int64(nil), values...)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i] < ordered[j] })
+	index := int(math.Ceil(float64(len(ordered))*0.95)) - 1
+	if index < 0 {
+		index = 0
+	}
+	return float64(ordered[index])
 }
 
 type FixtureAuthorityRepository struct {

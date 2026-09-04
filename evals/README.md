@@ -10,8 +10,31 @@ Run from Windows after the SSH deployment chain is available:
 powershell -ExecutionPolicy Bypass -File scripts/eval/run-rag-core.ps1
 ```
 
-The script cross-builds the evaluator locally, uploads the binary and versioned inputs, runs the 20 cases inside `gopherai2` with `GOMAXPROCS=1` and low scheduling priority, and downloads both JSON and Markdown reports into `evals/reports/`. It never compiles the repository on the small cloud server.
+The script cross-builds the evaluator locally, uploads the binary and current
+v2 inputs, runs the 60 cases inside `gopherai2` with `GOMAXPROCS=1` and low
+scheduling priority, and downloads both JSON and Markdown reports into
+`evals/reports/`. It never compiles the repository on the small cloud server.
 
 M3 metrics are Recall@5, nDCG@5, MRR, deterministic citation precision, conservative evidence-reference coverage, unauthorized recall, answer resolution and error rate. Citation precision scores citations attached to resolved factual answers; evidence listed by a controlled unresolved/safety response remains visible in the per-case trace and is penalized through citation coverage and resolved-answer rate instead of being counted as an asserted citation. Claim-level semantic citation coverage and LLM-as-a-Judge are intentionally left for M8; the report states this boundary so core proxy metrics are not presented as full AI-quality scores.
 
 The first isolated cloud run for candidate `d6add7fee7de0fd05fbe0ff267bfa8a54e46a6e3` is checked in under `evals/reports/`. It passed the technical M3 gate, but `baseline_eligible` remains false until the dataset's `pending_user` labels are explicitly reviewed.
+
+`devsupport-rag-core-v2.jsonl` is the complete M3-28 slice. It contains 60
+cases: 50 answerable cases and 10 explicit no-evidence/safety cases. Beyond the
+v1 exact and paraphrase coverage, v2 adds cross-document reasoning, immutable
+version conflicts, structured JSON/YAML/Go behavior, bounded `rag_deep`,
+observability feedback-loop semantics, deletion/rebuild consistency, prompt
+injection, credentials, privacy, and tenant-isolation negatives. Its isolated
+fixture is `fixtures/kb-fixture-v2.json`.
+
+V2 makes `expected.should_resolve` mandatory. Retrieval metrics and citation
+coverage use only answerable cases; no-evidence cases instead contribute to
+Evidence Gate Precision, No-evidence Safe Rate, and Unsupported Answer Rate.
+This avoids the old statistical error of treating a correct refusal as missed
+retrieval. Reports also record search, answer, and end-to-end P95 latency. The
+8-second Fast-path P95 remains a G3 observation until a real cloud report and
+bottleneck evidence are available; it is not fabricated from unit tests.
+
+Both v1 and v2 labels remain `pending_user`. A passing technical report is not
+eligible to become an interview baseline until the corresponding labels are
+reviewed and changed to `human`.

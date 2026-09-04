@@ -5,6 +5,7 @@ import (
 	"GopherAI/internal/contract"
 	"GopherAI/internal/rag"
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -87,6 +88,33 @@ func TestRAGCoreCitationPrecisionExcludesUnresolvedSafetyEvidence(t *testing.T) 
 	}
 }
 
+func TestRAGCoreSeparatesPositiveRetrievalFromNoEvidenceSafety(t *testing.T) {
+	resolve := true
+	reject := false
+	cases := []RAGCase{
+		{ID: "positive", Question: "known", Expected: RAGExpected{EvidenceIDs: []string{"a"}, ShouldResolve: &resolve}},
+		{ID: "negative", Question: "unknown", Expected: RAGExpected{ShouldResolve: &reject}},
+	}
+	searcher := &evaluationSearcher{outputs: map[string]rag.SearchOutput{
+		"known":   {Hits: []rag.SearchHit{{Evidence: contract.Evidence{ID: "a", TenantID: "tenant", SourceID: "doc"}}}},
+		"unknown": {},
+	}}
+	answerer := &evaluationAnswerer{outputs: map[string]knowledgeagent.Output{
+		"known":   {Result: contract.AgentResult{Resolved: true, Citations: []contract.Citation{{EvidenceID: "a"}}}},
+		"unknown": {Result: contract.AgentResult{Resolved: false}},
+	}}
+	report := RunRAGCore(context.Background(), cases, "fixture", "candidate", "tenant", "user", searcher, answerer)
+	if report.PositiveCaseCount != 1 || report.NoEvidenceCaseCount != 1 {
+		t.Fatalf("unexpected case taxonomy: %+v", report)
+	}
+	if report.Metrics.RecallAt5 != 1 || report.Metrics.CitationCoverage != 1 {
+		t.Fatalf("no-evidence cases must not dilute positive retrieval metrics: %+v", report.Metrics)
+	}
+	if report.Metrics.EvidenceGatePrecision != 1 || report.Metrics.NoEvidenceSafeRate != 1 || report.Metrics.UnsupportedAnswerRate != 0 {
+		t.Fatalf("unexpected no-evidence safety metrics: %+v", report.Metrics)
+	}
+}
+
 func TestRAGDatasetValidationRejectsUnknownEvidence(t *testing.T) {
 	dataset := `{"id":"rag-001","type":"rag","difficulty":"easy","question":"q","fixture":"kb-fixture-v1","expected":{"intent":"project_qa","evidence_ids":["missing"]},"reviewed_by":"human","dataset_version":"devsupport-rag-core-v1"}`
 	cases, err := LoadRAGCases(strings.NewReader(dataset))
@@ -96,6 +124,26 @@ func TestRAGDatasetValidationRejectsUnknownEvidence(t *testing.T) {
 	fixture := RAGFixture{Version: "kb-fixture-v1", Chunks: []FixtureChunk{{ID: "known", Document: "a.md", Content: "text", LineStart: 1, LineEnd: 1}}}
 	if err := ValidateRAGCore(append(cases, make([]RAGCase, RAGCoreCaseCount-1)...), fixture); err == nil {
 		t.Fatal("expected invalid dataset")
+	}
+}
+
+func TestRAGDatasetValidationRejectsSupersededEvidenceLabel(t *testing.T) {
+	resolve := true
+	cases := make([]RAGCase, RAGCoreCaseCount)
+	for index := range cases {
+		cases[index] = RAGCase{
+			ID: fmt.Sprintf("case-%d", index), Type: "rag", Question: "q", Fixture: "fixture-v2",
+			Expected:   RAGExpected{Intent: "project_qa", EvidenceIDs: []string{"active"}, ShouldResolve: &resolve},
+			ReviewedBy: "pending_user", DatasetVersion: RAGCoreDatasetVersion,
+		}
+	}
+	cases[0].Expected.EvidenceIDs = []string{"old"}
+	fixture := RAGFixture{Version: "fixture-v2", Chunks: []FixtureChunk{
+		{ID: "old", Document: "a.md", Content: "old", LineStart: 1, LineEnd: 1, Status: "superseded"},
+		{ID: "active", Document: "a.md", Content: "new", LineStart: 1, LineEnd: 1, Status: "active"},
+	}}
+	if err := ValidateRAGCore(cases, fixture); err == nil || !strings.Contains(err.Error(), "unknown evidence old") {
+		t.Fatalf("expected superseded evidence label rejection, got %v", err)
 	}
 }
 
@@ -128,5 +176,41 @@ func TestVersionedRAGCoreDataset(t *testing.T) {
 	}
 	if err := ValidateRAGCore(cases, fixture); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestVersionedRAGCoreV2Dataset(t *testing.T) {
+	datasetFile, err := os.Open("../../evals/devsupport-rag-core-v2.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer datasetFile.Close()
+	cases, err := LoadRAGCases(datasetFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixtureFile, err := os.Open("../../evals/fixtures/kb-fixture-v2.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fixtureFile.Close()
+	fixture, err := LoadRAGFixture(fixtureFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateRAGCore(cases, fixture); err != nil {
+		t.Fatal(err)
+	}
+	if len(cases) != 60 {
+		t.Fatalf("expected 60 v2 cases, got %d", len(cases))
+	}
+	noEvidence := 0
+	for _, item := range cases {
+		if !expectsResolution(item) {
+			noEvidence++
+		}
+	}
+	if noEvidence != 10 {
+		t.Fatalf("expected 10 no-evidence safety cases, got %d", noEvidence)
 	}
 }

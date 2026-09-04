@@ -28,16 +28,16 @@ import (
 )
 
 const (
-	evalEnvironment = "eval-rag-core-v1"
-	evalTenantID    = "eval-tenant-v1"
-	evalUserID      = "eval-user-v1"
-	otherTenantID   = "eval-other-tenant-v1"
+	evalEnvironment = "eval-rag-core-v2"
+	evalTenantID    = "eval-tenant-v2"
+	evalUserID      = "eval-user-v2"
+	otherTenantID   = "eval-other-tenant-v2"
 )
 
 func main() {
 	log.SetFlags(0)
-	datasetPath := flag.String("dataset", "evals/devsupport-rag-core-v1.jsonl", "versioned RAG JSONL dataset")
-	fixturePath := flag.String("fixture", "evals/fixtures/kb-fixture-v1.json", "isolated RAG fixture")
+	datasetPath := flag.String("dataset", "evals/devsupport-rag-core-v2.jsonl", "versioned RAG JSONL dataset")
+	fixturePath := flag.String("fixture", "evals/fixtures/kb-fixture-v2.json", "isolated RAG fixture")
 	jsonPath := flag.String("out-json", "evals/reports/devsupport-rag-core-latest.json", "machine-readable report path")
 	markdownPath := flag.String("out-md", "evals/reports/devsupport-rag-core-latest.md", "human-readable report path")
 	candidate := flag.String("candidate", "working-tree", "candidate commit or release identifier")
@@ -164,17 +164,23 @@ func fixtureData(fixture evaluation.RAGFixture) ([]model.KnowledgeChunk, []rag.C
 	appendChunk := func(item evaluation.FixtureChunk, tenantID string, userID string, ordinal int) {
 		documentID := "eval-doc-" + shortHash(item.Document)
 		contentHash := fullHash(item.Content)
+		documentVersion := item.DocumentVersion
+		if documentVersion < 1 {
+			documentVersion = 1
+		}
 		chunks = append(chunks, model.KnowledgeChunk{
-			ID: item.ID, DocumentID: documentID, DocumentVersion: 1, TenantID: tenantID, UserID: userID,
+			ID: item.ID, DocumentID: documentID, DocumentVersion: documentVersion, TenantID: tenantID, UserID: userID,
 			Ordinal: ordinal, SectionPath: item.Section, LineStart: item.LineStart, LineEnd: item.LineEnd,
 			Content: item.Content, TokenCount: len([]rune(item.Content)), ContentHash: contentHash,
 			EmbeddingVersion: config.GetConfig().RagEmbeddingModel, IndexStatus: knowledge.ChunkIndexStatusIndexed,
 		})
-		authorities = append(authorities, rag.ChunkAuthority{
-			ID: item.ID, DocumentID: documentID, DocumentVersion: 1, TenantID: tenantID, UserID: userID,
-			DisplayName: item.Document, SectionPath: item.Section, LineStart: item.LineStart, LineEnd: item.LineEnd,
-			Content: item.Content, ContentHash: contentHash,
-		})
+		if item.Status != "superseded" {
+			authorities = append(authorities, rag.ChunkAuthority{
+				ID: item.ID, DocumentID: documentID, DocumentVersion: documentVersion, TenantID: tenantID, UserID: userID,
+				DisplayName: item.Document, SectionPath: item.Section, LineStart: item.LineStart, LineEnd: item.LineEnd,
+				Content: item.Content, ContentHash: contentHash,
+			})
+		}
 	}
 	for index, item := range fixture.Chunks {
 		appendChunk(item, evalTenantID, evalUserID, index)

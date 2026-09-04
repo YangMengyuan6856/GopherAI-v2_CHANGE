@@ -1,0 +1,219 @@
+{
+  "version": "kb-fixture-v2",
+  "chunks": [
+    {
+      "id": "deploy-health-timeout",
+      "document": "deployment.md",
+      "section": "Release health gate",
+      "line_start": 10,
+      "line_end": 14,
+      "content": "HEALTH_GATE_TIMEOUT：后端 live 与 ready 健康门最多等待 90 秒。只有两个端点都返回 HTTP 200，发布才可以进入下一阶段。"
+    },
+    {
+      "id": "deploy-rollback",
+      "document": "deployment.md",
+      "section": "Automatic rollback",
+      "line_start": 20,
+      "line_end": 25,
+      "content": "RELEASE_ROLLBACK：新版本健康检查失败时，停止失败进程，将上一版本目录原子移回项目路径，并重新启动上一版本。运行数据目录不会被删除。"
+    },
+    {
+      "id": "redis-vector-schema",
+      "document": "knowledge-index.md",
+      "section": "Redis vector schema",
+      "line_start": 8,
+      "line_end": 15,
+      "content": "REDIS_VECTOR_SCHEMA：知识 Chunk 在 Redis Stack 中使用 HASH 与 HNSW COSINE 向量索引，同时保存 tenant_id、user_id、document_id、section_path、line_start、line_end 与 content_hash。"
+    },
+    {
+      "id": "rag-rrf-k",
+      "document": "retrieval.md",
+      "section": "Hybrid fusion",
+      "line_start": 31,
+      "line_end": 35,
+      "content": "RRF_K：Dense 与 BM25 的候选使用 Reciprocal Rank Fusion 融合，常数 k 固定为 60；默认最终 TopK 为 5，候选池大小为 20。"
+    },
+    {
+      "id": "rag-evidence-threshold",
+      "document": "retrieval.md",
+      "section": "Evidence gate",
+      "line_start": 42,
+      "line_end": 48,
+      "content": "EVIDENCE_THRESHOLD：Evidence Gate v1 要求至少有一条同时被 Dense 与 BM25 命中的证据，且归一化最高分不低于 0.80；否则不调用回答模型。"
+    },
+    {
+      "id": "mq-retry-max",
+      "document": "index-worker.md",
+      "section": "Retry policy",
+      "line_start": 17,
+      "line_end": 22,
+      "content": "MQ_RETRY_MAX：文档索引消费者最多处理 3 次。可重试错误会增加 attempt 并进入延迟重试队列，消息使用 manual ack。"
+    },
+    {
+      "id": "mq-dlq-routing",
+      "document": "index-worker.md",
+      "section": "Dead letter routing",
+      "line_start": 24,
+      "line_end": 29,
+      "content": "DLQ_ROUTING：格式错误或重试耗尽的索引事件进入 durable dead-letter exchange 与独立 DLQ，主队列不会无限循环消费同一失败消息。"
+    },
+    {
+      "id": "go-context-cancel",
+      "document": "go-runtime.md",
+      "section": "Cancellation propagation",
+      "line_start": 11,
+      "line_end": 17,
+      "content": "CONTEXT_CANCEL：HTTP 请求的 context 必须逐层传给检索、模型与工具调用。客户端断开或上游取消时，下游应尽快停止，释放连接与计算资源。"
+    },
+    {
+      "id": "security-acl-filter",
+      "document": "security.md",
+      "section": "Knowledge ACL",
+      "line_start": 6,
+      "line_end": 13,
+      "content": "ACL_FILTER：Dense 与 BM25 查询都必须同时过滤 tenant_id 和 user_id。Redis 返回候选后还要使用 MySQL 的 indexed 状态与访问权限做权威复核。"
+    },
+    {
+      "id": "tool-risk-tier",
+      "document": "tool-governance.md",
+      "section": "Risk classification",
+      "line_start": 9,
+      "line_end": 16,
+      "content": "TOOL_RISK_TIER：工具分为只读、受限写入和高风险写入。只读工具可按策略自动执行；受限写入需要显式授权；高风险写入必须人工确认且保留审计记录。"
+    },
+    {
+      "id": "document-version-alias",
+      "document": "document-lifecycle.md",
+      "section": "Version alias",
+      "line_start": 12,
+      "line_end": 20,
+      "content": "VERSION_ALIAS：新文件先作为不可变候选版本完成解析、切分、Embedding 和 Redis 写入，全部成功后 MySQL current_version 才单调切换。失败候选不得覆盖最后一个成功版本。"
+    },
+    {
+      "id": "document-safe-rebuild",
+      "document": "document-lifecycle.md",
+      "section": "Safe rebuild",
+      "line_start": 24,
+      "line_end": 31,
+      "content": "SAFE_REBUILD：重建复用当前源文件创建新候选版本。候选完整索引成功前，旧活动版本持续可查询；成功后再原子切换，重建期间不产生检索空窗。"
+    },
+    {
+      "id": "document-eventual-delete",
+      "document": "document-lifecycle.md",
+      "section": "Eventual delete",
+      "line_start": 35,
+      "line_end": 44,
+      "content": "EVENTUAL_DELETE：删除事务先把 MySQL 文档标记为 deleted 并写入 delete Job 与 Outbox，使新查询立即失去权威访问；Worker 随后按精确 Chunk ID 分批清理 Redis。数据库与源文件保留为可审计的逻辑删除记录。"
+    },
+    {
+      "id": "query-gap-detector",
+      "document": "deep-retrieval.md",
+      "section": "Query gap detector",
+      "line_start": 7,
+      "line_end": 15,
+      "content": "QUERY_GAP_V1：确定性判定器结合问题形态、Top Score、双路支持、来源数量和排名间距，输出 simple 或 complex、none/soft/hard gap，以及 rewrite、rerank、deep 建议和稳定 reason code；判定本身不调用 LLM。"
+    },
+    {
+      "id": "rag-deep-budget",
+      "document": "deep-retrieval.md",
+      "section": "Bounded budget",
+      "line_start": 19,
+      "line_end": 26,
+      "content": "RAG_DEEP_BUDGET：Deep 策略先执行基线 Hybrid 检索，最多执行 3 个检索查询、1 次 LLM 查询改写和 1 次 LLM 证据重排。简单高置信问题跳过全部增强调用。"
+    },
+    {
+      "id": "rag-deep-fallback",
+      "document": "deep-retrieval.md",
+      "section": "Fail-open boundary",
+      "line_start": 29,
+      "line_end": 37,
+      "content": "RAG_DEEP_FALLBACK：原查询永远是查询集第一项。改写、附加检索或重排失败时保留原始 RRF 证据并标记 partial_fallback；无效排序不能删除、增加或替换 Evidence ID。"
+    },
+    {
+      "id": "rag-deep-observability",
+      "document": "deep-retrieval.md",
+      "section": "Strategy observability",
+      "line_start": 41,
+      "line_end": 49,
+      "content": "RAG_DEEP_OBSERVABILITY：Fast 与 Deep 使用独立策略名和版本。诊断记录增强结果、查询数、候选数变化、Token 与延迟；Prometheus 只使用 strategy、status、enhancement 等有界标签，不把原始问题或错误文本放进 label。"
+    },
+    {
+      "id": "structured-json-path",
+      "document": "structured-documents.md",
+      "section": "JSON and YAML parsing",
+      "line_start": 8,
+      "line_end": 16,
+      "content": "STRUCTURED_PATH：JSON 与 YAML 按 key path 形成 section，并保留原始行号。YAML 映射与序列路径必须稳定；相同字节按 TXT 与 YAML 上传时使用不同 parser family 哈希，不能错误复用索引。"
+    },
+    {
+      "id": "structured-go-symbol",
+      "document": "structured-documents.md",
+      "section": "Go AST parsing",
+      "line_start": 20,
+      "line_end": 27,
+      "content": "GO_AST_SECTION：Go 文档使用 AST 提取顶层 type、var、const、func 和 method 符号作为 section。超长函数再按行有界切分，同时保留符号名与原始行范围。"
+    },
+    {
+      "id": "structured-invalid-input",
+      "document": "structured-documents.md",
+      "section": "Parse failure",
+      "line_start": 31,
+      "line_end": 37,
+      "content": "STRUCTURED_PARSE_FAILURE：无效 JSON、YAML 或 Go 源码以不可重试的 DOCUMENT_PARSE_FAILED 结束，不写入 Chunk 或 Redis，也不得让失败候选替换当前成功版本。"
+    },
+    {
+      "id": "release-window-old",
+      "document": "release-window.md",
+      "section": "Release timeout",
+      "line_start": 3,
+      "line_end": 7,
+      "document_version": 1,
+      "status": "superseded",
+      "content": "RELEASE_WINDOW_TIMEOUT 旧版本曾设为 45 秒，发布别名已经切换，此内容不得被当前知识查询召回。"
+    },
+    {
+      "id": "release-window-current",
+      "document": "release-window.md",
+      "section": "Release timeout",
+      "line_start": 3,
+      "line_end": 8,
+      "document_version": 2,
+      "status": "active",
+      "content": "RELEASE_WINDOW_TIMEOUT 当前活动版本为 v2，最大等待时间是 120 秒；只有新进程通过全部健康门才允许完成原子切换。"
+    },
+    {
+      "id": "feedback-closed-loop",
+      "document": "observability.md",
+      "section": "Decision feedback loop",
+      "line_start": 11,
+      "line_end": 20,
+      "content": "FEEDBACK_LOOP：Prometheus 聚合策略成功率、P95 延迟、Token 和质量反馈；滑动窗口检测到显著退化时只生成候选权重调整。候选必须经过离线评测和 shadow 对照，满足安全阈值后才能原子发布，异常时自动回滚上一权重版本。"
+    },
+    {
+      "id": "frontend-evidence-visibility",
+      "document": "frontend-contract.md",
+      "section": "Evidence visibility",
+      "line_start": 5,
+      "line_end": 13,
+      "content": "EVIDENCE_VISIBILITY：前端展示文档索引状态、稳定失败码、活动版本、引用文档与行范围，并允许展开证据原文。Deep 面板还展示是否激活、改写与重排结果、附加检索次数和候选数变化。"
+    }
+  ],
+  "unauthorized_chunks": [
+    {
+      "id": "other-tenant-admin-secret",
+      "document": "other-tenant-secrets.md",
+      "section": "Credentials",
+      "line_start": 1,
+      "line_end": 4,
+      "content": "ADMIN_SECRET：other tenant 的管理员口令是 forbidden-cross-tenant-value，任何评测查询都不得召回或引用。"
+    },
+    {
+      "id": "other-tenant-release-timeout",
+      "document": "other-release.md",
+      "section": "Timeout",
+      "line_start": 2,
+      "line_end": 6,
+      "content": "RELEASE_WINDOW_TIMEOUT 在另一个租户的值是 999 秒，此配置绝不能影响当前租户回答。"
+    }
+  ]
+}
