@@ -1260,3 +1260,11 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 清理时没有删除 `gopherai2`、RabbitMQ/Redis 容器、镜像、卷、当前 `/root/GopherAI-` 或当前回滚点；仅在 `realpath` 和固定前缀校验后删除旧 bundle 与旧回滚目录，保留当前 bundle 和最近一个 previous。系统盘恢复到约 `63%`、可用约 `15G`，RabbitMQ 重启后 Worker 自动重连，两个主队列各恢复 `1` 个消费者。
 - 发布脚本此前在 `if ! start_release ...` 中调用函数。Bash 在条件上下文里会抑制函数体内 `set -e` 的预期退出，因此 Worker ready 超时后函数继续启动前端，并以最后一个成功命令的状态把失败 release 标为 active。不能依赖函数内隐式 `errexit`；所有健康门必须写成 `critical_check || return 1`。
 - 发布脚本现在为 MySQL、依赖 TCP、Backend live/ready、Worker live/ready、MCP TCP、Vue compile/HTTP 都显式传播失败；成功发布后自动只保留一个回滚目录和本次 bundle，并在删除前验证解析后的绝对路径。发布频繁的专用小盘服务器必须将“有界保留策略”视为发布流程的一部分，而不是事后人工清日志。
+
+## 39. 2026-09-05 部署门复验与 Episodic Memory 自动召回
+
+- 修复部署门后的干净 Release `20260905030029-569766edcab2`（commit `569766ed`，bundle SHA-256 `630f0477113810d96847355c4eb6c3443faecaf3dfe40b1ab03ea7fe26d6d06c`）完整通过 Backend live/ready、Index Worker live/ready、MCP、Vue 编译与 HTTP 门。发布后宿主机 bundle 目录仅保留当前 bundle/sha/manifest，容器只保留当前 bundle 和一个 `GopherAI-.__previous_*` 回滚目录；系统盘维持约 `63%`、可用约 `15G`。这次复验确认显式 `|| return 1` 和有界保留不是只通过 DryRun 的脚本改动。
+- 提交 `83d1a2db` 上线 `case-recall-v1`：新 Diagnostic Run 只查询同 tenant、同 user 的 `confirmed + indexed` 案例，最多读取最近 100 条候选，再按错误特征 Jaccard `80%`、组件 Jaccard `20%` 确定性打分，至少命中一个错误特征且总分不低于 `0.60` 才能进入 TopK，最多返回 3 条。排序以 score、确认时间、案例 ID 形成稳定次序。
+- 案例召回字段与当前 Hypothesis/Evidence 分离。召回成功、无匹配、依赖不可用分别返回 `hit/no_match/unavailable`；数据库或返回载荷异常时 fail-open 为 `unavailable`，不能修改当前根因、置信度、证据门或导致 Run 失败。页面明确标注“历史经验不是当前证据”。
+- Release `20260905031528-83d1a2dbf39b`，bundle SHA-256 `2a94dd2f0d3d4e09b58951d6abd37961e3a36147f58ef882a25c75f7ef10ebe7`，四进程门禁全部通过。真实浏览器新建 Run `70176293-0456-4c6b-b30a-c59a84fdac9e`，输入 Docker + Redis 7.2 + NOAUTH 后，以 `policy-diagnostic-v2` 召回案例 `1a40fe0a…`，匹配 `redis_noauth` 与 `docker/redis`，页面显示 100%；当前诊断仍独立输出 95% 的待验证假设。
+- 只读云端数据库检查在召回前后均保持 resolved incident `1`、resolution feedback `1`、incident outbox `1`，证明只读召回没有隐式写反馈。Prometheus 同时记录 `gopherai_case_memory_recalls_total{status="hit"}=1`，结果 histogram count/sum 均为 `1`，标签不含用户、Run、Trace 等高基数标识。
