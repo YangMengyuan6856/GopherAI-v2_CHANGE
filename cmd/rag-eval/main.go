@@ -117,6 +117,11 @@ func run(ctx context.Context, datasetPath string, fixturePath string, jsonPath s
 			log.Printf("rag eval progress=%d/%d case=%s recall_at_5=%.4f ndcg_at_5=%.4f resolved=%t citation_covered=%t error=%t",
 				completed, total, result.ID, result.RecallAt5, result.NDCGAt5, result.AnswerResolved, result.CitationCovered, result.Error != "")
 		})
+	report.Runtime = evaluation.RAGRuntime{
+		DatasetSHA256: fileSHA256(datasetPath), FixtureSHA256: fileSHA256(fixturePath), RetrieverVersion: rag.RetrievalVersion,
+		EmbeddingModel: configuration.RagEmbeddingModel, ChatModel: configuration.RagChatModelName, Environment: evalEnvironment,
+		CaseTimeoutSeconds: int(evaluation.RAGCoreCaseTimeout.Seconds()), ExternalModelMutable: true,
+	}
 	if err := writeReports(report, jsonPath, markdownPath); err != nil {
 		return err
 	}
@@ -231,6 +236,15 @@ func fullHash(value string) string {
 
 func shortHash(value string) string {
 	return fullHash(value)[:16]
+}
+
+func fileSHA256(path string) string {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "unavailable"
+	}
+	digest := sha256.Sum256(content)
+	return hex.EncodeToString(digest[:])
 }
 
 type cachedSearcher struct {

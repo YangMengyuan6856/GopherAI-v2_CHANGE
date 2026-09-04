@@ -17,7 +17,7 @@ import (
 const (
 	RAGCoreDatasetVersion = "devsupport-rag-core-v1"
 	RAGCoreCaseCount      = 20
-	ragCaseTimeout        = 90 * time.Second
+	RAGCoreCaseTimeout    = 90 * time.Second
 )
 
 type RAGExpected struct {
@@ -106,12 +106,24 @@ type RAGReport struct {
 	DatasetVersion   string          `json:"dataset_version"`
 	FixtureVersion   string          `json:"fixture_version"`
 	CandidateVersion string          `json:"candidate_version"`
+	Runtime          RAGRuntime      `json:"runtime"`
 	GeneratedAt      time.Time       `json:"generated_at"`
 	CaseCount        int             `json:"case_count"`
 	Metrics          RAGMetrics      `json:"metrics"`
 	Targets          RAGTargets      `json:"targets"`
 	Passed           bool            `json:"passed"`
 	Cases            []RAGCaseResult `json:"cases"`
+}
+
+type RAGRuntime struct {
+	DatasetSHA256        string `json:"dataset_sha256,omitempty"`
+	FixtureSHA256        string `json:"fixture_sha256,omitempty"`
+	RetrieverVersion     string `json:"retriever_version,omitempty"`
+	EmbeddingModel       string `json:"embedding_model,omitempty"`
+	ChatModel            string `json:"chat_model,omitempty"`
+	Environment          string `json:"environment,omitempty"`
+	CaseTimeoutSeconds   int    `json:"case_timeout_seconds"`
+	ExternalModelMutable bool   `json:"external_model_mutable"`
 }
 
 func DefaultRAGTargets() RAGTargets {
@@ -213,7 +225,7 @@ func RunRAGCoreWithObserver(ctx context.Context, cases []RAGCase, fixtureVersion
 	var recallSum, ndcgSum, mrrSum float64
 	var relevantCitations, totalCitations, coveredCases, resolvedCases, errorCases, unauthorized int
 	for _, item := range cases {
-		caseContext, cancelCase := context.WithTimeout(ctx, ragCaseTimeout)
+		caseContext, cancelCase := context.WithTimeout(ctx, RAGCoreCaseTimeout)
 		result := RAGCaseResult{ID: item.ID, Question: item.Question, ExpectedEvidenceIDs: append([]string(nil), item.Expected.EvidenceIDs...)}
 		searchOutput, searchErr := searcher.Search(caseContext, rag.SearchInput{TenantID: tenantID, UserID: userID, Query: item.Question, TopK: 5})
 		if searchErr != nil {
@@ -298,6 +310,14 @@ func WriteRAGReportMarkdown(writer io.Writer, report RAGReport) error {
 - Fixture: %s
 - Candidate: %s
 - Generated at: %s
+- Dataset SHA-256: %s
+- Fixture SHA-256: %s
+- Retriever: %s
+- Embedding model: %s
+- Chat model: %s
+- Environment: %s
+- Per-case timeout: %ds
+- External model behavior mutable: %t
 
 | Metric | Actual | Target |
 |---|---:|---:|
@@ -315,6 +335,8 @@ Citation Coverage in this M3 core slice is a conservative evidence-reference pro
 | Case | Recall@5 | nDCG@5 | RR | Resolved | Citation covered | Error |
 |---|---:|---:|---:|---|---|---|
 `, status, report.DatasetVersion, report.CaseCount, report.FixtureVersion, report.CandidateVersion, report.GeneratedAt.Format(time.RFC3339),
+		report.Runtime.DatasetSHA256, report.Runtime.FixtureSHA256, report.Runtime.RetrieverVersion, report.Runtime.EmbeddingModel,
+		report.Runtime.ChatModel, report.Runtime.Environment, report.Runtime.CaseTimeoutSeconds, report.Runtime.ExternalModelMutable,
 		report.Metrics.RecallAt5, report.Targets.RecallAt5, report.Metrics.NDCGAt5, report.Targets.NDCGAt5, report.Metrics.MRR,
 		report.Metrics.CitationPrecision, report.Targets.CitationPrecision, report.Metrics.CitationCoverage, report.Targets.CitationCoverage,
 		report.Metrics.UnauthorizedRecall, report.Targets.UnauthorizedRecall, report.Metrics.ResolvedAnswerRate, report.Metrics.ErrorRate)
