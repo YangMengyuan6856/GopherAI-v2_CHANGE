@@ -44,6 +44,11 @@ type Definition struct {
 	SideEffect         SideEffect  `json:"side_effect"`
 	TimeoutMS          int64       `json:"timeout_ms"`
 	MaxResultBytes     int         `json:"max_result_bytes"`
+	Idempotent         bool        `json:"idempotent"`
+	RetryMaxAttempts   int         `json:"retry_max_attempts"`
+	CacheTTLMS         int64       `json:"cache_ttl_ms"`
+	CircuitFailures    int         `json:"circuit_failure_threshold"`
+	CircuitOpenMS      int64       `json:"circuit_open_ms"`
 }
 
 type Principal struct {
@@ -113,6 +118,7 @@ const (
 	ErrorCancelled         = "TOOL_CANCELLED"
 	ErrorExecutionFailed   = "TOOL_EXECUTION_FAILED"
 	ErrorResultTooLarge    = "TOOL_RESULT_TOO_LARGE"
+	ErrorCircuitOpen       = "TOOL_CIRCUIT_OPEN"
 )
 
 type Tool interface {
@@ -129,6 +135,9 @@ type Observer interface {
 	RecordToolCall(tool string, strategy string, status string, duration time.Duration)
 	RecordToolCancellation(tool string, reason string)
 	RecordToolAuditFailure(tool string)
+	RecordToolRetry(tool string, reason string)
+	RecordToolCache(tool string, result string)
+	SetToolCircuitState(tool string, state string)
 }
 
 type nopAuditor struct{}
@@ -141,3 +150,6 @@ func (nopObserver) RecordToolValidation(string, string)                  {}
 func (nopObserver) RecordToolCall(string, string, string, time.Duration) {}
 func (nopObserver) RecordToolCancellation(string, string)                {}
 func (nopObserver) RecordToolAuditFailure(string)                        {}
+func (nopObserver) RecordToolRetry(string, string)                       {}
+func (nopObserver) RecordToolCache(string, string)                       {}
+func (nopObserver) SetToolCircuitState(string, string)                   {}

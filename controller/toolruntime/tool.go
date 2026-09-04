@@ -51,6 +51,9 @@ func NewDefaultHandler() *Handler {
 	if err := registry.Register(toolruntime.NewDeploymentManifestTool("release-manifest.json")); err != nil {
 		panic(err)
 	}
+	if err := registry.Register(toolruntime.NewServiceHealthTool()); err != nil {
+		panic(err)
+	}
 	runtime, err := toolruntime.NewRuntime(registry, toolruntime.NewGormAuditor(mysql.DB), observability.DefaultMetrics())
 	if err != nil {
 		panic(err)

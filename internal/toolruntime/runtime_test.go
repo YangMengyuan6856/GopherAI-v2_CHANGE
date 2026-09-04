@@ -39,6 +39,9 @@ type captureObserver struct {
 	calls         []string
 	cancellations []string
 	auditFailures int
+	retries       []string
+	cache         []string
+	circuits      []string
 }
 
 func (observer *captureObserver) RecordToolValidation(_ string, result string) {
@@ -51,6 +54,15 @@ func (observer *captureObserver) RecordToolCancellation(_ string, reason string)
 	observer.cancellations = append(observer.cancellations, reason)
 }
 func (observer *captureObserver) RecordToolAuditFailure(string) { observer.auditFailures++ }
+func (observer *captureObserver) RecordToolRetry(_ string, reason string) {
+	observer.retries = append(observer.retries, reason)
+}
+func (observer *captureObserver) RecordToolCache(_ string, result string) {
+	observer.cache = append(observer.cache, result)
+}
+func (observer *captureObserver) SetToolCircuitState(_ string, state string) {
+	observer.circuits = append(observer.circuits, state)
+}
 
 func validTestDefinition() Definition {
 	return Definition{
@@ -60,6 +72,7 @@ func validTestDefinition() Definition {
 		}, Required: []string{"format"}, AdditionalProperties: false},
 		AllowedIntents: []string{"tool_task"}, RequiredPermission: "devsupport:tools:read",
 		SideEffect: SideEffectReadOnly, TimeoutMS: 50, MaxResultBytes: 1024,
+		Idempotent: true, RetryMaxAttempts: 1,
 	}
 }
 
@@ -182,5 +195,69 @@ func TestRegistryRejectsDuplicateAndReturnsSortedDefinitions(t *testing.T) {
 	definitions := registry.Definitions()
 	if len(definitions) != 1 || definitions[0].Name != "deployment_manifest_lookup" {
 		t.Fatalf("unexpected definitions: %+v", definitions)
+	}
+}
+
+func TestRuntimeRetriesOnlyRetryableIdempotentFailureAndThenCaches(t *testing.T) {
+	tool := &testTool{definition: validTestDefinition()}
+	tool.definition.RetryMaxAttempts = 2
+	tool.definition.CacheTTLMS = 1000
+	tool.execute = func(context.Context, map[string]any) (Output, error) {
+		if tool.calls == 1 {
+			return Output{Retryable: true}, errors.New("temporary")
+		}
+		return Output{Data: map[string]any{"ok": true}}, nil
+	}
+	observer := &captureObserver{}
+	runtime := newTestRuntime(t, tool, &captureAuditor{}, observer)
+	first := runtime.Invoke(context.Background(), validInvocation())
+	secondCall := validInvocation()
+	secondCall.CallID = "call-2"
+	second := runtime.Invoke(context.Background(), secondCall)
+	if first.Status != StatusSuccess || first.Cached || second.Status != StatusSuccess || !second.Cached {
+		t.Fatalf("unexpected retry/cache results: first=%+v second=%+v", first, second)
+	}
+	if tool.calls != 2 || len(observer.retries) != 1 || observer.retries[0] != "temporary_error" {
+		t.Fatalf("unexpected executions/retries: calls=%d observer=%+v", tool.calls, observer)
+	}
+	if len(observer.cache) != 2 || observer.cache[0] != "miss" || observer.cache[1] != "hit" {
+		t.Fatalf("unexpected cache sequence: %v", observer.cache)
+	}
+}
+
+func TestRuntimeCircuitOpensAndHalfOpenProbeRecovers(t *testing.T) {
+	tool := &testTool{definition: validTestDefinition()}
+	tool.definition.CircuitFailures = 2
+	tool.definition.CircuitOpenMS = 1000
+	shouldFail := true
+	tool.execute = func(context.Context, map[string]any) (Output, error) {
+		if shouldFail {
+			return Output{}, errors.New("dependency down")
+		}
+		return Output{Data: map[string]any{"ok": true}}, nil
+	}
+	observer := &captureObserver{}
+	runtime := newTestRuntime(t, tool, &captureAuditor{}, observer)
+	now := time.Date(2026, 9, 5, 5, 30, 0, 0, time.UTC)
+	runtime.now = func() time.Time { return now }
+	if result := runtime.Invoke(context.Background(), validInvocation()); result.ErrorCode != ErrorExecutionFailed {
+		t.Fatalf("first failure: %+v", result)
+	}
+	if result := runtime.Invoke(context.Background(), validInvocation()); result.ErrorCode != ErrorExecutionFailed {
+		t.Fatalf("second failure: %+v", result)
+	}
+	if result := runtime.Invoke(context.Background(), validInvocation()); result.ErrorCode != ErrorCircuitOpen {
+		t.Fatalf("open circuit did not fail fast: %+v", result)
+	}
+	if tool.calls != 2 {
+		t.Fatalf("open circuit executed dependency: %d", tool.calls)
+	}
+	now = now.Add(1100 * time.Millisecond)
+	shouldFail = false
+	if result := runtime.Invoke(context.Background(), validInvocation()); result.Status != StatusSuccess {
+		t.Fatalf("half-open probe did not recover: %+v", result)
+	}
+	if len(observer.circuits) != 3 || observer.circuits[0] != "open" || observer.circuits[1] != "half_open" || observer.circuits[2] != "closed" {
+		t.Fatalf("unexpected circuit transitions: %v", observer.circuits)
 	}
 }

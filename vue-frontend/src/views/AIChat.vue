@@ -79,8 +79,12 @@
             <button
               v-if="tool.name === 'deployment_manifest_lookup'"
               :disabled="invokingTool"
-              @click="invokeGovernedTool(tool.name)"
+              @click="invokeGovernedTool(tool.name, {})"
             >{{ invokingTool ? '执行治理链路中...' : '查询当前部署清单' }}</button>
+            <div v-if="tool.name === 'service_health_snapshot'" class="tool-health-actions">
+              <button :disabled="invokingTool" @click="invokeGovernedTool(tool.name, { service: 'backend', probe: 'ready' })">Backend Ready</button>
+              <button :disabled="invokingTool" @click="invokeGovernedTool(tool.name, { service: 'index_worker', probe: 'ready' })">Worker Ready</button>
+            </div>
           </article>
         </div>
         <div v-else class="tool-runtime-empty">当前没有通过治理注册的工具。</div>
@@ -1226,11 +1230,11 @@ export default {
       }
     }
 
-    const invokeGovernedTool = async (toolName) => {
+    const invokeGovernedTool = async (toolName, argumentsPayload = {}) => {
       try {
         invokingTool.value = true
         toolResult.value = null
-        const response = await api.post('/tools/invoke', { tool_name: toolName, arguments: {}, intent: 'tool_task' })
+        const response = await api.post('/tools/invoke', { tool_name: toolName, arguments: argumentsPayload, intent: 'tool_task' })
         toolResult.value = response.data
         ElMessage.success('部署清单已通过完整治理链路返回')
       } catch (error) {
@@ -3281,6 +3285,12 @@ export default {
   color: #fff;
   cursor: pointer;
   font-weight: 700;
+}
+
+.tool-health-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
 }
 
 .tool-runtime-tags {

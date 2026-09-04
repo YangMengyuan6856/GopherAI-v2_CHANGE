@@ -15,6 +15,8 @@ type Runtime struct {
 	auditor  Auditor
 	observer Observer
 	now      func() time.Time
+	cache    *memoryToolCache
+	circuits *circuitSet
 }
 
 func NewRuntime(registry *Registry, auditor Auditor, observer Observer) (*Runtime, error) {
@@ -27,7 +29,7 @@ func NewRuntime(registry *Registry, auditor Auditor, observer Observer) (*Runtim
 	if observer == nil {
 		observer = nopObserver{}
 	}
-	return &Runtime{registry: registry, auditor: auditor, observer: observer, now: time.Now}, nil
+	return &Runtime{registry: registry, auditor: auditor, observer: observer, now: time.Now, cache: newMemoryToolCache(), circuits: newCircuitSet()}, nil
 }
 
 func (runtime *Runtime) Definitions() []Definition { return runtime.registry.Definitions() }
@@ -80,9 +82,39 @@ func (runtime *Runtime) Invoke(ctx context.Context, invocation Invocation) ToolM
 	}
 
 	runtime.observer.RecordToolValidation(definition.Name, "accepted")
+	cacheKey := toolCacheKey(definition, invocation, message.ArgsHash)
+	if definition.CacheTTLMS > 0 {
+		if cached, ok := runtime.cache.get(cacheKey, runtime.now()); ok {
+			message.Status, message.Data, message.EvidenceRefs, message.Cached = StatusSuccess, cached.data, cached.evidenceRefs, true
+			runtime.observer.RecordToolCache(definition.Name, "hit")
+			runtime.finish(ctx, startedAt, invocation, &message, "")
+			return message
+		}
+		runtime.observer.RecordToolCache(definition.Name, "miss")
+	} else {
+		runtime.observer.RecordToolCache(definition.Name, "bypass")
+	}
+	if allowed, transition := runtime.circuits.allow(definition, runtime.now()); !allowed {
+		message.Status, message.ErrorCode, message.Retryable = StatusError, ErrorCircuitOpen, true
+		runtime.finish(ctx, startedAt, invocation, &message, "")
+		return message
+	} else if transition != "" {
+		runtime.observer.SetToolCircuitState(definition.Name, transition)
+	}
 	callContext, cancel := context.WithTimeout(ctx, time.Duration(definition.TimeoutMS)*time.Millisecond)
 	defer cancel()
-	output, executeErr := tool.Execute(callContext, arguments)
+	var output Output
+	var executeErr error
+	for attempt := 1; attempt <= definition.RetryMaxAttempts; attempt++ {
+		output, executeErr = tool.Execute(callContext, arguments)
+		if executeErr == nil {
+			break
+		}
+		if callContext.Err() != nil || !definition.Idempotent || !output.Retryable || attempt == definition.RetryMaxAttempts {
+			break
+		}
+		runtime.observer.RecordToolRetry(definition.Name, "temporary_error")
+	}
 	if executeErr != nil {
 		switch {
 		case errors.Is(callContext.Err(), context.DeadlineExceeded), errors.Is(executeErr, context.DeadlineExceeded):
@@ -94,24 +126,41 @@ func (runtime *Runtime) Invoke(ctx context.Context, invocation Invocation) ToolM
 		default:
 			message.Status, message.ErrorCode, message.Retryable = StatusError, ErrorExecutionFailed, output.Retryable
 		}
+		if message.Status != StatusCancelled {
+			if transition := runtime.circuits.failure(definition, runtime.now()); transition != "" {
+				runtime.observer.SetToolCircuitState(definition.Name, transition)
+			}
+		}
 		runtime.finish(ctx, startedAt, invocation, &message, "")
 		return message
 	}
 	encoded, err := json.Marshal(output.Data)
 	if err != nil {
 		message.Status, message.ErrorCode = StatusError, ErrorExecutionFailed
+		if transition := runtime.circuits.failure(definition, runtime.now()); transition != "" {
+			runtime.observer.SetToolCircuitState(definition.Name, transition)
+		}
 		runtime.finish(ctx, startedAt, invocation, &message, "")
 		return message
 	}
 	if len(encoded) > definition.MaxResultBytes {
 		message.Status, message.ErrorCode, message.Truncated = StatusError, ErrorResultTooLarge, true
 		message.Data, _ = json.Marshal(map[string]any{"original_bytes": len(encoded), "max_result_bytes": definition.MaxResultBytes})
+		if transition := runtime.circuits.failure(definition, runtime.now()); transition != "" {
+			runtime.observer.SetToolCircuitState(definition.Name, transition)
+		}
 		runtime.finish(ctx, startedAt, invocation, &message, "")
 		return message
 	}
 	message.Status = StatusSuccess
 	message.Data = encoded
 	message.EvidenceRefs = append([]string(nil), output.EvidenceRefs...)
+	if transition := runtime.circuits.success(definition); transition != "" {
+		runtime.observer.SetToolCircuitState(definition.Name, transition)
+	}
+	if definition.CacheTTLMS > 0 {
+		runtime.cache.put(cacheKey, cachedToolResult{data: encoded, evidenceRefs: message.EvidenceRefs}, runtime.now().Add(time.Duration(definition.CacheTTLMS)*time.Millisecond))
+	}
 	runtime.finish(ctx, startedAt, invocation, &message, "")
 	return message
 }

@@ -67,6 +67,21 @@ func validateDefinition(definition Definition) error {
 	if definition.MaxResultBytes < 128 || definition.MaxResultBytes > 1024*1024 {
 		return errors.New("tool result limit must be between 128 bytes and 1 MiB")
 	}
+	if definition.RetryMaxAttempts < 1 || definition.RetryMaxAttempts > 3 {
+		return errors.New("tool retry attempts must be between 1 and 3")
+	}
+	if !definition.Idempotent && (definition.RetryMaxAttempts > 1 || definition.CacheTTLMS > 0) {
+		return errors.New("non-idempotent tools cannot retry or cache")
+	}
+	if definition.CacheTTLMS < 0 || definition.CacheTTLMS > 60000 {
+		return errors.New("tool cache TTL must be between 0 and 60000 milliseconds")
+	}
+	if (definition.CircuitFailures == 0) != (definition.CircuitOpenMS == 0) {
+		return errors.New("circuit threshold and open duration must be enabled together")
+	}
+	if definition.CircuitFailures < 0 || definition.CircuitFailures > 10 || definition.CircuitOpenMS < 0 || definition.CircuitOpenMS > 60000 {
+		return errors.New("tool circuit policy is outside the allowed bounds")
+	}
 	return nil
 }
 
