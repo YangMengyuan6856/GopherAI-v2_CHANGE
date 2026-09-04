@@ -904,3 +904,18 @@ measurable and makes M3-25/M3-26 activation separately testable and reversible.
 Keep the frontend label “当前仅分析” until an actual bounded rewrite/rerank
 implementation is deployed. Showing a recommendation as though it had already
 run would make both user acceptance and later strategy evaluation invalid.
+
+## 27. M3-B5 Conditional Query Rewrite Boundary
+
+Release `20260904181007-40838108bb5b` (commit `40838108bb5b`) passed root/MCP
+tests, local Linux builds, checksum and atomic switch, Backend/Worker/MCP health,
+and Vue compile/HTTP. Bundle SHA-256:
+`551e977ffb742ebacb26a29fb21aaf7c1e720d1ef3b2723fce72fc5f9ee4ece2`.
+
+The Rewriter is fail-open at the retrieval boundary. It makes no model call for
+the fast path, makes at most one four-second call when recommended, accepts at
+most two bounded unique variants, and always keeps the exact original query as
+the first retrieval query. Model errors, timeouts, invalid JSON, and unusable
+variants return stable fallback outcomes instead of failing or replacing the
+baseline query. The production release contains the tested component but does
+not activate it in user traffic until the M3-27 deep strategy is complete.
