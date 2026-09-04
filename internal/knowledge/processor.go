@@ -13,24 +13,27 @@ import (
 )
 
 const (
-	JobStatusProcessing      = "processing"
-	JobStatusRetrying        = "retrying"
-	JobStatusCompleted       = "completed"
-	JobStatusFailed          = "failed"
-	ChunkIndexStatusPending  = "pending"
-	ChunkIndexStatusIndexed  = "indexed"
-	ChunkIndexStatusFailed   = "failed"
-	ErrorCodeEventInvalid    = "INDEX_EVENT_INVALID"
-	ErrorCodeJobNotFound     = "INDEX_JOB_NOT_FOUND"
-	ErrorCodeStorageRead     = "DOCUMENT_STORAGE_READ_FAILED"
-	ErrorCodeParseFailed     = "DOCUMENT_PARSE_FAILED"
-	ErrorCodeChunkPersist    = "CHUNK_PERSIST_FAILED"
-	ErrorCodeRedisIndex      = "REDIS_INDEX_FAILED"
-	ErrorCodeIndexCompletion = "INDEX_COMPLETION_FAILED"
+	JobStatusProcessing       = "processing"
+	JobStatusRetrying         = "retrying"
+	JobStatusCompleted        = "completed"
+	JobStatusFailed           = "failed"
+	ChunkIndexStatusPending   = "pending"
+	ChunkIndexStatusIndexed   = "indexed"
+	ChunkIndexStatusFailed    = "failed"
+	ErrorCodeEventInvalid     = "INDEX_EVENT_INVALID"
+	ErrorCodeJobNotFound      = "INDEX_JOB_NOT_FOUND"
+	ErrorCodeStorageRead      = "DOCUMENT_STORAGE_READ_FAILED"
+	ErrorCodeParseFailed      = "DOCUMENT_PARSE_FAILED"
+	ErrorCodeChunkPersist     = "CHUNK_PERSIST_FAILED"
+	ErrorCodeRedisIndex       = "REDIS_INDEX_FAILED"
+	ErrorCodeIndexCompletion  = "INDEX_COMPLETION_FAILED"
+	ErrorCodeRedisDelete      = "REDIS_DELETE_FAILED"
+	ErrorCodeDeleteCompletion = "DELETE_COMPLETION_FAILED"
 )
 
 type ChunkIndexer interface {
 	Index(ctx context.Context, chunks []model.KnowledgeChunk) error
+	Delete(ctx context.Context, chunkIDs []string) error
 }
 
 type Processor struct {
@@ -75,9 +78,20 @@ func NewProcessor(repository IndexRepository, parserChunker ParserChunker, index
 }
 
 func (processor *Processor) Process(ctx context.Context, envelope jobqueue.Envelope) error {
-	if envelope.EventType != DocumentIndexEventType || envelope.TenantID == "" || envelope.AggregateID == "" || envelope.AggregateVersion <= 0 {
+	if envelope.TenantID == "" || envelope.AggregateID == "" || envelope.AggregateVersion <= 0 {
 		return processError(ErrorCodeEventInvalid, false, nil)
 	}
+	switch envelope.EventType {
+	case DocumentIndexEventType:
+		return processor.processIndex(ctx, envelope)
+	case DocumentDeleteEventType:
+		return processor.processDelete(ctx, envelope)
+	default:
+		return processError(ErrorCodeEventInvalid, false, nil)
+	}
+}
+
+func (processor *Processor) processIndex(ctx context.Context, envelope jobqueue.Envelope) error {
 	payload := new(indexPayload)
 	if err := json.Unmarshal(envelope.Payload, payload); err != nil || payload.JobID == "" || payload.DocumentID != envelope.AggregateID || payload.Version != envelope.AggregateVersion {
 		return processError(ErrorCodeEventInvalid, false, err)
@@ -96,7 +110,11 @@ func (processor *Processor) Process(ctx context.Context, envelope jobqueue.Envel
 	if err != nil {
 		return processor.fail(ctx, work, ErrorCodeStorageRead, true, err)
 	}
-	drafts, err := processor.parserChunker.ParseAndChunk(work.Document.DisplayName, content)
+	sourceName := work.Version.DisplayName
+	if sourceName == "" {
+		sourceName = work.Document.DisplayName
+	}
+	drafts, err := processor.parserChunker.ParseAndChunk(sourceName, content)
 	if err != nil {
 		return processor.fail(ctx, work, ErrorCodeParseFailed, false, err)
 	}
@@ -126,12 +144,45 @@ func (processor *Processor) Process(ctx context.Context, envelope jobqueue.Envel
 	return nil
 }
 
+func (processor *Processor) processDelete(ctx context.Context, envelope jobqueue.Envelope) error {
+	payload := new(indexPayload)
+	if err := json.Unmarshal(envelope.Payload, payload); err != nil || payload.JobID == "" || payload.DocumentID != envelope.AggregateID || payload.Version != envelope.AggregateVersion {
+		return processError(ErrorCodeEventInvalid, false, err)
+	}
+	work, err := processor.repository.ClaimDeleteJob(ctx, envelope.TenantID, payload.JobID, payload.DocumentID, payload.Version)
+	if err != nil {
+		if isRecordNotFound(err) {
+			return processError(ErrorCodeJobNotFound, false, err)
+		}
+		return processError(ErrorCodeJobNotFound, true, err)
+	}
+	if work.Complete {
+		return nil
+	}
+	if err := processor.indexer.Delete(ctx, work.ChunkIDs); err != nil {
+		_ = processor.repository.RecordDeleteRetry(ctx, work, ErrorCodeRedisDelete)
+		return processError(ErrorCodeRedisDelete, true, err)
+	}
+	if err := processor.repository.CompleteDelete(ctx, work); err != nil {
+		_ = processor.repository.RecordDeleteRetry(ctx, work, ErrorCodeDeleteCompletion)
+		return processError(ErrorCodeDeleteCompletion, true, err)
+	}
+	return nil
+}
+
 func (processor *Processor) Exhaust(ctx context.Context, envelope jobqueue.Envelope, code string) error {
 	payload := new(indexPayload)
 	if err := json.Unmarshal(envelope.Payload, payload); err != nil || payload.JobID == "" || payload.DocumentID != envelope.AggregateID || payload.Version != envelope.AggregateVersion {
 		return processError(ErrorCodeEventInvalid, false, err)
 	}
-	return processor.repository.FailIndexByIdentity(ctx, envelope.TenantID, payload.JobID, payload.DocumentID, payload.Version, code)
+	switch envelope.EventType {
+	case DocumentIndexEventType:
+		return processor.repository.FailIndexByIdentity(ctx, envelope.TenantID, payload.JobID, payload.DocumentID, payload.Version, code)
+	case DocumentDeleteEventType:
+		return processor.repository.FailDeleteByIdentity(ctx, envelope.TenantID, payload.JobID, payload.DocumentID, payload.Version, code)
+	default:
+		return processError(ErrorCodeEventInvalid, false, nil)
+	}
 }
 
 func (processor *Processor) fail(ctx context.Context, work IndexWork, code string, retryable bool, cause error) error {

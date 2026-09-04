@@ -8,20 +8,25 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
 
 type processorRepository struct {
-	work            IndexWork
-	claimError      error
-	chunks          []model.KnowledgeChunk
-	completeCalls   int
-	retryCode       string
-	failureCode     string
-	replaceCalls    int
-	replaceError    error
-	completionError error
+	work                IndexWork
+	deleteWork          DeleteWork
+	claimError          error
+	chunks              []model.KnowledgeChunk
+	completeCalls       int
+	retryCode           string
+	failureCode         string
+	replaceCalls        int
+	replaceError        error
+	completionError     error
+	deleteCompleteCalls int
+	deleteRetryCode     string
+	deleteFailureCode   string
 }
 
 func (repository *processorRepository) ClaimIndexJob(context.Context, string, string, string, int) (IndexWork, error) {
@@ -54,13 +59,38 @@ func (repository *processorRepository) FailIndexByIdentity(_ context.Context, _ 
 	return nil
 }
 
+func (repository *processorRepository) ClaimDeleteJob(context.Context, string, string, string, int) (DeleteWork, error) {
+	return repository.deleteWork, repository.claimError
+}
+
+func (repository *processorRepository) CompleteDelete(context.Context, DeleteWork) error {
+	repository.deleteCompleteCalls++
+	return repository.completionError
+}
+
+func (repository *processorRepository) RecordDeleteRetry(_ context.Context, _ DeleteWork, code string) error {
+	repository.deleteRetryCode = code
+	return nil
+}
+
+func (repository *processorRepository) FailDeleteByIdentity(_ context.Context, _ string, _ string, _ string, _ int, code string) error {
+	repository.deleteFailureCode = code
+	return nil
+}
+
 type processorIndexer struct {
-	chunks []model.KnowledgeChunk
-	err    error
+	chunks     []model.KnowledgeChunk
+	deletedIDs []string
+	err        error
 }
 
 func (indexer *processorIndexer) Index(_ context.Context, chunks []model.KnowledgeChunk) error {
 	indexer.chunks = append([]model.KnowledgeChunk(nil), chunks...)
+	return indexer.err
+}
+
+func (indexer *processorIndexer) Delete(_ context.Context, chunkIDs []string) error {
+	indexer.deletedIDs = append([]string(nil), chunkIDs...)
 	return indexer.err
 }
 
@@ -139,6 +169,26 @@ func TestProcessorMarksInvalidStructuredDocumentAsNonRetryable(t *testing.T) {
 	}
 }
 
+func TestProcessorUsesCandidateVersionFormatInsteadOfActiveDisplayName(t *testing.T) {
+	storagePath := filepath.Join(t.TempDir(), "candidate.json")
+	if err := os.WriteFile(storagePath, []byte(`{"retry": }`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	work := indexWorkFixture(storagePath)
+	work.Document.DisplayName = "active.md"
+	work.Version.DisplayName = "candidate.json"
+	repository := &processorRepository{work: work}
+	processor, err := NewProcessor(repository, NewDefaultStructuredTextChunker(), new(processorIndexer), "embedding-v1", fixedClock{value: time.Now().UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = processor.Process(context.Background(), indexEnvelope(t))
+	var processingError *ProcessingError
+	if !errors.As(err, &processingError) || processingError.Code != ErrorCodeParseFailed || processingError.Retryable {
+		t.Fatalf("candidate extension must choose structured parser, got %v", err)
+	}
+}
+
 func TestProcessorAcknowledgesAlreadyCompletedJobWithoutSideEffects(t *testing.T) {
 	repository := &processorRepository{work: IndexWork{Complete: true}}
 	indexer := new(processorIndexer)
@@ -185,6 +235,56 @@ func TestProcessorRejectsMalformedEventWithoutClaimingJob(t *testing.T) {
 	var processingError *ProcessingError
 	if !errors.As(err, &processingError) || processingError.Retryable || processingError.Code != ErrorCodeEventInvalid {
 		t.Fatalf("unexpected processing error: %v", err)
+	}
+}
+
+func TestProcessorDeletesRedisChunksBeforeCompletingAuthorityCleanup(t *testing.T) {
+	repository := &processorRepository{deleteWork: DeleteWork{
+		Document: model.KnowledgeDocument{ID: "document-1", TenantID: "tenant-a", Status: DocumentStatusDeleted},
+		Job:      model.KnowledgeJob{ID: "delete-job", TenantID: "tenant-a", DocumentID: "document-1", Version: 1, JobType: JobTypeDocumentDelete},
+		ChunkIDs: []string{"chunk-v1", "chunk-v2"},
+	}}
+	indexer := new(processorIndexer)
+	processor, err := NewProcessor(repository, NewDefaultStructuredTextChunker(), indexer, "embedding-v1", fixedClock{value: time.Now().UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := processor.Process(context.Background(), deleteEnvelope(t)); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(indexer.deletedIDs, []string{"chunk-v1", "chunk-v2"}) || repository.deleteCompleteCalls != 1 {
+		t.Fatalf("delete cleanup order was not completed: ids=%v repository=%+v", indexer.deletedIDs, repository)
+	}
+}
+
+func TestProcessorRetriesDeleteWhenRedisIsUnavailable(t *testing.T) {
+	repository := &processorRepository{deleteWork: DeleteWork{ChunkIDs: []string{"chunk-v1"}}}
+	indexer := &processorIndexer{err: errors.New("redis unavailable")}
+	processor, err := NewProcessor(repository, NewDefaultStructuredTextChunker(), indexer, "embedding-v1", fixedClock{value: time.Now().UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = processor.Process(context.Background(), deleteEnvelope(t))
+	var processingError *ProcessingError
+	if !errors.As(err, &processingError) || processingError.Code != ErrorCodeRedisDelete || !processingError.Retryable {
+		t.Fatalf("unexpected delete failure: %v", err)
+	}
+	if repository.deleteRetryCode != ErrorCodeRedisDelete || repository.deleteCompleteCalls != 0 {
+		t.Fatalf("delete failure must remain retryable: %+v", repository)
+	}
+}
+
+func TestProcessorExhaustsDeleteIntoStableFailedJob(t *testing.T) {
+	repository := new(processorRepository)
+	processor, err := NewProcessor(repository, NewDefaultStructuredTextChunker(), new(processorIndexer), "embedding-v1", fixedClock{value: time.Now().UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := processor.Exhaust(context.Background(), deleteEnvelope(t), ErrorCodeRedisDelete); err != nil {
+		t.Fatal(err)
+	}
+	if repository.deleteFailureCode != ErrorCodeRedisDelete {
+		t.Fatalf("delete exhaustion did not persist stable code: %+v", repository)
 	}
 }
 
@@ -235,6 +335,18 @@ func indexEnvelope(t *testing.T) jobqueue.Envelope {
 	}
 	return jobqueue.Envelope{
 		SchemaVersion: "1", EventID: "event-1", EventType: DocumentIndexEventType,
+		TenantID: "tenant-a", AggregateID: "document-1", AggregateVersion: 1, Payload: payload,
+	}
+}
+
+func deleteEnvelope(t *testing.T) jobqueue.Envelope {
+	t.Helper()
+	payload, err := json.Marshal(indexPayload{JobID: "delete-job", DocumentID: "document-1", Version: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return jobqueue.Envelope{
+		SchemaVersion: "1", EventID: "delete-event", EventType: DocumentDeleteEventType,
 		TenantID: "tenant-a", AggregateID: "document-1", AggregateVersion: 1, Payload: payload,
 	}
 }

@@ -79,6 +79,25 @@ func (repository *memoryRepository) FindVersionByContentHash(_ context.Context, 
 	return nil, nil, nil
 }
 
+func (repository *memoryRepository) FindVersion(_ context.Context, tenantID string, documentID string, versionNumber int) (*model.KnowledgeDocumentVersion, error) {
+	foundDocument := false
+	for _, document := range repository.documents {
+		if document.ID == documentID && document.TenantID == tenantID && document.Status != DocumentStatusDeleted {
+			foundDocument = true
+			break
+		}
+	}
+	if !foundDocument {
+		return nil, nil
+	}
+	for index := range repository.versions {
+		if repository.versions[index].DocumentID == documentID && repository.versions[index].Version == versionNumber {
+			return &repository.versions[index], nil
+		}
+	}
+	return nil, nil
+}
+
 func (repository *memoryRepository) CreateUpload(_ context.Context, document *model.KnowledgeDocument, version *model.KnowledgeDocumentVersion, job *model.KnowledgeJob, event *model.OutboxEvent) error {
 	repository.documents = append(repository.documents, *document)
 	repository.versions = append(repository.versions, *version)
@@ -106,6 +125,37 @@ func (repository *memoryRepository) CreateVersionUpload(_ context.Context, tenan
 	repository.jobs = append(repository.jobs, *job)
 	repository.events = append(repository.events, *event)
 	return document, nil
+}
+
+func (repository *memoryRepository) CreateDelete(_ context.Context, tenantID string, userID string, documentID string, job *model.KnowledgeJob, event *model.OutboxEvent) (*model.KnowledgeDocument, *model.KnowledgeJob, bool, error) {
+	document, _ := repository.FindDocument(context.Background(), tenantID, userID, documentID)
+	if document == nil {
+		for index := range repository.documents {
+			candidate := &repository.documents[index]
+			if candidate.ID == documentID && candidate.TenantID == tenantID && candidate.UserID == userID && candidate.Status == DocumentStatusDeleted {
+				for jobIndex := range repository.jobs {
+					existing := &repository.jobs[jobIndex]
+					if existing.DocumentID == documentID && existing.JobType == JobTypeDocumentDelete {
+						return candidate, existing, true, nil
+					}
+				}
+			}
+		}
+		return nil, nil, false, errors.New("record not found")
+	}
+	for _, existing := range repository.jobs {
+		if existing.DocumentID == documentID && existing.JobType == JobTypeDocumentIndex &&
+			(existing.Status == JobStatusQueued || existing.Status == JobStatusProcessing || existing.Status == JobStatusRetrying) {
+			return nil, nil, false, ErrDocumentHasPendingIndex
+		}
+	}
+	document.Status = DocumentStatusDeleted
+	job.TenantID, job.DocumentID, job.Version = tenantID, documentID, document.CurrentVersion
+	event.TenantID, event.AggregateID, event.AggregateVersion = tenantID, documentID, document.CurrentVersion
+	event.PayloadJSON = fmt.Sprintf(`{"job_id":%q,"document_id":%q,"version":%d}`, job.ID, documentID, document.CurrentVersion)
+	repository.jobs = append(repository.jobs, *job)
+	repository.events = append(repository.events, *event)
+	return document, &repository.jobs[len(repository.jobs)-1], false, nil
 }
 
 func (repository *memoryRepository) ListDocuments(_ context.Context, tenantID string) ([]model.KnowledgeDocument, error) {
@@ -341,6 +391,85 @@ func TestAcceptVersionIsIdempotentAndTenantScoped(t *testing.T) {
 	var domainError *contract.DomainError
 	if !errors.As(err, &domainError) || domainError.Code != "KNOWLEDGE_DOCUMENT_NOT_FOUND" {
 		t.Fatalf("cross-tenant version upload must look absent, got %v", err)
+	}
+}
+
+func TestRebuildCreatesIndependentCandidateFromActiveArtifact(t *testing.T) {
+	repository := new(memoryRepository)
+	service, err := NewService(repository, t.TempDir(), DefaultMaxUploadBytes, fixedClock{value: time.Now().UTC()}, new(sequenceIDs))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := service.Accept(context.Background(), AcceptInput{
+		TenantID: "tenant", UserID: "user", TraceID: "initial", File: multipartFile(t, "runbook.md", []byte("rebuild source")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository.documents[0].Status = DocumentStatusIndexed
+	repository.versions[0].Status = DocumentStatusIndexed
+	result, err := service.Rebuild(context.Background(), "tenant", "user", "rebuild-trace", first.Document.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PreviousVersion != 1 || result.PendingVersion != 2 || result.Job.Version != 2 || repository.documents[0].CurrentVersion != 1 {
+		t.Fatalf("rebuild must stage v2 without moving active v1: %+v document=%+v", result, repository.documents[0])
+	}
+	if repository.versions[1].StoragePath != repository.versions[0].StoragePath || repository.versions[1].ContentHash != repository.versions[0].ContentHash {
+		t.Fatalf("rebuild candidate must reuse immutable active artifact: %+v", repository.versions)
+	}
+}
+
+func TestDeleteRevokesAuthorityImmediatelyAndIsIdempotent(t *testing.T) {
+	repository := new(memoryRepository)
+	service, err := NewService(repository, t.TempDir(), DefaultMaxUploadBytes, fixedClock{value: time.Now().UTC()}, new(sequenceIDs))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := service.Accept(context.Background(), AcceptInput{
+		TenantID: "tenant", UserID: "user", TraceID: "initial", File: multipartFile(t, "obsolete.md", []byte("DELETE-ME-731")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository.documents[0].Status = DocumentStatusIndexed
+	repository.jobs[0].Status = JobStatusCompleted
+	deleted, err := service.Delete(context.Background(), "tenant", "user", "delete-trace", first.Document.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleted.Document.Status != DocumentStatusDeleted || deleted.Job.JobType != JobTypeDocumentDelete || deleted.Job.Status != JobStatusQueued {
+		t.Fatalf("unexpected delete contract: %+v", deleted)
+	}
+	documents, err := service.List(context.Background(), "tenant")
+	if err != nil || len(documents) != 0 {
+		t.Fatalf("deleted document must disappear from authority immediately: %+v err=%v", documents, err)
+	}
+	again, err := service.Delete(context.Background(), "tenant", "user", "delete-again", first.Document.ID)
+	if err != nil || !again.Duplicate || again.Job.ID != deleted.Job.ID || len(repository.events) != 2 {
+		t.Fatalf("repeated delete must reuse cleanup job: first=%+v again=%+v err=%v", deleted, again, err)
+	}
+}
+
+func TestDeleteWaitsForActiveIndexWork(t *testing.T) {
+	repository := new(memoryRepository)
+	service, err := NewService(repository, t.TempDir(), DefaultMaxUploadBytes, fixedClock{value: time.Now().UTC()}, new(sequenceIDs))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := service.Accept(context.Background(), AcceptInput{
+		TenantID: "tenant", UserID: "user", TraceID: "initial", File: multipartFile(t, "pending.md", []byte("pending index")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.Delete(context.Background(), "tenant", "user", "delete", first.Document.ID)
+	var domainError *contract.DomainError
+	if !errors.As(err, &domainError) || domainError.Code != "DOCUMENT_INDEX_IN_PROGRESS" || domainError.Category != contract.ErrorConflict {
+		t.Fatalf("delete must not race active index work, got %v", err)
+	}
+	if repository.documents[0].Status == DocumentStatusDeleted {
+		t.Fatal("conflicted delete must not revoke document")
 	}
 }
 

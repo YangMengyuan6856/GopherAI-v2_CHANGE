@@ -17,6 +17,13 @@ type IndexWork struct {
 	Complete bool
 }
 
+type DeleteWork struct {
+	Document model.KnowledgeDocument
+	Job      model.KnowledgeJob
+	ChunkIDs []string
+	Complete bool
+}
+
 type IndexRepository interface {
 	ClaimIndexJob(ctx context.Context, tenantID string, jobID string, documentID string, version int) (IndexWork, error)
 	ReplaceChunks(ctx context.Context, documentID string, version int, chunks []model.KnowledgeChunk) error
@@ -24,6 +31,74 @@ type IndexRepository interface {
 	RecordIndexRetry(ctx context.Context, work IndexWork, code string) error
 	FailIndex(ctx context.Context, work IndexWork, code string) error
 	FailIndexByIdentity(ctx context.Context, tenantID string, jobID string, documentID string, version int, code string) error
+	ClaimDeleteJob(ctx context.Context, tenantID string, jobID string, documentID string, version int) (DeleteWork, error)
+	CompleteDelete(ctx context.Context, work DeleteWork) error
+	RecordDeleteRetry(ctx context.Context, work DeleteWork, code string) error
+	FailDeleteByIdentity(ctx context.Context, tenantID string, jobID string, documentID string, version int, code string) error
+}
+
+func (repository *GormRepository) ClaimDeleteJob(ctx context.Context, tenantID string, jobID string, documentID string, version int) (DeleteWork, error) {
+	if repository == nil || repository.db == nil {
+		return DeleteWork{}, gorm.ErrInvalidDB
+	}
+	work := DeleteWork{}
+	err := repository.db.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+		if err := transaction.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND tenant_id = ? AND document_id = ? AND version = ? AND job_type = ?", jobID, tenantID, documentID, version, JobTypeDocumentDelete).
+			First(&work.Job).Error; err != nil {
+			return err
+		}
+		if work.Job.Status == JobStatusCompleted {
+			work.Complete = true
+			return nil
+		}
+		if err := transaction.Where("id = ? AND tenant_id = ? AND status = ?", documentID, tenantID, DocumentStatusDeleted).
+			First(&work.Document).Error; err != nil {
+			return err
+		}
+		if err := transaction.Model(&model.KnowledgeChunk{}).Where("document_id = ?", documentID).Pluck("id", &work.ChunkIDs).Error; err != nil {
+			return err
+		}
+		return transaction.Model(&model.KnowledgeJob{}).Where("id = ? AND tenant_id = ?", jobID, tenantID).
+			Updates(map[string]any{"status": JobStatusProcessing, "attempt": gorm.Expr("attempt + 1"), "last_error_code": ""}).Error
+	})
+	return work, err
+}
+
+func (repository *GormRepository) CompleteDelete(ctx context.Context, work DeleteWork) error {
+	if repository == nil || repository.db == nil {
+		return gorm.ErrInvalidDB
+	}
+	return repository.db.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+		if err := transaction.Model(&model.KnowledgeChunk{}).Where("document_id = ?", work.Document.ID).
+			Update("index_status", DocumentStatusDeleted).Error; err != nil {
+			return err
+		}
+		if err := transaction.Model(&model.KnowledgeDocumentVersion{}).Where("document_id = ?", work.Document.ID).
+			Update("status", DocumentStatusDeleted).Error; err != nil {
+			return err
+		}
+		return transaction.Model(&model.KnowledgeJob{}).Where("id = ? AND tenant_id = ?", work.Job.ID, work.Job.TenantID).
+			Updates(map[string]any{"status": JobStatusCompleted, "last_error_code": ""}).Error
+	})
+}
+
+func (repository *GormRepository) RecordDeleteRetry(ctx context.Context, work DeleteWork, code string) error {
+	if repository == nil || repository.db == nil {
+		return gorm.ErrInvalidDB
+	}
+	return repository.db.WithContext(ctx).Model(&model.KnowledgeJob{}).
+		Where("id = ? AND tenant_id = ? AND job_type = ?", work.Job.ID, work.Job.TenantID, JobTypeDocumentDelete).
+		Updates(map[string]any{"status": JobStatusRetrying, "last_error_code": code}).Error
+}
+
+func (repository *GormRepository) FailDeleteByIdentity(ctx context.Context, tenantID string, jobID string, documentID string, version int, code string) error {
+	if repository == nil || repository.db == nil {
+		return gorm.ErrInvalidDB
+	}
+	return repository.db.WithContext(ctx).Model(&model.KnowledgeJob{}).
+		Where("id = ? AND tenant_id = ? AND document_id = ? AND version = ? AND job_type = ?", jobID, tenantID, documentID, version, JobTypeDocumentDelete).
+		Updates(map[string]any{"status": JobStatusFailed, "last_error_code": code}).Error
 }
 
 func (repository *GormRepository) ClaimIndexJob(ctx context.Context, tenantID string, jobID string, documentID string, version int) (IndexWork, error) {

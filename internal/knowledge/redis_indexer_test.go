@@ -121,6 +121,28 @@ func TestRedisChunkIndexerKeepsEmbeddingRequestsWithinProviderLimit(t *testing.T
 	}
 }
 
+func TestRedisChunkIndexerDeletesExactChunkKeysInBoundedBatches(t *testing.T) {
+	client := new(fakeRedisExecutor)
+	indexer, err := NewRedisChunkIndexer(client, new(fakeEmbedder), "test", 2, DefaultEmbeddingBatchSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunkIDs := make([]string, 205)
+	for index := range chunkIDs {
+		chunkIDs[index] = fmt.Sprintf("chunk-%d", index)
+	}
+	if err := indexer.Delete(context.Background(), chunkIDs); err != nil {
+		t.Fatal(err)
+	}
+	if countCommand(client.calls, "DEL") != 3 {
+		t.Fatalf("expected 100/100/5 delete batches, got %+v", client.calls)
+	}
+	first := findCommand(client.calls, "DEL")
+	if len(first) != 101 || first[1] != "gopher:test:v1:kb:chunk:chunk-0" || first[100] != "gopher:test:v1:kb:chunk:chunk-99" {
+		t.Fatalf("delete must target exact namespaced keys: %+v", first)
+	}
+}
+
 func countCommand(calls []redisCommandCall, name string) int {
 	count := 0
 	for _, call := range calls {

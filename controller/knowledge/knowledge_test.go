@@ -13,6 +13,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,6 +24,7 @@ type fakeApplication struct {
 	acceptInput       knowledgeapp.AcceptInput
 	accept            knowledgeapp.AcceptResult
 	versionDocumentID string
+	deleteResult      knowledgeapp.DeleteResult
 	err               error
 }
 
@@ -35,6 +37,18 @@ func (application *fakeApplication) AcceptVersion(_ context.Context, documentID 
 	application.versionDocumentID = documentID
 	application.acceptInput = input
 	return application.accept, application.err
+}
+
+func (application *fakeApplication) Rebuild(_ context.Context, tenantID string, userID string, traceID string, documentID string) (knowledgeapp.AcceptResult, error) {
+	application.versionDocumentID = documentID
+	application.acceptInput = knowledgeapp.AcceptInput{TenantID: tenantID, UserID: userID, TraceID: traceID}
+	return application.accept, application.err
+}
+
+func (application *fakeApplication) Delete(_ context.Context, tenantID string, userID string, traceID string, documentID string) (knowledgeapp.DeleteResult, error) {
+	application.versionDocumentID = documentID
+	application.acceptInput = knowledgeapp.AcceptInput{TenantID: tenantID, UserID: userID, TraceID: traceID}
+	return application.deleteResult, application.err
 }
 
 func (application *fakeApplication) List(context.Context, string) ([]knowledgeapp.DocumentSummary, error) {
@@ -161,6 +175,43 @@ func TestUploadVersionReturnsPendingAliasContract(t *testing.T) {
 	}
 	if application.versionDocumentID != "document-1" || application.acceptInput.TenantID != "user-a" {
 		t.Fatalf("version target or ACL was lost: id=%s input=%+v", application.versionDocumentID, application.acceptInput)
+	}
+}
+
+func TestRebuildAndDeleteReturnAsynchronousContracts(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	application := &fakeApplication{
+		accept: knowledgeapp.AcceptResult{
+			Document:        knowledgeapp.DocumentSummary{ID: "document-1", CurrentVersion: 1, Status: knowledgeapp.DocumentStatusIndexed},
+			Job:             knowledgeapp.JobSummary{ID: "rebuild-job", DocumentID: "document-1", Version: 2, JobType: knowledgeapp.JobTypeDocumentIndex, Status: knowledgeapp.JobStatusQueued},
+			PreviousVersion: 1, PendingVersion: 2,
+		},
+		deleteResult: knowledgeapp.DeleteResult{
+			Document: knowledgeapp.DocumentSummary{ID: "document-1", CurrentVersion: 1, Status: knowledgeapp.DocumentStatusDeleted},
+			Job:      knowledgeapp.JobSummary{ID: "delete-job", DocumentID: "document-1", Version: 1, JobType: knowledgeapp.JobTypeDocumentDelete, Status: knowledgeapp.JobStatusQueued},
+		},
+	}
+	handler := NewHandler(application, new(fakeMetrics))
+	engine := gin.New()
+	engine.Use(requestid.Attach(), func(context *gin.Context) {
+		context.Set("userName", "user-a")
+		context.Next()
+	})
+	engine.POST("/documents/:document_id/rebuild", handler.Rebuild)
+	engine.DELETE("/documents/:document_id", handler.Delete)
+
+	rebuildResponse := httptest.NewRecorder()
+	engine.ServeHTTP(rebuildResponse, httptest.NewRequest(http.MethodPost, "/documents/document-1/rebuild", nil))
+	if rebuildResponse.Code != http.StatusAccepted || !strings.Contains(rebuildResponse.Body.String(), `"pending_version":2`) {
+		t.Fatalf("unexpected rebuild response: code=%d body=%s", rebuildResponse.Code, rebuildResponse.Body.String())
+	}
+	deleteResponse := httptest.NewRecorder()
+	engine.ServeHTTP(deleteResponse, httptest.NewRequest(http.MethodDelete, "/documents/document-1", nil))
+	if deleteResponse.Code != http.StatusAccepted || !strings.Contains(deleteResponse.Body.String(), `"job_type":"document_delete"`) {
+		t.Fatalf("unexpected delete response: code=%d body=%s", deleteResponse.Code, deleteResponse.Body.String())
+	}
+	if application.versionDocumentID != "document-1" || application.acceptInput.TenantID != "user-a" || application.acceptInput.TraceID == "" {
+		t.Fatalf("ACL/trace context was not propagated: id=%s input=%+v", application.versionDocumentID, application.acceptInput)
 	}
 }
 

@@ -95,6 +95,26 @@ func (indexer *RedisChunkIndexer) Index(ctx context.Context, chunks []model.Know
 	return nil
 }
 
+func (indexer *RedisChunkIndexer) Delete(ctx context.Context, chunkIDs []string) error {
+	for start := 0; start < len(chunkIDs); start += 100 {
+		end := min(start+100, len(chunkIDs))
+		args := make([]any, 0, end-start+1)
+		args = append(args, "DEL")
+		for _, chunkID := range chunkIDs[start:end] {
+			if strings.TrimSpace(chunkID) != "" {
+				args = append(args, indexer.keyPrefix+chunkID)
+			}
+		}
+		if len(args) == 1 {
+			continue
+		}
+		if err := indexer.client.Do(ctx, args...).Err(); err != nil {
+			return fmt.Errorf("delete redis document chunks: %w", err)
+		}
+	}
+	return nil
+}
+
 func (indexer *RedisChunkIndexer) ensureIndex(ctx context.Context) error {
 	if indexer.indexReady {
 		return nil

@@ -53,27 +53,38 @@
         <span class="knowledge-latest">
           最近：{{ knowledgeDocuments[0].display_name }} · {{ documentStatusLabel(knowledgeDocuments[0].status) }}
         </span>
-    <div class="knowledge-version-controls">
-      <select v-model="versionTargetDocumentId" title="选择要保留历史并更新版本的文档">
-      <option value="" disabled>选择活动文档</option>
-      <option v-for="document in indexedKnowledgeDocuments" :key="document.id" :value="document.id">
-        {{ document.display_name }} · 当前 v{{ document.current_version }}
-      </option>
-      </select>
-      <button :disabled="uploadingVersion || !versionTargetDocumentId" @click="triggerVersionUpload">
-      {{ uploadingVersion ? '新版本上传中...' : '♻ 上传新版本' }}
-      </button>
-      <span v-if="pendingVersionJob" class="version-pending">
-      v{{ pendingVersionJob.version }} {{ jobStatusLabel(pendingVersionJob.status) }}；旧版本继续生效
-      </span>
-      <input
-      ref="versionFileInput"
-      type="file"
-      accept=".md,.txt,.json,.yaml,.yml,.go,text/markdown,text/plain,application/json,application/yaml"
-      style="display: none"
-      @change="handleVersionUpload"
-      />
-    </div>
+        <div class="knowledge-version-controls">
+          <select v-model="versionTargetDocumentId" title="选择要保留历史并更新版本的文档">
+            <option value="" disabled>选择活动文档</option>
+            <option v-for="document in indexedKnowledgeDocuments" :key="document.id" :value="document.id">
+              {{ document.display_name }} · 当前 v{{ document.current_version }}
+            </option>
+          </select>
+          <button :disabled="uploadingVersion || !versionTargetDocumentId" @click="triggerVersionUpload">
+            {{ uploadingVersion ? '新版本上传中...' : '♻ 上传新版本' }}
+          </button>
+          <button :disabled="rebuildingDocument || !versionTargetDocumentId" @click="rebuildSelectedDocument">
+            {{ rebuildingDocument ? '重建中...' : '↻ 安全重建' }}
+          </button>
+          <button class="delete-document-btn" :disabled="deletingDocument || !versionTargetDocumentId" @click="deleteSelectedDocument">
+            {{ deletingDocument ? '删除中...' : '删除文档' }}
+          </button>
+          <span v-if="pendingVersionJob" class="version-pending">
+            <template v-if="pendingVersionJob.job_type === 'document_delete'">
+              已退出查询，{{ jobStatusLabel(pendingVersionJob.status) }}
+            </template>
+            <template v-else>
+              v{{ pendingVersionJob.version }} {{ jobStatusLabel(pendingVersionJob.status) }}；旧版本继续生效
+            </template>
+          </span>
+          <input
+            ref="versionFileInput"
+            type="file"
+            accept=".md,.txt,.json,.yaml,.yml,.go,text/markdown,text/plain,application/json,application/yaml"
+            style="display: none"
+            @change="handleVersionUpload"
+          />
+        </div>
       </div>
 
       <div v-if="knowledgeSearchOpen" class="knowledge-search-panel">
@@ -207,12 +218,14 @@ export default {
     const knowledgeRequired = ref(false)
     const uploading = ref(false)
     const fileInput = ref(null)
-  const versionFileInput = ref(null)
-  const uploadingVersion = ref(false)
-  const versionTargetDocumentId = ref('')
-  const pendingVersionJob = ref(null)
+    const versionFileInput = ref(null)
+    const uploadingVersion = ref(false)
+    const versionTargetDocumentId = ref('')
+    const pendingVersionJob = ref(null)
+    const rebuildingDocument = ref(false)
+    const deletingDocument = ref(false)
     const knowledgeDocuments = ref([])
-  const indexedKnowledgeDocuments = computed(() => knowledgeDocuments.value.filter(document => document.status === 'indexed'))
+    const indexedKnowledgeDocuments = computed(() => knowledgeDocuments.value.filter(document => document.status === 'indexed'))
     const knowledgeSearchOpen = ref(false)
     const knowledgeQuery = ref('')
     const searchingKnowledge = ref(false)
@@ -707,13 +720,13 @@ export default {
       try {
         const response = await api.get('/knowledge/documents')
         knowledgeDocuments.value = response.data?.documents || []
-    if (!indexedKnowledgeDocuments.value.some(document => document.id === versionTargetDocumentId.value)) {
-      versionTargetDocumentId.value = indexedKnowledgeDocuments.value[0]?.id || ''
-    }
+        if (!indexedKnowledgeDocuments.value.some(document => document.id === versionTargetDocumentId.value)) {
+          versionTargetDocumentId.value = indexedKnowledgeDocuments.value[0]?.id || ''
+        }
         const hasPendingDocument = knowledgeDocuments.value.some(document =>
           document.status === 'uploaded' || document.status === 'parsing'
         )
-    if (hasPendingDocument || pendingVersionJob.value) {
+        if (hasPendingDocument || pendingVersionJob.value) {
           startKnowledgePolling()
         } else {
           stopKnowledgePolling()
@@ -725,10 +738,10 @@ export default {
 
     const startKnowledgePolling = () => {
       if (!knowledgePollTimer) {
-    knowledgePollTimer = window.setInterval(async () => {
-      await pollPendingVersionJob()
-      await loadKnowledgeDocuments()
-    }, 3000)
+        knowledgePollTimer = window.setInterval(async () => {
+          await pollPendingVersionJob()
+          await loadKnowledgeDocuments()
+        }, 3000)
       }
     }
 
@@ -787,66 +800,109 @@ export default {
       }
     }
 
-  const triggerVersionUpload = () => {
-    if (!versionTargetDocumentId.value) {
-    ElMessage.warning('请先选择要更新的活动文档')
-    return
+    const triggerVersionUpload = () => {
+      if (!versionTargetDocumentId.value) {
+        ElMessage.warning('请先选择要更新的活动文档')
+        return
+      }
+      versionFileInput.value?.click()
     }
-    versionFileInput.value?.click()
-  }
 
-  const pollPendingVersionJob = async () => {
-    const job = pendingVersionJob.value
-    if (!job?.id) return
-    try {
-    const response = await api.get(`/knowledge/jobs/${job.id}`)
-    const latest = response.data?.job
-    if (!latest) return
-    pendingVersionJob.value = latest
-    if (latest.status === 'completed') {
-      ElMessage.success(`文档 v${latest.version} 索引完成，活动版本已原子切换`)
-      pendingVersionJob.value = null
-    } else if (latest.status === 'failed') {
-      ElMessage.warning(`文档 v${latest.version} 索引失败，旧版本保持可用（${latest.last_error_code || 'UNKNOWN'}）`)
-      pendingVersionJob.value = null
+    const pollPendingVersionJob = async () => {
+      const job = pendingVersionJob.value
+      if (!job?.id) return
+      try {
+        const response = await api.get(`/knowledge/jobs/${job.id}`)
+        const latest = response.data?.job
+        if (!latest) return
+        pendingVersionJob.value = latest
+        if (latest.status === 'completed') {
+          if (latest.job_type === 'document_delete') {
+            ElMessage.success('文档已删除，Redis 索引清理完成')
+          } else {
+            ElMessage.success(`文档 v${latest.version} 索引完成，活动版本已原子切换`)
+          }
+          pendingVersionJob.value = null
+        } else if (latest.status === 'failed') {
+          if (latest.job_type === 'document_delete') {
+            ElMessage.warning(`文档已从查询中移除，但 Redis 清理失败并已进入死信（${latest.last_error_code || 'UNKNOWN'}）`)
+          } else {
+            ElMessage.warning(`文档 v${latest.version} 索引失败，旧版本保持可用（${latest.last_error_code || 'UNKNOWN'}）`)
+          }
+          pendingVersionJob.value = null
+        }
+      } catch (error) {
+        console.error('Poll knowledge version job error:', error)
+      }
     }
-    } catch (error) {
-    console.error('Poll knowledge version job error:', error)
-    }
-  }
 
-  const handleVersionUpload = async (event) => {
-    const file = event.target.files[0]
-    if (!file || !versionTargetDocumentId.value) return
-    const fileName = file.name.toLowerCase()
-    const allowedExtensions = ['.md', '.txt', '.json', '.yaml', '.yml', '.go']
-    if (!allowedExtensions.some(extension => fileName.endsWith(extension))) {
-    ElMessage.error('支持 .md、.txt、.json、.yaml、.yml 和 .go 文件')
-    if (versionFileInput.value) versionFileInput.value.value = ''
-    return
+    const handleVersionUpload = async (event) => {
+      const file = event.target.files[0]
+      if (!file || !versionTargetDocumentId.value) return
+      const fileName = file.name.toLowerCase()
+      const allowedExtensions = ['.md', '.txt', '.json', '.yaml', '.yml', '.go']
+      if (!allowedExtensions.some(extension => fileName.endsWith(extension))) {
+        ElMessage.error('支持 .md、.txt、.json、.yaml、.yml 和 .go 文件')
+        if (versionFileInput.value) versionFileInput.value.value = ''
+        return
+      }
+      try {
+        uploadingVersion.value = true
+        const formData = new FormData()
+        formData.append('file', file)
+        const response = await api.post(`/knowledge/documents/${versionTargetDocumentId.value}/versions`, formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        })
+        pendingVersionJob.value = response.data?.job || null
+        if (response.data?.duplicate) {
+          ElMessage.info(`该内容已存在于 v${response.data?.pending_version || response.data?.job?.version}`)
+        } else {
+          ElMessage.success(`已接收 v${response.data?.pending_version}；v${response.data?.previous_version} 将持续生效直到新索引成功`)
+        }
+        startKnowledgePolling()
+      } catch (error) {
+        console.error('Version upload error:', error)
+        ElMessage.error(error.response?.data?.message || '文档新版本上传失败')
+      } finally {
+        uploadingVersion.value = false
+        if (versionFileInput.value) versionFileInput.value.value = ''
+      }
     }
-    try {
-    uploadingVersion.value = true
-    const formData = new FormData()
-    formData.append('file', file)
-    const response = await api.post(`/knowledge/documents/${versionTargetDocumentId.value}/versions`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    })
-    pendingVersionJob.value = response.data?.job || null
-    if (response.data?.duplicate) {
-      ElMessage.info(`该内容已存在于 v${response.data?.pending_version || response.data?.job?.version}`)
-    } else {
-      ElMessage.success(`已接收 v${response.data?.pending_version}；v${response.data?.previous_version} 将持续生效直到新索引成功`)
+
+    const rebuildSelectedDocument = async () => {
+      if (!versionTargetDocumentId.value || rebuildingDocument.value) return
+      try {
+        rebuildingDocument.value = true
+        const response = await api.post(`/knowledge/documents/${versionTargetDocumentId.value}/rebuild`)
+        pendingVersionJob.value = response.data?.job || null
+        ElMessage.success(`已创建重建候选 v${response.data?.pending_version}；活动 v${response.data?.previous_version} 不受影响`)
+        startKnowledgePolling()
+      } catch (error) {
+        console.error('Rebuild document error:', error)
+        ElMessage.error(error.response?.data?.message || '文档重建任务创建失败')
+      } finally {
+        rebuildingDocument.value = false
+      }
     }
-    startKnowledgePolling()
-    } catch (error) {
-    console.error('Version upload error:', error)
-    ElMessage.error(error.response?.data?.message || '文档新版本上传失败')
-    } finally {
-    uploadingVersion.value = false
-    if (versionFileInput.value) versionFileInput.value.value = ''
+
+    const deleteSelectedDocument = async () => {
+      const document = indexedKnowledgeDocuments.value.find(item => item.id === versionTargetDocumentId.value)
+      if (!document || deletingDocument.value) return
+      if (!window.confirm(`确定删除文档“${document.display_name}”吗？删除后会立即停止参与回答。`)) return
+      try {
+        deletingDocument.value = true
+        const response = await api.delete(`/knowledge/documents/${document.id}`)
+        pendingVersionJob.value = response.data?.job || null
+        ElMessage.success('文档已立即退出知识库，后台正在清理 Redis 索引')
+        await loadKnowledgeDocuments()
+        startKnowledgePolling()
+      } catch (error) {
+        console.error('Delete document error:', error)
+        ElMessage.error(error.response?.data?.message || '文档删除失败')
+      } finally {
+        deletingDocument.value = false
+      }
     }
-  }
 
     onMounted(() => {
       loadSessions()
@@ -871,11 +927,13 @@ export default {
       knowledgeRequired,
       uploading,
       fileInput,
-    versionFileInput,
-    uploadingVersion,
-    versionTargetDocumentId,
-    pendingVersionJob,
-    indexedKnowledgeDocuments,
+      versionFileInput,
+      uploadingVersion,
+      versionTargetDocumentId,
+      pendingVersionJob,
+      rebuildingDocument,
+      deletingDocument,
+      indexedKnowledgeDocuments,
       knowledgeDocuments,
       knowledgeSearchOpen,
       knowledgeQuery,
@@ -885,7 +943,7 @@ export default {
       answeringKnowledge,
       knowledgeAnswer,
       documentStatusLabel,
-    jobStatusLabel,
+      jobStatusLabel,
       retrievalModeLabel,
       renderMarkdown,
       playTTS,
@@ -895,8 +953,10 @@ export default {
       sendMessage,
       triggerFileUpload,
       handleFileUpload,
-    triggerVersionUpload,
-    handleVersionUpload,
+      triggerVersionUpload,
+      handleVersionUpload,
+      rebuildSelectedDocument,
+      deleteSelectedDocument,
       toggleKnowledgeSearch,
       searchKnowledge,
       answerKnowledge,
@@ -1090,6 +1150,10 @@ export default {
 .knowledge-version-controls button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+.knowledge-version-controls .delete-document-btn {
+  background: #f56c6c;
 }
 
 .version-pending {

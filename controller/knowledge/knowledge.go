@@ -28,6 +28,8 @@ import (
 type Application interface {
 	Accept(ctx context.Context, input knowledgeapp.AcceptInput) (knowledgeapp.AcceptResult, error)
 	AcceptVersion(ctx context.Context, documentID string, input knowledgeapp.AcceptInput) (knowledgeapp.AcceptResult, error)
+	Rebuild(ctx context.Context, tenantID string, userID string, traceID string, documentID string) (knowledgeapp.AcceptResult, error)
+	Delete(ctx context.Context, tenantID string, userID string, traceID string, documentID string) (knowledgeapp.DeleteResult, error)
 	List(ctx context.Context, tenantID string) ([]knowledgeapp.DocumentSummary, error)
 	Job(ctx context.Context, tenantID string, jobID string) (knowledgeapp.JobSummary, error)
 }
@@ -83,6 +85,14 @@ type jobResponse struct {
 	SchemaVersion string                  `json:"schema_version"`
 	TraceID       string                  `json:"trace_id"`
 	Job           knowledgeapp.JobSummary `json:"job"`
+}
+
+type deleteResponse struct {
+	SchemaVersion string                       `json:"schema_version"`
+	TraceID       string                       `json:"trace_id"`
+	Duplicate     bool                         `json:"duplicate"`
+	Document      knowledgeapp.DocumentSummary `json:"document"`
+	Job           knowledgeapp.JobSummary      `json:"job"`
 }
 
 type searchRequest struct {
@@ -256,6 +266,42 @@ func (handler *Handler) UploadVersion(context *gin.Context) {
 	context.JSON(http.StatusAccepted, uploadResponse{
 		SchemaVersion: contract.SchemaVersion, TraceID: traceID, Duplicate: result.Duplicate,
 		PreviousVersion: result.PreviousVersion, PendingVersion: result.PendingVersion,
+		Document: result.Document, Job: result.Job,
+	})
+}
+
+func (handler *Handler) Rebuild(context *gin.Context) {
+	_, traceID := requestid.IDs(context)
+	userID := context.GetString("userName")
+	result, err := handler.application.Rebuild(context.Request.Context(), userID, userID, traceID, context.Param("document_id"))
+	if err != nil {
+		handler.writeError(context, err)
+		return
+	}
+	handler.recordUpload("rebuild_accepted", result.Document.SizeBytes)
+	writeUploadLog(traceID, result, "rebuild_accepted")
+	context.JSON(http.StatusAccepted, uploadResponse{
+		SchemaVersion: contract.SchemaVersion, TraceID: traceID,
+		PreviousVersion: result.PreviousVersion, PendingVersion: result.PendingVersion,
+		Document: result.Document, Job: result.Job,
+	})
+}
+
+func (handler *Handler) Delete(context *gin.Context) {
+	_, traceID := requestid.IDs(context)
+	userID := context.GetString("userName")
+	result, err := handler.application.Delete(context.Request.Context(), userID, userID, traceID, context.Param("document_id"))
+	if err != nil {
+		handler.writeError(context, err)
+		return
+	}
+	status := "delete_accepted"
+	if result.Duplicate {
+		status = "delete_duplicate"
+	}
+	handler.recordUpload(status, result.Document.SizeBytes)
+	context.JSON(http.StatusAccepted, deleteResponse{
+		SchemaVersion: contract.SchemaVersion, TraceID: traceID, Duplicate: result.Duplicate,
 		Document: result.Document, Job: result.Job,
 	})
 }

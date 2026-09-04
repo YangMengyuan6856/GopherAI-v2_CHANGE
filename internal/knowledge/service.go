@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -22,23 +23,25 @@ import (
 )
 
 const (
-	DefaultMaxUploadBytes  = int64(10 * 1024 * 1024)
-	DocumentStatusUploaded = "uploaded"
-	DocumentStatusParsing  = "parsing"
-	DocumentStatusIndexed  = "indexed"
-	DocumentStatusFailed   = "failed"
-	DocumentStatusDeleted  = "deleted"
-	JobStatusQueued        = "queued"
-	JobTypeDocumentIndex   = "document_index"
-	OutboxStatusPending    = "pending"
-	DocumentIndexTopic     = "gopher.document.index.v1"
-	DocumentIndexEventType = "document.index.requested"
-	ParserVersionV1        = "plain-text-v1"
-	ParserVersionDataV1    = "structured-data-v1"
-	ParserVersionGoV1      = "go-ast-v1"
-	ChunkerVersionV1       = "structure-token-v1"
-	ChunkerVersionDataV1   = "key-path-token-v1"
-	ChunkerVersionGoV1     = "go-symbol-token-v1"
+	DefaultMaxUploadBytes   = int64(10 * 1024 * 1024)
+	DocumentStatusUploaded  = "uploaded"
+	DocumentStatusParsing   = "parsing"
+	DocumentStatusIndexed   = "indexed"
+	DocumentStatusFailed    = "failed"
+	DocumentStatusDeleted   = "deleted"
+	JobStatusQueued         = "queued"
+	JobTypeDocumentIndex    = "document_index"
+	OutboxStatusPending     = "pending"
+	DocumentIndexTopic      = "gopher.document.index.v1"
+	DocumentIndexEventType  = "document.index.requested"
+	DocumentDeleteEventType = "document.delete.requested"
+	JobTypeDocumentDelete   = "document_delete"
+	ParserVersionV1         = "plain-text-v1"
+	ParserVersionDataV1     = "structured-data-v1"
+	ParserVersionGoV1       = "go-ast-v1"
+	ChunkerVersionV1        = "structure-token-v1"
+	ChunkerVersionDataV1    = "key-path-token-v1"
+	ChunkerVersionGoV1      = "go-symbol-token-v1"
 )
 
 type documentFormat struct {
@@ -116,6 +119,12 @@ type JobSummary struct {
 	LastErrorCode string    `json:"last_error_code,omitempty"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+type DeleteResult struct {
+	Document  DocumentSummary `json:"document"`
+	Job       JobSummary      `json:"job"`
+	Duplicate bool            `json:"duplicate"`
 }
 
 func NewService(repository Repository, storageRoot string, maxBytes int64, clock Clock, ids IDGenerator) (*Service, error) {
@@ -387,6 +396,86 @@ func (service *Service) AcceptVersion(ctx context.Context, documentID string, in
 		Document: summarizeDocument(*lockedDocument), Job: summarizeJob(job),
 		PreviousVersion: lockedDocument.CurrentVersion, PendingVersion: version.Version,
 	}, nil
+}
+
+// Rebuild creates a fresh candidate from the active immutable artifact. It
+// never deletes or mutates the currently queryable chunks in place.
+func (service *Service) Rebuild(ctx context.Context, tenantID string, userID string, traceID string, documentID string) (AcceptResult, error) {
+	documentID = strings.TrimSpace(documentID)
+	if strings.TrimSpace(tenantID) == "" || strings.TrimSpace(userID) == "" || documentID == "" {
+		return AcceptResult{}, contract.NewDomainError("INVALID_DOCUMENT_REBUILD", contract.ErrorValidation, "文档重建参数不完整", false, nil)
+	}
+	document, err := service.repository.FindDocument(ctx, tenantID, userID, documentID)
+	if err != nil {
+		return AcceptResult{}, dependencyError("DOCUMENT_REPOSITORY_UNAVAILABLE", "文档服务暂时不可用", err)
+	}
+	if document == nil {
+		return AcceptResult{}, contract.NewDomainError("KNOWLEDGE_DOCUMENT_NOT_FOUND", contract.ErrorNotFound, "文档不存在", false, nil)
+	}
+	activeVersion, err := service.repository.FindVersion(ctx, tenantID, document.ID, document.CurrentVersion)
+	if err != nil {
+		return AcceptResult{}, dependencyError("DOCUMENT_REPOSITORY_UNAVAILABLE", "无法读取活动文档版本", err)
+	}
+	if activeVersion == nil || activeVersion.Status != DocumentStatusIndexed || document.Status != DocumentStatusIndexed {
+		return AcceptResult{}, contract.NewDomainError("DOCUMENT_NOT_REBUILDABLE", contract.ErrorConflict, "只有已完成索引的活动文档可以重建", false, nil)
+	}
+	now := service.clock.Now()
+	candidate := &model.KnowledgeDocumentVersion{
+		ID: service.ids.NewID(), DocumentID: document.ID, Status: DocumentStatusUploaded,
+		DisplayName: activeVersion.DisplayName, MimeType: activeVersion.MimeType, SizeBytes: activeVersion.SizeBytes,
+		ContentHash: activeVersion.ContentHash, StoragePath: activeVersion.StoragePath,
+		ParserVersion: activeVersion.ParserVersion, ChunkerVersion: activeVersion.ChunkerVersion,
+		CreatedAt: now, UpdatedAt: now,
+	}
+	if candidate.DisplayName == "" {
+		candidate.DisplayName = document.DisplayName
+	}
+	if candidate.MimeType == "" {
+		candidate.MimeType = document.MimeType
+	}
+	if candidate.SizeBytes == 0 {
+		candidate.SizeBytes = document.SizeBytes
+	}
+	job := &model.KnowledgeJob{ID: service.ids.NewID(), JobType: JobTypeDocumentIndex, Status: JobStatusQueued, CreatedAt: now, UpdatedAt: now}
+	event := &model.OutboxEvent{
+		ID: service.ids.NewID(), Topic: DocumentIndexTopic, EventType: DocumentIndexEventType,
+		TraceID: traceID, Status: OutboxStatusPending, AvailableAt: now, CreatedAt: now, UpdatedAt: now,
+	}
+	lockedDocument, err := service.repository.CreateVersionUpload(ctx, tenantID, userID, candidate, job, event)
+	if err != nil {
+		return AcceptResult{}, dependencyError("DOCUMENT_REPOSITORY_UNAVAILABLE", "文档重建任务创建失败", err)
+	}
+	return AcceptResult{
+		Document: summarizeDocument(*lockedDocument), Job: summarizeJob(job),
+		PreviousVersion: lockedDocument.CurrentVersion, PendingVersion: candidate.Version,
+	}, nil
+}
+
+// Delete immediately removes the document from the MySQL authority view and
+// durably queues physical Redis cleanup. Repeated requests reuse the original
+// cleanup job.
+func (service *Service) Delete(ctx context.Context, tenantID string, userID string, traceID string, documentID string) (DeleteResult, error) {
+	documentID = strings.TrimSpace(documentID)
+	if strings.TrimSpace(tenantID) == "" || strings.TrimSpace(userID) == "" || documentID == "" {
+		return DeleteResult{}, contract.NewDomainError("INVALID_DOCUMENT_DELETE", contract.ErrorValidation, "文档删除参数不完整", false, nil)
+	}
+	now := service.clock.Now()
+	job := &model.KnowledgeJob{ID: service.ids.NewID(), JobType: JobTypeDocumentDelete, Status: JobStatusQueued, CreatedAt: now, UpdatedAt: now}
+	event := &model.OutboxEvent{
+		ID: service.ids.NewID(), Topic: DocumentIndexTopic, EventType: DocumentDeleteEventType,
+		TraceID: traceID, Status: OutboxStatusPending, AvailableAt: now, CreatedAt: now, UpdatedAt: now,
+	}
+	document, persistedJob, duplicate, err := service.repository.CreateDelete(ctx, tenantID, userID, documentID, job, event)
+	if err != nil {
+		if isRecordNotFound(err) {
+			return DeleteResult{}, contract.NewDomainError("KNOWLEDGE_DOCUMENT_NOT_FOUND", contract.ErrorNotFound, "文档不存在", false, err)
+		}
+		if errors.Is(err, ErrDocumentHasPendingIndex) {
+			return DeleteResult{}, contract.NewDomainError("DOCUMENT_INDEX_IN_PROGRESS", contract.ErrorConflict, "文档仍有索引任务，请等待完成后再删除", true, err)
+		}
+		return DeleteResult{}, dependencyError("DOCUMENT_REPOSITORY_UNAVAILABLE", "文档删除任务创建失败", err)
+	}
+	return DeleteResult{Document: summarizeDocument(*document), Job: summarizeJob(persistedJob), Duplicate: duplicate}, nil
 }
 
 func documentContentHash(format documentFormat, rawContentHash string) string {
