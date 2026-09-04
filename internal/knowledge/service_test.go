@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"mime/multipart"
 	"net/http/httptest"
 	"os"
@@ -51,12 +52,60 @@ func (repository *memoryRepository) FindByContentHash(_ context.Context, tenantI
 	return nil, nil, nil
 }
 
+func (repository *memoryRepository) FindDocument(_ context.Context, tenantID string, userID string, documentID string) (*model.KnowledgeDocument, error) {
+	for index := range repository.documents {
+		document := &repository.documents[index]
+		if document.ID == documentID && document.TenantID == tenantID && document.UserID == userID && document.Status != DocumentStatusDeleted {
+			return document, nil
+		}
+	}
+	return nil, nil
+}
+
+func (repository *memoryRepository) FindVersionByContentHash(_ context.Context, tenantID string, documentID string, contentHash string) (*model.KnowledgeDocumentVersion, *model.KnowledgeJob, error) {
+	for versionIndex := range repository.versions {
+		version := &repository.versions[versionIndex]
+		if version.DocumentID != documentID || version.ContentHash != contentHash {
+			continue
+		}
+		for jobIndex := range repository.jobs {
+			job := &repository.jobs[jobIndex]
+			if job.TenantID == tenantID && job.DocumentID == documentID && job.Version == version.Version {
+				return version, job, nil
+			}
+		}
+		return version, nil, nil
+	}
+	return nil, nil, nil
+}
+
 func (repository *memoryRepository) CreateUpload(_ context.Context, document *model.KnowledgeDocument, version *model.KnowledgeDocumentVersion, job *model.KnowledgeJob, event *model.OutboxEvent) error {
 	repository.documents = append(repository.documents, *document)
 	repository.versions = append(repository.versions, *version)
 	repository.jobs = append(repository.jobs, *job)
 	repository.events = append(repository.events, *event)
 	return nil
+}
+
+func (repository *memoryRepository) CreateVersionUpload(_ context.Context, tenantID string, userID string, version *model.KnowledgeDocumentVersion, job *model.KnowledgeJob, event *model.OutboxEvent) (*model.KnowledgeDocument, error) {
+	document, _ := repository.FindDocument(context.Background(), tenantID, userID, version.DocumentID)
+	if document == nil {
+		return nil, errors.New("document not found")
+	}
+	latest := 0
+	for _, existing := range repository.versions {
+		if existing.DocumentID == document.ID && existing.Version > latest {
+			latest = existing.Version
+		}
+	}
+	version.Version = latest + 1
+	job.TenantID, job.DocumentID, job.Version = tenantID, document.ID, version.Version
+	event.TenantID, event.AggregateID, event.AggregateVersion = tenantID, document.ID, version.Version
+	event.PayloadJSON = fmt.Sprintf(`{"job_id":%q,"document_id":%q,"version":%d}`, job.ID, document.ID, version.Version)
+	repository.versions = append(repository.versions, *version)
+	repository.jobs = append(repository.jobs, *job)
+	repository.events = append(repository.events, *event)
+	return document, nil
 }
 
 func (repository *memoryRepository) ListDocuments(_ context.Context, tenantID string) ([]model.KnowledgeDocument, error) {
@@ -219,6 +268,79 @@ func TestAcceptDoesNotDeduplicateAcrossParserFamilies(t *testing.T) {
 	}
 	if repository.documents[0].ContentHash == repository.documents[1].ContentHash {
 		t.Fatal("parser-family document fingerprints must differ")
+	}
+}
+
+func TestAcceptVersionCreatesPendingVersionWithoutMovingActiveAlias(t *testing.T) {
+	repository := new(memoryRepository)
+	service, err := NewService(repository, t.TempDir(), DefaultMaxUploadBytes, fixedClock{value: time.Now().UTC()}, new(sequenceIDs))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := service.Accept(context.Background(), AcceptInput{
+		TenantID: "tenant", UserID: "user", TraceID: "trace-v1", File: multipartFile(t, "runbook.md", []byte("# Runbook\nOLD_ALIAS_314\n")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository.documents[0].Status = DocumentStatusIndexed
+	result, err := service.AcceptVersion(context.Background(), first.Document.ID, AcceptInput{
+		TenantID: "tenant", UserID: "user", TraceID: "trace-v2", File: multipartFile(t, "runbook.md", []byte("# Runbook\nNEW_ALIAS_926\n")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PreviousVersion != 1 || result.PendingVersion != 2 || result.Job.Version != 2 {
+		t.Fatalf("unexpected version response: %+v", result)
+	}
+	if repository.documents[0].CurrentVersion != 1 || repository.documents[0].Status != DocumentStatusIndexed {
+		t.Fatalf("pending upload must not move active alias: %+v", repository.documents[0])
+	}
+	if len(repository.versions) != 2 || len(repository.jobs) != 2 || len(repository.events) != 2 {
+		t.Fatalf("version upload must persist one version/job/event: %+v", repository)
+	}
+	if !strings.Contains(repository.events[1].PayloadJSON, `"version":2`) {
+		t.Fatalf("event must target allocated version: %s", repository.events[1].PayloadJSON)
+	}
+	if _, err := os.Stat(repository.versions[1].StoragePath); err != nil {
+		t.Fatalf("version artifact was not retained: %v", err)
+	}
+}
+
+func TestAcceptVersionIsIdempotentAndTenantScoped(t *testing.T) {
+	repository := new(memoryRepository)
+	service, err := NewService(repository, t.TempDir(), DefaultMaxUploadBytes, fixedClock{value: time.Now().UTC()}, new(sequenceIDs))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := service.Accept(context.Background(), AcceptInput{
+		TenantID: "tenant", UserID: "user", TraceID: "trace-v1", File: multipartFile(t, "runbook.md", []byte("v1")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := []byte("v2")
+	created, err := service.AcceptVersion(context.Background(), first.Document.ID, AcceptInput{
+		TenantID: "tenant", UserID: "user", TraceID: "trace-v2", File: multipartFile(t, "runbook.md", content),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	duplicate, err := service.AcceptVersion(context.Background(), first.Document.ID, AcceptInput{
+		TenantID: "tenant", UserID: "user", TraceID: "trace-v2-again", File: multipartFile(t, "renamed.md", content),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !duplicate.Duplicate || duplicate.PendingVersion != created.PendingVersion || duplicate.Job.ID != created.Job.ID || len(repository.versions) != 2 {
+		t.Fatalf("duplicate version must reuse pending work: created=%+v duplicate=%+v", created, duplicate)
+	}
+	_, err = service.AcceptVersion(context.Background(), first.Document.ID, AcceptInput{
+		TenantID: "other", UserID: "other", TraceID: "cross-tenant", File: multipartFile(t, "runbook.md", []byte("v3")),
+	})
+	var domainError *contract.DomainError
+	if !errors.As(err, &domainError) || domainError.Code != "KNOWLEDGE_DOCUMENT_NOT_FOUND" {
+		t.Fatalf("cross-tenant version upload must look absent, got %v", err)
 	}
 }
 

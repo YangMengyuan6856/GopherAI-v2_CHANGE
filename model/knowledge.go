@@ -23,6 +23,9 @@ type KnowledgeDocumentVersion struct {
 	DocumentID       string     `gorm:"uniqueIndex:uk_knowledge_document_version,priority:1;not null;type:char(36)" json:"document_id"`
 	Version          int        `gorm:"uniqueIndex:uk_knowledge_document_version,priority:2;not null" json:"version"`
 	Status           string     `gorm:"index;not null;type:varchar(32)" json:"status"`
+	DisplayName      string     `gorm:"type:varchar(255)" json:"display_name"`
+	MimeType         string     `gorm:"type:varchar(128)" json:"mime_type"`
+	SizeBytes        int64      `gorm:"not null;default:0" json:"size_bytes"`
 	ContentHash      string     `gorm:"not null;type:char(64)" json:"content_hash"`
 	StoragePath      string     `gorm:"not null;type:varchar(512)" json:"-"`
 	ParserVersion    string     `gorm:"type:varchar(64)" json:"parser_version"`

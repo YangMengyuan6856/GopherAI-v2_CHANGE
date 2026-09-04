@@ -188,6 +188,37 @@ func TestProcessorRejectsMalformedEventWithoutClaimingJob(t *testing.T) {
 	}
 }
 
+func TestVersionAliasMovesOnlyOnSuccessfulCompletion(t *testing.T) {
+	document := model.KnowledgeDocument{
+		ID: "document-1", CurrentVersion: 1, Status: DocumentStatusIndexed,
+		DisplayName: "runbook-v1.md", MimeType: "text/plain", SizeBytes: 10,
+		ContentHash: "old-hash", StoragePath: "/old",
+	}
+	work := IndexWork{
+		Document: document,
+		Version: model.KnowledgeDocumentVersion{
+			Version: 2, DisplayName: "runbook.md", MimeType: "text/plain", SizeBytes: 20,
+			ContentHash: "new-hash", StoragePath: "/new",
+		},
+	}
+	completion := documentCompletionUpdates(work)
+	if completion["current_version"] != 2 || completion["content_hash"] != "new-hash" || completion["storage_path"] != "/new" {
+		t.Fatalf("successful completion must atomically select the candidate: %+v", completion)
+	}
+	failure := documentFailureUpdates(document, 2, ErrorCodeParseFailed)
+	if _, changesStatus := failure["status"]; changesStatus || failure["last_error_code"] != ErrorCodeParseFailed {
+		t.Fatalf("failed candidate must preserve indexed active version: %+v", failure)
+	}
+	initialFailure := documentFailureUpdates(model.KnowledgeDocument{CurrentVersion: 1, Status: DocumentStatusParsing}, 1, ErrorCodeParseFailed)
+	if initialFailure["status"] != DocumentStatusFailed {
+		t.Fatalf("initial version failure must still fail the document: %+v", initialFailure)
+	}
+	staleFailure := documentFailureUpdates(model.KnowledgeDocument{CurrentVersion: 3, Status: DocumentStatusIndexed}, 2, ErrorCodeRedisIndex)
+	if len(staleFailure) != 0 {
+		t.Fatalf("late failure from an older candidate must not contaminate the active version: %+v", staleFailure)
+	}
+}
+
 func indexWorkFixture(storagePath string) IndexWork {
 	return IndexWork{
 		Document: model.KnowledgeDocument{ID: "document-1", TenantID: "tenant-a", UserID: "user-a", DisplayName: filepath.Base(storagePath)},

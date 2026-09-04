@@ -20,12 +20,19 @@ import (
 )
 
 type fakeApplication struct {
-	acceptInput knowledgeapp.AcceptInput
-	accept      knowledgeapp.AcceptResult
-	err         error
+	acceptInput       knowledgeapp.AcceptInput
+	accept            knowledgeapp.AcceptResult
+	versionDocumentID string
+	err               error
 }
 
 func (application *fakeApplication) Accept(_ context.Context, input knowledgeapp.AcceptInput) (knowledgeapp.AcceptResult, error) {
+	application.acceptInput = input
+	return application.accept, application.err
+}
+
+func (application *fakeApplication) AcceptVersion(_ context.Context, documentID string, input knowledgeapp.AcceptInput) (knowledgeapp.AcceptResult, error) {
+	application.versionDocumentID = documentID
 	application.acceptInput = input
 	return application.accept, application.err
 }
@@ -122,6 +129,38 @@ func TestUploadReturnsAcceptedContractAndTrace(t *testing.T) {
 	}
 	if metrics.status != "accepted" || metrics.size != 42 {
 		t.Fatalf("unexpected metric: %+v", metrics)
+	}
+}
+
+func TestUploadVersionReturnsPendingAliasContract(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	application := &fakeApplication{accept: knowledgeapp.AcceptResult{
+		Document:        knowledgeapp.DocumentSummary{ID: "document-1", CurrentVersion: 1, Status: knowledgeapp.DocumentStatusIndexed},
+		Job:             knowledgeapp.JobSummary{ID: "job-2", DocumentID: "document-1", Version: 2, Status: knowledgeapp.JobStatusQueued},
+		PreviousVersion: 1,
+		PendingVersion:  2,
+	}}
+	handler := NewHandler(application, new(fakeMetrics))
+	engine := gin.New()
+	engine.POST("/documents/:document_id/versions", requestid.Attach(), func(context *gin.Context) {
+		context.Set("userName", "user-a")
+		context.Next()
+	}, handler.UploadVersion)
+
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, uploadRequestFor(t, http.MethodPost, "/documents/document-1/versions", "project.md", []byte("version two")))
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", response.Code, response.Body.String())
+	}
+	payload := new(uploadResponse)
+	if err := json.Unmarshal(response.Body.Bytes(), payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.PreviousVersion != 1 || payload.PendingVersion != 2 || payload.Document.CurrentVersion != 1 || payload.Job.Version != 2 {
+		t.Fatalf("candidate must be visible without moving active alias: %+v", payload)
+	}
+	if application.versionDocumentID != "document-1" || application.acceptInput.TenantID != "user-a" {
+		t.Fatalf("version target or ACL was lost: id=%s input=%+v", application.versionDocumentID, application.acceptInput)
 	}
 }
 
@@ -282,6 +321,10 @@ func TestAnswerReturnsDeterministicInsufficientEvidenceWithoutError(t *testing.T
 }
 
 func uploadRequest(t *testing.T, filename string, content []byte) *http.Request {
+	return uploadRequestFor(t, http.MethodPost, "/documents", filename, content)
+}
+
+func uploadRequestFor(t *testing.T, method string, target string, filename string, content []byte) *http.Request {
 	t.Helper()
 	body := new(bytes.Buffer)
 	writer := multipart.NewWriter(body)
@@ -295,7 +338,7 @@ func uploadRequest(t *testing.T, filename string, content []byte) *http.Request 
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)
 	}
-	request := httptest.NewRequest(http.MethodPost, "/documents", body)
+	request := httptest.NewRequest(method, target, body)
 	request.Header.Set("Content-Type", writer.FormDataContentType())
 	return request
 }

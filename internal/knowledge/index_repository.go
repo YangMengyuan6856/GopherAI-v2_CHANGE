@@ -57,8 +57,12 @@ func (repository *GormRepository) ClaimIndexJob(ctx context.Context, tenantID st
 		if err := transaction.Save(&work.Job).Error; err != nil {
 			return err
 		}
+		documentUpdates := map[string]any{"last_error_code": ""}
+		if work.Document.CurrentVersion == version && work.Document.Status != DocumentStatusIndexed {
+			documentUpdates["status"] = DocumentStatusParsing
+		}
 		if err := transaction.Model(&model.KnowledgeDocument{}).Where("id = ? AND tenant_id = ?", documentID, tenantID).
-			Updates(map[string]any{"status": DocumentStatusParsing, "last_error_code": ""}).Error; err != nil {
+			Updates(documentUpdates).Error; err != nil {
 			return err
 		}
 		return transaction.Model(&model.KnowledgeDocumentVersion{}).Where("document_id = ? AND version = ?", documentID, version).
@@ -87,6 +91,11 @@ func (repository *GormRepository) CompleteIndex(ctx context.Context, work IndexW
 		return gorm.ErrInvalidDB
 	}
 	return repository.db.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+		activeDocument := new(model.KnowledgeDocument)
+		if err := transaction.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND tenant_id = ?", work.Document.ID, work.Document.TenantID).First(activeDocument).Error; err != nil {
+			return err
+		}
 		if err := transaction.Model(&model.KnowledgeChunk{}).
 			Where("document_id = ? AND document_version = ?", work.Document.ID, work.Version.Version).
 			Updates(map[string]any{"index_status": ChunkIndexStatusIndexed, "embedding_version": embeddingVersion}).Error; err != nil {
@@ -97,9 +106,12 @@ func (repository *GormRepository) CompleteIndex(ctx context.Context, work IndexW
 			Updates(map[string]any{"status": DocumentStatusIndexed, "embedding_version": embeddingVersion, "indexed_at": completedAt}).Error; err != nil {
 			return err
 		}
-		if err := transaction.Model(&model.KnowledgeDocument{}).Where("id = ? AND tenant_id = ?", work.Document.ID, work.Document.TenantID).
-			Updates(map[string]any{"status": DocumentStatusIndexed, "last_error_code": ""}).Error; err != nil {
-			return err
+		if work.Version.Version >= activeDocument.CurrentVersion {
+			work.Document = *activeDocument
+			if err := transaction.Model(&model.KnowledgeDocument{}).Where("id = ? AND tenant_id = ?", work.Document.ID, work.Document.TenantID).
+				Updates(documentCompletionUpdates(work)).Error; err != nil {
+				return err
+			}
 		}
 		return transaction.Model(&model.KnowledgeJob{}).Where("id = ? AND tenant_id = ?", work.Job.ID, work.Job.TenantID).
 			Updates(map[string]any{"status": JobStatusCompleted, "last_error_code": ""}).Error
@@ -119,14 +131,22 @@ func (repository *GormRepository) FailIndexByIdentity(ctx context.Context, tenan
 		return gorm.ErrInvalidDB
 	}
 	return repository.db.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+		document := new(model.KnowledgeDocument)
+		if err := transaction.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND tenant_id = ?", documentID, tenantID).First(document).Error; err != nil {
+			return err
+		}
 		if err := transaction.Model(&model.KnowledgeJob{}).
 			Where("id = ? AND tenant_id = ? AND document_id = ? AND version = ?", jobID, tenantID, documentID, version).
 			Updates(map[string]any{"status": JobStatusFailed, "last_error_code": code}).Error; err != nil {
 			return err
 		}
-		if err := transaction.Model(&model.KnowledgeDocument{}).Where("id = ? AND tenant_id = ?", documentID, tenantID).
-			Updates(map[string]any{"status": DocumentStatusFailed, "last_error_code": code}).Error; err != nil {
-			return err
+		updates := documentFailureUpdates(*document, version, code)
+		if len(updates) > 0 {
+			if err := transaction.Model(&model.KnowledgeDocument{}).Where("id = ? AND tenant_id = ?", documentID, tenantID).
+				Updates(updates).Error; err != nil {
+				return err
+			}
 		}
 		return transaction.Model(&model.KnowledgeDocumentVersion{}).Where("document_id = ? AND version = ?", documentID, version).
 			Updates(map[string]any{"status": DocumentStatusFailed}).Error
@@ -138,17 +158,64 @@ func (repository *GormRepository) recordIndexFailure(ctx context.Context, work I
 		return gorm.ErrInvalidDB
 	}
 	return repository.db.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+		activeDocument := new(model.KnowledgeDocument)
+		if err := transaction.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND tenant_id = ?", work.Document.ID, work.Document.TenantID).First(activeDocument).Error; err != nil {
+			return err
+		}
 		if err := transaction.Model(&model.KnowledgeJob{}).Where("id = ? AND tenant_id = ?", work.Job.ID, work.Job.TenantID).
 			Updates(map[string]any{"status": jobStatus, "last_error_code": code}).Error; err != nil {
 			return err
 		}
-		if err := transaction.Model(&model.KnowledgeDocument{}).Where("id = ? AND tenant_id = ?", work.Document.ID, work.Document.TenantID).
-			Updates(map[string]any{"status": documentStatus, "last_error_code": code}).Error; err != nil {
-			return err
+		if work.Version.Version >= activeDocument.CurrentVersion {
+			updates := map[string]any{"last_error_code": code}
+			if activeDocument.CurrentVersion == work.Version.Version || activeDocument.Status != DocumentStatusIndexed {
+				updates["status"] = documentStatus
+			}
+			if err := transaction.Model(&model.KnowledgeDocument{}).Where("id = ? AND tenant_id = ?", work.Document.ID, work.Document.TenantID).
+				Updates(updates).Error; err != nil {
+				return err
+			}
 		}
 		return transaction.Model(&model.KnowledgeDocumentVersion{}).Where("document_id = ? AND version = ?", work.Document.ID, work.Version.Version).
 			Updates(map[string]any{"status": documentStatus}).Error
 	})
+}
+
+func documentFailureUpdates(document model.KnowledgeDocument, candidateVersion int, code string) map[string]any {
+	if candidateVersion < document.CurrentVersion {
+		return map[string]any{}
+	}
+	updates := map[string]any{"last_error_code": code}
+	if document.CurrentVersion == candidateVersion || document.Status != DocumentStatusIndexed {
+		updates["status"] = DocumentStatusFailed
+	}
+	return updates
+}
+
+func documentCompletionUpdates(work IndexWork) map[string]any {
+	displayName := work.Version.DisplayName
+	if displayName == "" {
+		displayName = work.Document.DisplayName
+	}
+	mimeType := work.Version.MimeType
+	if mimeType == "" {
+		mimeType = work.Document.MimeType
+	}
+	sizeBytes := work.Version.SizeBytes
+	if sizeBytes == 0 {
+		sizeBytes = work.Document.SizeBytes
+	}
+	return map[string]any{
+		"current_version": work.Version.Version,
+		"status":          DocumentStatusIndexed,
+		"display_name":    displayName,
+		"mime_type":       mimeType,
+		"size_bytes":      sizeBytes,
+		"content_hash":    work.Version.ContentHash,
+		"storage_path":    work.Version.StoragePath,
+		"last_error_code": "",
+	}
 }
 
 func isRecordNotFound(err error) bool {

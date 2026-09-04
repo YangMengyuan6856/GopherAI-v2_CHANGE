@@ -87,9 +87,11 @@ type AcceptInput struct {
 }
 
 type AcceptResult struct {
-	Document  DocumentSummary `json:"document"`
-	Job       JobSummary      `json:"job"`
-	Duplicate bool            `json:"duplicate"`
+	Document        DocumentSummary `json:"document"`
+	Job             JobSummary      `json:"job"`
+	Duplicate       bool            `json:"duplicate"`
+	PreviousVersion int             `json:"previous_version,omitempty"`
+	PendingVersion  int             `json:"pending_version,omitempty"`
 }
 
 type DocumentSummary struct {
@@ -230,6 +232,7 @@ func (service *Service) Accept(ctx context.Context, input AcceptInput) (AcceptRe
 	}
 	version := &model.KnowledgeDocumentVersion{
 		ID: versionID, DocumentID: documentID, Version: 1, Status: DocumentStatusUploaded,
+		DisplayName: displayName, MimeType: detectedMime, SizeBytes: size,
 		ContentHash: contentHash, StoragePath: finalPath, ParserVersion: format.parserVersion,
 		ChunkerVersion: format.chunkerVersion, CreatedAt: now, UpdatedAt: now,
 	}
@@ -252,7 +255,138 @@ func (service *Service) Accept(ctx context.Context, input AcceptInput) (AcceptRe
 		}
 		return AcceptResult{}, dependencyError("DOCUMENT_REPOSITORY_UNAVAILABLE", "文档服务暂时不可用", err)
 	}
-	return AcceptResult{Document: summarizeDocument(*document), Job: summarizeJob(job)}, nil
+	return AcceptResult{Document: summarizeDocument(*document), Job: summarizeJob(job), PendingVersion: 1}, nil
+}
+
+// AcceptVersion stages a new immutable version for an existing logical
+// document. The document's CurrentVersion remains the active read alias until
+// the asynchronous index worker completes every indexing step successfully.
+func (service *Service) AcceptVersion(ctx context.Context, documentID string, input AcceptInput) (AcceptResult, error) {
+	documentID = strings.TrimSpace(documentID)
+	if documentID == "" || strings.TrimSpace(input.TenantID) == "" || strings.TrimSpace(input.UserID) == "" || input.File == nil {
+		return AcceptResult{}, contract.NewDomainError("INVALID_DOCUMENT_VERSION_UPLOAD", contract.ErrorValidation, "文档版本上传参数不完整", false, nil)
+	}
+	document, err := service.repository.FindDocument(ctx, input.TenantID, input.UserID, documentID)
+	if err != nil {
+		return AcceptResult{}, dependencyError("DOCUMENT_REPOSITORY_UNAVAILABLE", "文档服务暂时不可用", err)
+	}
+	if document == nil {
+		return AcceptResult{}, contract.NewDomainError("KNOWLEDGE_DOCUMENT_NOT_FOUND", contract.ErrorNotFound, "文档不存在", false, nil)
+	}
+
+	displayName := safeDisplayName(input.File.Filename)
+	extension := strings.ToLower(path.Ext(displayName))
+	format, allowed := allowedDocumentFormats[extension]
+	if displayName == "" || displayName == "." {
+		return AcceptResult{}, contract.NewDomainError("DOCUMENT_NAME_INVALID", contract.ErrorValidation, "文档名称无效", false, nil)
+	}
+	if !allowed {
+		return AcceptResult{}, contract.NewDomainError("DOCUMENT_TYPE_UNSUPPORTED", contract.ErrorValidation, "仅支持 .md、.txt、.json、.yaml、.yml 和 .go 文档", false, nil)
+	}
+	if input.File.Size > service.maxBytes {
+		return AcceptResult{}, contract.NewDomainError("DOCUMENT_TOO_LARGE", contract.ErrorValidation, "文档不能超过 10 MB", false, nil)
+	}
+
+	documentDirectory := filepath.Join(service.storageRoot, document.ID)
+	if err := os.MkdirAll(documentDirectory, 0o750); err != nil {
+		return AcceptResult{}, dependencyError("DOCUMENT_STORAGE_UNAVAILABLE", "文档存储暂时不可用", err)
+	}
+	temporaryFile, err := os.CreateTemp(documentDirectory, ".version-*")
+	if err != nil {
+		return AcceptResult{}, dependencyError("DOCUMENT_STORAGE_UNAVAILABLE", "文档存储暂时不可用", err)
+	}
+	temporaryPath := temporaryFile.Name()
+	keepFile := false
+	defer func() {
+		_ = temporaryFile.Close()
+		if !keepFile {
+			_ = os.Remove(temporaryPath)
+		}
+	}()
+
+	source, err := input.File.Open()
+	if err != nil {
+		return AcceptResult{}, contract.NewDomainError("DOCUMENT_READ_FAILED", contract.ErrorValidation, "无法读取上传文档", false, err)
+	}
+	defer source.Close()
+	hash := sha256.New()
+	size, err := io.Copy(io.MultiWriter(temporaryFile, hash), io.LimitReader(source, service.maxBytes+1))
+	if err != nil {
+		return AcceptResult{}, dependencyError("DOCUMENT_WRITE_FAILED", "文档保存失败", err)
+	}
+	if size > service.maxBytes {
+		return AcceptResult{}, contract.NewDomainError("DOCUMENT_TOO_LARGE", contract.ErrorValidation, "文档不能超过 10 MB", false, nil)
+	}
+	if size == 0 {
+		return AcceptResult{}, contract.NewDomainError("DOCUMENT_EMPTY", contract.ErrorValidation, "文档内容不能为空", false, nil)
+	}
+	if err := temporaryFile.Sync(); err != nil {
+		return AcceptResult{}, dependencyError("DOCUMENT_WRITE_FAILED", "文档保存失败", err)
+	}
+	if _, err := temporaryFile.Seek(0, io.SeekStart); err != nil {
+		return AcceptResult{}, dependencyError("DOCUMENT_READ_FAILED", "无法校验上传文档", err)
+	}
+	content, err := io.ReadAll(temporaryFile)
+	if err != nil {
+		return AcceptResult{}, dependencyError("DOCUMENT_READ_FAILED", "无法校验上传文档", err)
+	}
+	sniffSize := min(len(content), 512)
+	detectedMime := strings.Split(http.DetectContentType(content[:sniffSize]), ";")[0]
+	if (detectedMime != "text/plain" && detectedMime != "application/json") || !utf8.Valid(content) {
+		return AcceptResult{}, contract.NewDomainError("DOCUMENT_CONTENT_INVALID", contract.ErrorValidation, "文档内容不是有效文本", false, nil)
+	}
+	contentHash := documentContentHash(format, hex.EncodeToString(hash.Sum(nil)))
+	existingVersion, existingJob, err := service.repository.FindVersionByContentHash(ctx, input.TenantID, document.ID, contentHash)
+	if err != nil {
+		return AcceptResult{}, dependencyError("DOCUMENT_REPOSITORY_UNAVAILABLE", "文档服务暂时不可用", err)
+	}
+	if existingVersion != nil {
+		return AcceptResult{
+			Document: summarizeDocument(*document), Job: summarizeJob(existingJob), Duplicate: true,
+			PreviousVersion: document.CurrentVersion, PendingVersion: existingVersion.Version,
+		}, nil
+	}
+	existingDocument, _, err := service.repository.FindByContentHash(ctx, input.TenantID, contentHash)
+	if err != nil {
+		return AcceptResult{}, dependencyError("DOCUMENT_REPOSITORY_UNAVAILABLE", "文档服务暂时不可用", err)
+	}
+	if existingDocument != nil && existingDocument.ID != document.ID {
+		return AcceptResult{}, contract.NewDomainError("DOCUMENT_CONTENT_ALREADY_EXISTS", contract.ErrorConflict, "相同内容已属于另一份文档", false, nil)
+	}
+
+	versionID := service.ids.NewID()
+	finalPath := filepath.Join(documentDirectory, fmt.Sprintf("candidate-%s%s", versionID, extension))
+	if err := temporaryFile.Close(); err != nil {
+		return AcceptResult{}, dependencyError("DOCUMENT_WRITE_FAILED", "文档保存失败", err)
+	}
+	if err := os.Rename(temporaryPath, finalPath); err != nil {
+		return AcceptResult{}, dependencyError("DOCUMENT_WRITE_FAILED", "文档保存失败", err)
+	}
+	temporaryPath = finalPath
+	now := service.clock.Now()
+	version := &model.KnowledgeDocumentVersion{
+		ID: versionID, DocumentID: document.ID, Status: DocumentStatusUploaded,
+		DisplayName: displayName, MimeType: detectedMime, SizeBytes: size,
+		ContentHash: contentHash, StoragePath: finalPath, ParserVersion: format.parserVersion,
+		ChunkerVersion: format.chunkerVersion, CreatedAt: now, UpdatedAt: now,
+	}
+	job := &model.KnowledgeJob{
+		ID: service.ids.NewID(), JobType: JobTypeDocumentIndex, Status: JobStatusQueued,
+		CreatedAt: now, UpdatedAt: now,
+	}
+	event := &model.OutboxEvent{
+		ID: service.ids.NewID(), Topic: DocumentIndexTopic, EventType: DocumentIndexEventType,
+		TraceID: input.TraceID, Status: OutboxStatusPending, AvailableAt: now, CreatedAt: now, UpdatedAt: now,
+	}
+	lockedDocument, err := service.repository.CreateVersionUpload(ctx, input.TenantID, input.UserID, version, job, event)
+	if err != nil {
+		return AcceptResult{}, dependencyError("DOCUMENT_REPOSITORY_UNAVAILABLE", "文档版本创建失败", err)
+	}
+	keepFile = true
+	return AcceptResult{
+		Document: summarizeDocument(*lockedDocument), Job: summarizeJob(job),
+		PreviousVersion: lockedDocument.CurrentVersion, PendingVersion: version.Version,
+	}, nil
 }
 
 func documentContentHash(format documentFormat, rawContentHash string) string {

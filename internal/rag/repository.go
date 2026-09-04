@@ -42,6 +42,7 @@ func (repository *GormAuthorityRepository) FindAccessibleChunks(ctx context.Cont
 		Joins("JOIN knowledge_documents AS documents ON documents.id = chunks.document_id").
 		Where("chunks.id IN ? AND chunks.tenant_id = ? AND chunks.user_id = ? AND chunks.index_status = ?", chunkIDs, tenantID, userID, "indexed").
 		Where("documents.tenant_id = ? AND documents.user_id = ? AND documents.status = ?", tenantID, userID, "indexed").
+		Where("chunks.document_version = documents.current_version").
 		Scan(&rows).Error
 	if err != nil {
 		return nil, errors.Join(errors.New("query accessible knowledge chunks"), err)

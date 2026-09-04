@@ -27,6 +27,7 @@ import (
 
 type Application interface {
 	Accept(ctx context.Context, input knowledgeapp.AcceptInput) (knowledgeapp.AcceptResult, error)
+	AcceptVersion(ctx context.Context, documentID string, input knowledgeapp.AcceptInput) (knowledgeapp.AcceptResult, error)
 	List(ctx context.Context, tenantID string) ([]knowledgeapp.DocumentSummary, error)
 	Job(ctx context.Context, tenantID string, jobID string) (knowledgeapp.JobSummary, error)
 }
@@ -63,11 +64,13 @@ type Handler struct {
 }
 
 type uploadResponse struct {
-	SchemaVersion string                       `json:"schema_version"`
-	TraceID       string                       `json:"trace_id"`
-	Duplicate     bool                         `json:"duplicate"`
-	Document      knowledgeapp.DocumentSummary `json:"document"`
-	Job           knowledgeapp.JobSummary      `json:"job"`
+	SchemaVersion   string                       `json:"schema_version"`
+	TraceID         string                       `json:"trace_id"`
+	Duplicate       bool                         `json:"duplicate"`
+	PreviousVersion int                          `json:"previous_version,omitempty"`
+	PendingVersion  int                          `json:"pending_version,omitempty"`
+	Document        knowledgeapp.DocumentSummary `json:"document"`
+	Job             knowledgeapp.JobSummary      `json:"job"`
 }
 
 type listResponse struct {
@@ -213,11 +216,47 @@ func (handler *Handler) Upload(context *gin.Context) {
 	handler.recordUpload(status, result.Document.SizeBytes)
 	writeUploadLog(traceID, result, status)
 	context.JSON(http.StatusAccepted, uploadResponse{
-		SchemaVersion: contract.SchemaVersion,
-		TraceID:       traceID,
-		Duplicate:     result.Duplicate,
-		Document:      result.Document,
-		Job:           result.Job,
+		SchemaVersion:  contract.SchemaVersion,
+		TraceID:        traceID,
+		Duplicate:      result.Duplicate,
+		PendingVersion: result.PendingVersion,
+		Document:       result.Document,
+		Job:            result.Job,
+	})
+}
+
+func (handler *Handler) UploadVersion(context *gin.Context) {
+	fileHeader, err := context.FormFile("file")
+	if err != nil {
+		handler.recordUpload("rejected", 0)
+		handler.writeError(context, contract.NewDomainError("DOCUMENT_REQUIRED", contract.ErrorValidation, "请选择要上传的新版本", false, err))
+		return
+	}
+	_, traceID := requestid.IDs(context)
+	userID := context.GetString("userName")
+	result, err := handler.application.AcceptVersion(context.Request.Context(), context.Param("document_id"), knowledgeapp.AcceptInput{
+		TenantID: userID, UserID: userID, TraceID: traceID, File: fileHeader,
+	})
+	if err != nil {
+		status := "error"
+		var domainError *contract.DomainError
+		if errors.As(err, &domainError) && domainError.Category == contract.ErrorValidation {
+			status = "rejected"
+		}
+		handler.recordUpload(status, 0)
+		handler.writeError(context, err)
+		return
+	}
+	status := "version_accepted"
+	if result.Duplicate {
+		status = "duplicate"
+	}
+	handler.recordUpload(status, fileHeader.Size)
+	writeUploadLog(traceID, result, status)
+	context.JSON(http.StatusAccepted, uploadResponse{
+		SchemaVersion: contract.SchemaVersion, TraceID: traceID, Duplicate: result.Duplicate,
+		PreviousVersion: result.PreviousVersion, PendingVersion: result.PendingVersion,
+		Document: result.Document, Job: result.Job,
 	})
 }
 
@@ -328,12 +367,14 @@ func httpStatus(category contract.ErrorCategory) int {
 
 func writeUploadLog(traceID string, result knowledgeapp.AcceptResult, status string) {
 	record := map[string]any{
-		"event":       "knowledge_document_upload",
-		"trace_id":    traceID,
-		"document_id": result.Document.ID,
-		"job_id":      result.Job.ID,
-		"status":      status,
-		"size_bytes":  result.Document.SizeBytes,
+		"event":            "knowledge_document_upload",
+		"trace_id":         traceID,
+		"document_id":      result.Document.ID,
+		"job_id":           result.Job.ID,
+		"status":           status,
+		"size_bytes":       result.Document.SizeBytes,
+		"previous_version": result.PreviousVersion,
+		"pending_version":  result.PendingVersion,
 	}
 	encoded, err := json.Marshal(record)
 	if err == nil {
