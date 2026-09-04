@@ -1297,3 +1297,11 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 在构造长上下文成对集时发现原 Assembler 只判断“单条 Working Message + 当前已用 Token”是否超限，却没有把同轮已经选择但尚未 append 的多条消息累计进去，因而多条消息各自可放入、合计却可能超预算。修复后选择阶段维护累计 Token，并新增多消息回归测试；这说明 Context 评测不仅用于展示指标，也能发现线上预算实现缺陷。
 - `devsupport-context-compression-v1` 包含 12 条候选用例，`answer/clarify/refuse/resume` 各 3 条。当前结果为 constraints、confirmed facts、open questions、next action 保留率均 `100%`，平均估算 Token 降幅 `52.56%`，超预算 `0`，确定性重放 `100%`。标签仍为 `pending_user`，Token 是稳定本地估算而非供应商账单，因此 `baseline_eligible=false`。
 - Release `20260905043801-a9d424d9ee2d`（commit `a9d424d9ee2d78668b7e40d0d3e4959b44c96b13`，bundle SHA-256 `1f736d41ae33f7e561d82c400588066fb5a3d5e4fed062837b93d44b16e96ddc`）通过 Backend/Index Worker live/ready、MCP、Vue 编译/HTTP 和唯一进程门。本地全量测试、`go vet`、前端生产构建及 memory/evaluation/agentrun/evaluation-controller Race 均通过；登录态页面的集中人工验收留到用户约定时段。
+
+## 44. 2026-09-05 Tool Runtime 治理内核与部署清单工具
+
+- 提交 `bc84748a` 建立统一 Tool Runtime：工具元数据和精确名称 Registry、受限 JSON Schema、Intent/Permission/SideEffect 默认拒绝、调用预算、Context 超时/取消、结果大小上限、稳定 `tool-message-v1`、MySQL 脱敏审计及 Prometheus 固定标签指标。未知或拼错工具名不会模糊猜测；客户端不能提交权限、副作用等级或预算，HTTP Controller 从 JWT 主体与服务端策略构造这些字段。
+- 第一个真实工具 `deployment_manifest_lookup@1.0.0` 只读取固定的 `release-manifest.json`，不接受路径参数；文件限制 64 KiB、严格 JSON 解码并只返回发布标识、Git SHA、构建目标、组件和回滚策略等白名单字段。计算器、时间、天气等 demo 工具没有重新注册；MCP 目前仍只是禁用 demo 的协议宿主，后续 Adapter 必须进入同一 Runtime。
+- 首次 Release `20260905050617-bc84748ad34f` 通过四进程门并完成真实页面调用。现场审阅时发现工具审计虽有 Call ID，但还缺独立 Trace ID，不足以满足跨层 lineage；没有把缺口留到后续，而是由 `78784c47` 增加 Trace ID 持久化后再次完整发布。
+- 最终 Release `20260905051431-78784c4742b8`，bundle SHA-256 `11e74712aedddd4b192fafa8d1c4cadded4857564f795dc8c17bee8d9efeebf5`。浏览器真实返回当前 release、commit `78784c4742b84dbebb6a0cff3a477a7e20767c55` 和 `release-manifest:<release_id>` 证据引用。MySQL 最新审计只显示 tool/version/status 与三个哈希/追踪长度：Trace ID `36`、Args/User hash 均 `64`，不保存原始参数、结果或 principal；Prometheus 对 accepted/success/duration 各记录 `1`，标签不含 Call/Trace/User。
+- 本地 `go test ./...`、`go vet ./...`、Tool Runtime/Controller/Observability Race、三份 Linux 二进制和 Vue production build 均通过。当前只完成治理纵切和第一个工具；幂等瞬时重试、熔断、缓存、Health/Log 工具、ToolAgent 与 30 条评测仍按 M6 后续任务推进，不能提前宣称 G6 完成。
