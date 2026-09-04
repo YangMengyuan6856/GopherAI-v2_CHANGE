@@ -221,10 +221,52 @@
             <span v-if="diagnosticRecovered" class="diagnostic-recovered">已从服务端持久化检查点恢复</span>
           </div>
           <div class="diagnostic-actions">
+            <button type="button" :disabled="loadingDiagnosticEvaluation" @click="toggleDiagnosticEvaluation">
+              {{ diagnosticEvaluationOpen ? '收起评测' : '查看评测' }}
+            </button>
             <button v-if="activeDiagnosticRun && !isDiagnosticTerminal(activeDiagnosticRun.run.state)" :disabled="loading" @click="cancelDiagnosticRun">取消运行</button>
             <button :disabled="loading" @click="resetDiagnosticRun">新建诊断</button>
           </div>
         </div>
+        <section v-if="diagnosticEvaluationOpen" class="diagnostic-evaluation">
+          <div v-if="loadingDiagnosticEvaluation" class="diagnostic-evaluation-loading">正在读取可追溯评测报告...</div>
+          <template v-else-if="diagnosticEvaluation">
+            <div class="diagnostic-evaluation-title">
+              <div>
+                <strong>DiagnosticAgent 技术候选评测</strong>
+                <span>{{ diagnosticEvaluation.metrics.case_count }} 条 · {{ diagnosticEvaluation.dataset_version }}</span>
+              </div>
+              <span :class="['evaluation-gate', diagnosticEvaluation.technical_gates_passed ? 'passed' : 'failed']">
+                {{ diagnosticEvaluation.technical_gates_passed ? '技术门通过' : '技术门未通过' }}
+              </span>
+            </div>
+            <div class="diagnostic-evaluation-grid">
+              <div><strong>{{ metricPercent(diagnosticEvaluation.metrics.root_cause_top3_recall) }}</strong><span>根因 Top-3 Recall</span></div>
+              <div><strong>{{ metricPercent(diagnosticEvaluation.metrics.necessary_step_coverage) }}</strong><span>必要步骤覆盖率</span></div>
+              <div><strong>{{ metricPercent(diagnosticEvaluation.metrics.verification_action_accuracy) }}</strong><span>验证动作准确率</span></div>
+              <div><strong>{{ metricPercent(diagnosticEvaluation.metrics.clarification_accuracy) }}</strong><span>澄清判断准确率</span></div>
+              <div><strong>{{ metricPercent(diagnosticEvaluation.metrics.premature_certainty_rate) }}</strong><span>过早确认率</span></div>
+              <div><strong>{{ metricPercent(diagnosticEvaluation.metrics.dangerous_action_rate) }}</strong><span>危险动作率</span></div>
+            </div>
+            <div class="evaluation-candidate-warning">
+              <strong>候选报告，不是正式基线：</strong>
+              <span v-for="limitation in diagnosticEvaluation.limitations" :key="limitation">{{ limitation }}</span>
+            </div>
+            <details>
+              <summary>查看分类覆盖与可追溯版本</summary>
+              <div class="evaluation-category-list">
+                <span v-for="(score, category) in diagnosticEvaluation.metrics.category_root_cause_recall" :key="category">
+                  {{ category }} {{ metricPercent(score) }}
+                </span>
+              </div>
+              <small>
+                {{ diagnosticEvaluation.evaluator_version }} · 报告 SHA-256 {{ diagnosticEvaluation.report_sha256.slice(0, 16) }}… ·
+                人工复核 {{ diagnosticEvaluation.human_reviewed ? '完成' : '未完成' }} ·
+                基线资格 {{ diagnosticEvaluation.baseline_eligible ? '具备' : '不具备' }}
+              </small>
+            </details>
+          </template>
+        </section>
         <div v-if="!activeDiagnosticRun" class="diagnostic-empty">
           <span v-if="restoringDiagnosticRun">正在恢复上次诊断 Run...</span>
           <span v-else>在下方输入故障现象和脱敏日志。系统会展示状态机、公开步骤、预算、假设、证据与验证方法。</span>
@@ -373,6 +415,9 @@ export default {
     const activeDiagnosticRun = ref(null)
     const diagnosticRecovered = ref(false)
     const restoringDiagnosticRun = ref(false)
+    const diagnosticEvaluationOpen = ref(false)
+    const loadingDiagnosticEvaluation = ref(false)
+    const diagnosticEvaluation = ref(null)
     const diagnosticRunStorageKey = 'gopherai.active-diagnostic-run-v1'
     const diagnosticModeStorageKey = 'gopherai.diagnostic-mode-v1'
     let knowledgePollTimer = null
@@ -705,6 +750,23 @@ export default {
     const newClientRequestId = () => {
       if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID()
       return `web-${Date.now()}-${Math.random().toString(16).slice(2)}`
+    }
+
+    const metricPercent = (value) => `${((Number(value) || 0) * 100).toFixed(1)}%`
+
+    const toggleDiagnosticEvaluation = async () => {
+      diagnosticEvaluationOpen.value = !diagnosticEvaluationOpen.value
+      if (!diagnosticEvaluationOpen.value || diagnosticEvaluation.value || loadingDiagnosticEvaluation.value) return
+      try {
+        loadingDiagnosticEvaluation.value = true
+        const response = await api.get('/evaluations/diagnostic/latest')
+        diagnosticEvaluation.value = response.data
+      } catch (error) {
+        diagnosticEvaluationOpen.value = false
+        ElMessage.error(error.response?.data?.message || '诊断评测报告暂时不可用')
+      } finally {
+        loadingDiagnosticEvaluation.value = false
+      }
     }
 
     const diagnosticStateLabel = (state) => ({
@@ -1279,6 +1341,9 @@ export default {
       activeDiagnosticRun,
       diagnosticRecovered,
       restoringDiagnosticRun,
+      diagnosticEvaluationOpen,
+      loadingDiagnosticEvaluation,
+      diagnosticEvaluation,
       documentStatusLabel,
       jobStatusLabel,
       retrievalModeLabel,
@@ -1291,6 +1356,8 @@ export default {
       intentStageLabel,
       diagnosticStateLabel,
       isDiagnosticTerminal,
+      metricPercent,
+      toggleDiagnosticEvaluation,
       renderMarkdown,
       playTTS,
       createNewSession,
@@ -1519,6 +1586,115 @@ export default {
 .diagnostic-actions button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.diagnostic-evaluation {
+  margin: 12px 0;
+  padding: 14px;
+  border: 1px solid #c9d8ff;
+  border-radius: 12px;
+  background: #f7f9ff;
+}
+
+.diagnostic-evaluation-loading {
+  color: #52627d;
+}
+
+.diagnostic-evaluation-title,
+.diagnostic-evaluation-title > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.diagnostic-evaluation-title > div {
+  align-items: baseline;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.diagnostic-evaluation-title span,
+.diagnostic-evaluation details small {
+  color: #64728b;
+  font-size: 12px;
+}
+
+.evaluation-gate {
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.evaluation-gate.passed {
+  color: #176b45;
+  background: #dcf7e8;
+}
+
+.evaluation-gate.failed {
+  color: #a23131;
+  background: #ffe4e4;
+}
+
+.diagnostic-evaluation-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.diagnostic-evaluation-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px;
+  border-radius: 9px;
+  background: #ffffff;
+  border: 1px solid #e4e9f5;
+}
+
+.diagnostic-evaluation-grid strong {
+  color: #3657ba;
+  font-size: 18px;
+}
+
+.diagnostic-evaluation-grid span,
+.evaluation-candidate-warning span {
+  color: #596781;
+  font-size: 12px;
+}
+
+.evaluation-candidate-warning {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 10px 0;
+  padding: 10px;
+  border-radius: 9px;
+  color: #7a5715;
+  background: #fff4d6;
+  border: 1px solid #f0d78f;
+}
+
+.evaluation-category-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.evaluation-category-list span {
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: #485977;
+  background: #e8eefc;
+  font-size: 11px;
+}
+
+@media (max-width: 760px) {
+  .diagnostic-evaluation-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .diagnostic-empty,

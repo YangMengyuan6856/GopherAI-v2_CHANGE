@@ -38,6 +38,11 @@ func InitRouter() *gin.Engine {
 		AgentRunGroup.Use(requestid.Attach(), jwt.Auth())
 		RegisterAgentRunRouter(AgentRunGroup)
 	}
+	{
+		EvaluationGroup := enterRouter.Group("/evaluations")
+		EvaluationGroup.Use(requestid.Attach(), jwt.Auth())
+		RegisterEvaluationRouter(EvaluationGroup)
+	}
 
 	{
 		FileGroup := enterRouter.Group("/file")
