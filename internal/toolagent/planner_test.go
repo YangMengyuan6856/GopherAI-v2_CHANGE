@@ -16,6 +16,8 @@ func TestPlannerSelectsBoundedRealTools(t *testing.T) {
 		{name: "compound", message: "给出当前发布清单，并检查后端和 Worker 健康状态", decision: "execute", tools: []string{"deployment_manifest_lookup", "service_health_snapshot"}, healthArg: `"service":"all"`},
 		{name: "no tool", message: "解释 Go interface 的用途", decision: "answer_without_tool", tools: []string{}},
 		{name: "unsafe", message: "重启后端并删除旧数据库记录", decision: "refuse", tools: []string{}},
+		{name: "backend auth logs", message: "查看后端 NOAUTH 报错日志", decision: "execute", tools: []string{"service_health_snapshot", "bounded_log_signature"}, healthArg: `"service":"backend"`},
+		{name: "worker warning logs", message: "检索 Worker slow sql 日志", decision: "execute", tools: []string{"service_health_snapshot", "bounded_log_signature"}, healthArg: `"service":"index_worker"`},
 	}
 	planner := NewPlanner()
 	for _, testCase := range cases {
@@ -36,6 +38,16 @@ func TestPlannerSelectsBoundedRealTools(t *testing.T) {
 				t.Fatalf("unexpected health arguments: %s", plan.Calls[len(plan.Calls)-1].Arguments)
 			}
 		})
+	}
+}
+
+func TestPlannerUsesOnlyFixedLogArguments(t *testing.T) {
+	plan, err := NewPlanner().Plan("查看 MCP timeout 日志")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Decision != "execute" || len(plan.Calls) != 1 || plan.Calls[0].ToolName != "bounded_log_signature" || string(plan.Calls[0].Arguments) != `{"service":"mcp","signature":"timeout"}` {
+		t.Fatalf("unexpected MCP log plan: %+v", plan)
 	}
 }
 

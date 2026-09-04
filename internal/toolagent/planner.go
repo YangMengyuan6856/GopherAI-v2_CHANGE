@@ -51,6 +51,7 @@ func (planner *Planner) Plan(message string) (Plan, error) {
 
 	wantsManifest := containsAny(normalized, []string{"部署清单", "发布清单", "当前发布", "当前版本", "git sha", "commit", "构建方式", "构建目标", "回滚策略", "分支"})
 	wantsHealth := containsAny(normalized, []string{"健康", "状态", "是否正常", "ready", "live", "backend", "后端", "worker", "索引服务", "mysql", "redis", "rabbitmq", "依赖"})
+	wantsLogs := containsAny(normalized, []string{"日志", " log", "报错", "错误", "panic", "noauth", "unauthorized", "超时", "timeout", "connection refused", "连接拒绝", "slow sql"})
 	if wantsManifest {
 		plan.Calls = append(plan.Calls, PlannedCall{ToolName: "deployment_manifest_lookup", Arguments: json.RawMessage(`{}`), ReasonCode: "RELEASE_EVIDENCE_REQUIRED", EvidenceRef: "release-manifest:<release_id>"})
 	}
@@ -58,6 +59,12 @@ func (planner *Planner) Plan(message string) (Plan, error) {
 		service := healthTarget(normalized)
 		arguments, _ := json.Marshal(map[string]string{"service": service, "probe": "ready"})
 		plan.Calls = append(plan.Calls, PlannedCall{ToolName: "service_health_snapshot", Arguments: arguments, ReasonCode: "RUNTIME_HEALTH_EVIDENCE_REQUIRED", EvidenceRef: "health-probe:" + service + ":ready"})
+	}
+	if wantsLogs {
+		service := logTarget(normalized)
+		signature := logSignature(normalized)
+		arguments, _ := json.Marshal(map[string]string{"service": service, "signature": signature})
+		plan.Calls = append(plan.Calls, PlannedCall{ToolName: "bounded_log_signature", Arguments: arguments, ReasonCode: "LOG_SIGNATURE_EVIDENCE_REQUIRED", EvidenceRef: "log-signature:" + service + ":" + signature + ":<content-hash>"})
 	}
 	if len(plan.Calls) > MaxPlanCalls {
 		plan.OmittedCount = len(plan.Calls) - MaxPlanCalls
@@ -79,6 +86,33 @@ func healthTarget(message string) string {
 		return "backend"
 	}
 	return "all"
+}
+
+func logTarget(message string) string {
+	if containsAny(message, []string{"mcp", "协议宿主"}) {
+		return "mcp"
+	}
+	if containsAny(message, []string{"worker", "索引服务", "索引 worker"}) {
+		return "index_worker"
+	}
+	return "backend"
+}
+
+func logSignature(message string) string {
+	switch {
+	case containsAny(message, []string{"panic", "runtime error", "fatal"}):
+		return "panic"
+	case containsAny(message, []string{"noauth", "unauthorized", "forbidden", "认证", "鉴权", "jwt", "token"}):
+		return "auth"
+	case containsAny(message, []string{"timeout", "超时", "deadline", "context canceled", "context cancelled"}):
+		return "timeout"
+	case containsAny(message, []string{"connection refused", "连接拒绝", "connection reset", "broken pipe", "dial tcp", "no route"}):
+		return "connection"
+	case containsAny(message, []string{"warning", "warn", "slow sql", "慢查询", "degraded"}):
+		return "warning"
+	default:
+		return "error"
+	}
 }
 
 func containsAny(value string, candidates []string) bool {

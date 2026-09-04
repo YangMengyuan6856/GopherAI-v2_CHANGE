@@ -1,7 +1,7 @@
 {
   "evaluator_version": "tool-runtime-evaluator-v1",
   "dataset_version": "devsupport-tool-runtime-v1",
-  "generated_at": "2026-09-04T21:48:26.9880747Z",
+  "generated_at": "2026-09-04T21:57:42.1601566Z",
   "human_reviewed": false,
   "baseline_eligible": false,
   "technical_gates_passed": true,
@@ -153,13 +153,13 @@
     {
       "id": "tool-selection-006",
       "category": "selection",
-      "scenario": "generic_health_selection",
+      "scenario": "log_signature_selection",
       "passed": true,
       "deterministic": true,
       "expected": {
         "decision": "execute",
         "tool_names": [
-          "service_health_snapshot"
+          "bounded_log_signature"
         ],
         "cached": false,
         "executions": 0,
@@ -168,7 +168,7 @@
       "actual": {
         "decision": "execute",
         "tool_names": [
-          "service_health_snapshot"
+          "bounded_log_signature"
         ],
         "cached": false,
         "executions": 0,
@@ -366,7 +366,7 @@
         "executions": 0,
         "audit_count": 1
       },
-      "latency_ms": 0
+      "latency_ms": 0.5373
     },
     {
       "id": "tool-authorization-004",
@@ -496,7 +496,7 @@
         "executions": 1,
         "audit_count": 1
       },
-      "latency_ms": 20.735
+      "latency_ms": 20.7294
     },
     {
       "id": "tool-resilience-004",

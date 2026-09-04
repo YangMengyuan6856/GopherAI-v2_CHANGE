@@ -143,6 +143,10 @@
               <button :disabled="invokingTool" @click="invokeGovernedTool(tool.name, { service: 'backend', probe: 'ready' })">Backend Ready</button>
               <button :disabled="invokingTool" @click="invokeGovernedTool(tool.name, { service: 'index_worker', probe: 'ready' })">Worker Ready</button>
             </div>
+            <div v-if="tool.name === 'bounded_log_signature'" class="tool-health-actions">
+              <button :disabled="invokingTool" @click="invokeGovernedTool(tool.name, { service: 'backend', signature: 'error' })">Backend 错误签名</button>
+              <button :disabled="invokingTool" @click="invokeGovernedTool(tool.name, { service: 'index_worker', signature: 'warning' })">Worker 告警签名</button>
+            </div>
           </article>
         </div>
         <div v-else class="tool-runtime-empty">当前没有通过治理注册的工具。</div>
@@ -1300,7 +1304,7 @@ export default {
         toolResult.value = null
         const response = await api.post('/tools/invoke', { tool_name: toolName, arguments: argumentsPayload, intent: 'tool_task' })
         toolResult.value = response.data
-        ElMessage.success('部署清单已通过完整治理链路返回')
+        ElMessage.success(`${toolName} 已通过完整治理链路返回`)
       } catch (error) {
         toolResult.value = error.response?.data || { status: 'error', error_code: 'TOOL_CONSOLE_REQUEST_FAILED', retryable: true }
         ElMessage.error(toolResult.value?.message || `工具调用失败：${toolResult.value?.error_code || '未知错误'}`)
