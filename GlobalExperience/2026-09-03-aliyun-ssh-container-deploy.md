@@ -956,3 +956,58 @@ enhancement failure into an empty answer. The endpoint reports independent
 usage, and stable outcomes. Prometheus exports bounded strategy request,
 duration, and enhancement counters. This makes later Fast-versus-Deep evaluation
 possible without using raw query text or dynamic error strings as metric labels.
+
+## 30. M3-28/29/30 60-Case RAG Gate and Explainability Release
+
+Release `20260904190254-560920e96696` (report commit
+`560920e9669602c945e080711b494dfa7ba00237`) passed the complete deployment
+pipeline: local root/MCP tests, three Linux/amd64 builds, bundle verification,
+atomic switch, Backend/Index Worker/MCP health, Vue compile, HTTP, and unique
+process checks. Bundle SHA-256:
+`afe36b3393a036e793ae3a9a627a3e843f17ff811af4f767fdce3cde867fc59f`.
+
+The v2 evaluation deliberately separates 50 answerable cases from 10
+no-evidence cases. Retrieval and citation recall denominators include only cases
+that should resolve; negative cases are measured by Evidence Gate Precision,
+No-evidence Safe Rate, Unsupported Answer Rate, ACL leakage, and model-call
+behavior. Mixing the two populations would reward a system for retrieving
+irrelevant evidence on questions it should refuse.
+
+The first 60-case run was useful because it failed: it exposed citation-format
+fragility and Chinese queries that had semantic retrieval candidates but lacked
+independent lexical support. The fixes remain bounded:
+
+- Accept common model citation spellings such as `【E1】` and `[1]`, normalize
+  them to verified Evidence IDs, and still reject every unknown or unauthorized
+  ID through Citation Builder.
+- Emit stable answer diagnostics (`status`, `reason`, `model_attempts`) so a
+  deterministic safety fallback is distinguishable from an ordinary model
+  answer.
+- Permit Dense evidence to obtain independent Chinese lexical support only when
+  at least four distinct CJK bigrams match and query coverage is at least 20%.
+  Do not lower the existing Hybrid score threshold. Keep no-evidence, injection,
+  credential, and cross-tenant negative tests alongside this rule.
+
+The final isolated run measured Recall@5 `1.0000`, nDCG@5 `0.9599`, MRR
+`0.9500`, Citation Precision `1.0000`, Citation Coverage `0.9800`, Unauthorized
+Recall `0`, Resolved Answer Rate `1.0000`, Evidence Gate Precision `1.0000`,
+No-evidence Safe Rate `1.0000`, Unsupported Answer Rate `0`, and Error Rate `0`.
+Search/answer/end-to-end P95 were `149ms/1277ms/1380ms`, below the 8-second G3
+gate. Dataset SHA-256 is
+`c4882a694401f52b4acb002614c0e7a4f4445740cf38b2fb0c50953798376104`;
+fixture SHA-256 is
+`14c27846dcaf3f8f962f51de60936302930bd36a81c2a8c0918054889189345e`.
+
+Use the dedicated Redis index `gopher:eval-rag-core-v2:v1:kb:chunks:idx` and
+delete only that exact key before and after a run. Never point the evaluator at
+the production knowledge index. The labels are still `pending_user`, so the
+report must remain `human_reviewed=false` and `baseline_eligible=false` until a
+human reviews all cases. Passing technical gates does not authorize a resume
+claim that the dataset is a frozen baseline.
+
+The same release adds user-visible lifecycle and answer diagnostics: each
+document can expose status, current version, content type, and stable failure
+code; citations expand to exact evidence and line range; Deep results expose
+extra queries, candidate counts, Token use, Rewrite/Rerank latency, and fallback
+reasons. These UI behaviors still require real signed-in acceptance even though
+the cloud compile and runtime gates passed.
