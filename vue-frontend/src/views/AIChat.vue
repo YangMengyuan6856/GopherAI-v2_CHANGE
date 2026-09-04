@@ -218,6 +218,7 @@
           <div>
             <strong>🩺 可恢复故障诊断</strong>
             <span>只形成有证据的假设和只读验证步骤，不执行修复命令</span>
+            <span v-if="diagnosticRecovered" class="diagnostic-recovered">已从服务端持久化检查点恢复</span>
           </div>
           <div class="diagnostic-actions">
             <button v-if="activeDiagnosticRun && !isDiagnosticTerminal(activeDiagnosticRun.run.state)" :disabled="loading" @click="cancelDiagnosticRun">取消运行</button>
@@ -225,7 +226,8 @@
           </div>
         </div>
         <div v-if="!activeDiagnosticRun" class="diagnostic-empty">
-          在下方输入故障现象和脱敏日志。系统会展示状态机、公开步骤、预算、假设、证据与验证方法。
+          <span v-if="restoringDiagnosticRun">正在恢复上次诊断 Run...</span>
+          <span v-else>在下方输入故障现象和脱敏日志。系统会展示状态机、公开步骤、预算、假设、证据与验证方法。</span>
         </div>
         <template v-else>
           <div class="diagnostic-run-summary">
@@ -369,6 +371,10 @@ export default {
     const knowledgeAnswer = ref(null)
     const diagnosticMode = ref(false)
     const activeDiagnosticRun = ref(null)
+    const diagnosticRecovered = ref(false)
+    const restoringDiagnosticRun = ref(false)
+    const diagnosticRunStorageKey = 'gopherai.active-diagnostic-run-v1'
+    const diagnosticModeStorageKey = 'gopherai.diagnostic-mode-v1'
     let knowledgePollTimer = null
 
     const renderMarkdown = (text) => {
@@ -745,6 +751,8 @@ export default {
         })
       }
       activeDiagnosticRun.value = response.data
+      diagnosticRecovered.value = false
+      rememberDiagnosticRun(response.data)
       currentMessages.value.push({
         role: 'assistant',
         content: diagnosticMessage(response.data),
@@ -764,6 +772,7 @@ export default {
         loading.value = true
         const response = await api.post(`/agent-runs/${activeDiagnosticRun.value.run.run_id}/cancel`)
         activeDiagnosticRun.value = response.data
+        rememberDiagnosticRun(response.data)
         ElMessage.success('诊断运行已取消')
       } catch (error) {
         ElMessage.error(error.response?.data?.message || '取消诊断运行失败')
@@ -774,13 +783,38 @@ export default {
 
     const resetDiagnosticRun = () => {
       activeDiagnosticRun.value = null
+      diagnosticRecovered.value = false
+      sessionStorage.removeItem(diagnosticRunStorageKey)
       nextTick(() => messageInput.value?.focus())
     }
 
-    const onDiagnosticModeChanged = () => {
+    const rememberDiagnosticRun = (payload) => {
+      const runId = payload?.run?.run_id
+      if (runId) sessionStorage.setItem(diagnosticRunStorageKey, runId)
+    }
+
+    const restoreDiagnosticRun = async () => {
+      const runId = sessionStorage.getItem(diagnosticRunStorageKey)
+      if (!runId || activeDiagnosticRun.value || restoringDiagnosticRun.value) return
+      try {
+        restoringDiagnosticRun.value = true
+        const response = await api.get(`/agent-runs/${encodeURIComponent(runId)}`)
+        activeDiagnosticRun.value = response.data
+        diagnosticRecovered.value = true
+      } catch (error) {
+        if (error.response?.status === 404) sessionStorage.removeItem(diagnosticRunStorageKey)
+        ElMessage.warning(error.response?.data?.message || '上次诊断 Run 暂时无法恢复，可稍后重新打开诊断模式')
+      } finally {
+        restoringDiagnosticRun.value = false
+      }
+    }
+
+    const onDiagnosticModeChanged = async () => {
+      sessionStorage.setItem(diagnosticModeStorageKey, diagnosticMode.value ? '1' : '0')
       if (diagnosticMode.value) {
         isStreaming.value = false
         knowledgeRequired.value = false
+        await restoreDiagnosticRun()
       }
     }
 
@@ -1201,6 +1235,10 @@ export default {
     onMounted(() => {
       loadSessions()
       loadKnowledgeDocuments()
+      if (sessionStorage.getItem(diagnosticModeStorageKey) === '1' && sessionStorage.getItem(diagnosticRunStorageKey)) {
+        diagnosticMode.value = true
+        restoreDiagnosticRun()
+      }
     })
 
     onUnmounted(() => {
@@ -1239,6 +1277,8 @@ export default {
       knowledgeAnswer,
       diagnosticMode,
       activeDiagnosticRun,
+      diagnosticRecovered,
+      restoringDiagnosticRun,
       documentStatusLabel,
       jobStatusLabel,
       retrievalModeLabel,
@@ -1449,6 +1489,17 @@ export default {
 .diagnostic-steps li span {
   color: #65758b;
   font-size: 12px;
+}
+
+.diagnostic-workbench-header .diagnostic-recovered {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: #176b45;
+  background: #dff7e9;
+  font-weight: 600;
 }
 
 .diagnostic-actions {
