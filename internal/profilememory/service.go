@@ -22,13 +22,14 @@ func (SystemClock) Now() time.Time { return time.Now().UTC() }
 type Service struct {
 	repository Repository
 	clock      Clock
+	selector   *Selector
 }
 
 func NewService(repository Repository, clock Clock) (*Service, error) {
 	if repository == nil || clock == nil {
 		return nil, errors.New("profile memory repository and clock are required")
 	}
-	return &Service{repository: repository, clock: clock}, nil
+	return &Service{repository: repository, clock: clock, selector: NewSelector()}, nil
 }
 
 func (service *Service) Capture(ctx context.Context, tenantID string, userID string, sourceRunID string, extracted diagnostic.ExtractedInput) error {
@@ -84,20 +85,38 @@ func (service *Service) Recall(ctx context.Context, tenantID string, userID stri
 	if err != nil {
 		return response, err
 	}
+	selected := service.selector.Select(harness.PrincipalHash(tenantID), harness.PrincipalHash(userID), query, limit, now, items)
+	for _, item := range selected {
+		response.Items = append(response.Items, publicMemory(item))
+	}
+	if len(response.Items) > 0 {
+		response.Status = "hit"
+	}
+	return response, nil
+}
+
+type Selector struct{}
+
+func NewSelector() *Selector { return &Selector{} }
+
+func (*Selector) Select(tenantHash string, userHash string, query string, limit int, now time.Time, items []model.EnvironmentMemory) []model.EnvironmentMemory {
+	if limit <= 0 || limit > MaxRecallResults {
+		limit = MaxRecallResults
+	}
 	type rankedMemory struct {
 		memory model.EnvironmentMemory
 		score  int
 	}
 	ranked := make([]rankedMemory, 0, len(items))
 	for _, item := range items {
-		if item.Status != StatusActive || item.Confidence < MinRecallConfidence || strings.TrimSpace(item.Value) == "" || (item.ExpiresAt != nil && !item.ExpiresAt.After(now)) {
+		_, allowed := allowedKeys[item.Key]
+		if !allowed || item.TenantIDHash != tenantHash || item.UserIDHash != userHash || item.Status != StatusActive || item.Confidence < MinRecallConfidence || strings.TrimSpace(item.Value) == "" || (item.ExpiresAt != nil && !item.ExpiresAt.After(now)) {
 			continue
 		}
 		score := profileQueryRelevance(item.Key, query)
-		if score == 0 {
-			continue
+		if score > 0 {
+			ranked = append(ranked, rankedMemory{memory: item, score: score})
 		}
-		ranked = append(ranked, rankedMemory{memory: item, score: score})
 	}
 	sort.SliceStable(ranked, func(i, j int) bool {
 		if ranked[i].score != ranked[j].score {
@@ -111,16 +130,19 @@ func (service *Service) Recall(ctx context.Context, tenantID string, userID stri
 		}
 		return ranked[i].memory.ID < ranked[j].memory.ID
 	})
-	if len(ranked) > limit {
-		ranked = ranked[:limit]
-	}
+	selected := make([]model.EnvironmentMemory, 0, limit)
+	seen := make(map[string]struct{}, limit)
 	for _, item := range ranked {
-		response.Items = append(response.Items, publicMemory(item.memory))
+		if _, duplicate := seen[item.memory.Key]; duplicate {
+			continue
+		}
+		seen[item.memory.Key] = struct{}{}
+		selected = append(selected, item.memory)
+		if len(selected) == limit {
+			break
+		}
 	}
-	if len(response.Items) > 0 {
-		response.Status = "hit"
-	}
-	return response, nil
+	return selected
 }
 
 func profileQueryRelevance(key string, query string) int {

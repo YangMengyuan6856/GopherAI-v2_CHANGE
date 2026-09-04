@@ -59,3 +59,27 @@ bottleneck evidence are available; it is not fabricated from unit tests.
 Both v1 and v2 labels remain `pending_user`. A passing technical report is not
 eligible to become an interview baseline until the corresponding labels are
 reviewed and changed to `human`.
+
+## Profile-memory safety dataset
+
+`devsupport-memory-v1.jsonl` is a deterministic 20-case contract suite for the
+user-governed profile-memory path. It contains four cases each for relevant
+recall, stale/wrong-value exclusion, deletion effectiveness, cross-principal
+isolation, and context-budget enforcement. The evaluator reuses the production
+profile selector and context assembler so ranking and budget regressions are
+tested at the same boundary used by chat requests.
+
+Run it locally with:
+
+```powershell
+go run ./cmd/memory-eval
+```
+
+The candidate report is written to
+`evals/results/devsupport-memory-v1-candidate.json`. Technical gates require at
+least 90% relevant recall, at most 5% stale/wrong injection, zero deleted-memory
+recall, zero cross-principal leakage, 100% context-budget compliance, and 100%
+deterministic replay. This is a deterministic contract suite rather than a real
+database fault-injection or semantic-vector benchmark. All labels are still
+`reviewed_by=pending_user`, so even a passing report has
+`baseline_eligible=false` until a human reviews the dataset.

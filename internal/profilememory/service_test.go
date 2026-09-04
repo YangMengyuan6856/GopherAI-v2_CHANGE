@@ -107,11 +107,12 @@ func TestRecallUsesScopedActiveFreshRelevantTopK(t *testing.T) {
 	now := time.Date(2026, 9, 5, 4, 0, 0, 0, time.UTC)
 	expired := now.Add(-time.Second)
 	future := now.Add(time.Hour)
+	tenantHash, userHash := harness.PrincipalHash("tenant-a"), harness.PrincipalHash("alice")
 	repository := &memoryRepository{recallItems: []model.EnvironmentMemory{
-		{ID: "redis-active", Key: "redis_version", Value: "7.4", Status: StatusActive, Confidence: 1, ExpiresAt: &future, LastObservedAt: now},
-		{ID: "redis-expired", Key: "redis_version", Value: "6.0", Status: StatusActive, Confidence: 1, ExpiresAt: &expired, LastObservedAt: now.Add(time.Minute)},
-		{ID: "redis-candidate", Key: "redis_version", Value: "7.5", Status: StatusCandidate, Confidence: 1, LastObservedAt: now},
-		{ID: "mysql-active", Key: "mysql_version", Value: "8.0", Status: StatusActive, Confidence: 1, LastObservedAt: now},
+		{ID: "redis-active", TenantIDHash: tenantHash, UserIDHash: userHash, Key: "redis_version", Value: "7.4", Status: StatusActive, Confidence: 1, ExpiresAt: &future, LastObservedAt: now},
+		{ID: "redis-expired", TenantIDHash: tenantHash, UserIDHash: userHash, Key: "redis_version", Value: "6.0", Status: StatusActive, Confidence: 1, ExpiresAt: &expired, LastObservedAt: now.Add(time.Minute)},
+		{ID: "redis-candidate", TenantIDHash: tenantHash, UserIDHash: userHash, Key: "redis_version", Value: "7.5", Status: StatusCandidate, Confidence: 1, LastObservedAt: now},
+		{ID: "mysql-active", TenantIDHash: tenantHash, UserIDHash: userHash, Key: "mysql_version", Value: "8.0", Status: StatusActive, Confidence: 1, LastObservedAt: now},
 	}}
 	service, _ := NewService(repository, fixedClock{now: now})
 	result, err := service.Recall(context.Background(), "tenant-a", "alice", "Redis NOAUTH 怎么排查", 5)

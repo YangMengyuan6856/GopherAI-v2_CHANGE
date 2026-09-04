@@ -221,12 +221,37 @@
             <span>Working、用户确认的 Episodic、环境 Profile 都以 MySQL 为权威；Redis 仅作可重建缓存/索引</span>
           </div>
           <div>
+            <button :disabled="loadingMemoryEvaluation" @click="toggleMemoryEvaluation">{{ memoryEvaluationOpen ? '收起记忆评测' : '查看记忆评测' }}</button>
             <button :disabled="loadingMemoryPreview" @click="loadMemoryPreview">刷新</button>
             <button :disabled="loadingMemoryPreview || !currentSessionId || tempSession" @click="rebuildWorkingMemory">从 MySQL 安全重建 Working</button>
           </div>
         </div>
         <div v-if="loadingMemoryPreview" class="memory-loading">正在读取当前用户的记忆边界...</div>
         <template v-else-if="memoryPreview || profileMemories">
+          <section v-if="memoryEvaluationOpen" class="diagnostic-evaluation">
+            <div v-if="loadingMemoryEvaluation" class="diagnostic-evaluation-loading">正在读取可追溯记忆评测报告...</div>
+            <template v-else-if="memoryEvaluation">
+              <div class="diagnostic-evaluation-title">
+                <div><strong>三级记忆安全契约评测</strong><span>{{ memoryEvaluation.metrics.case_count }} 条 · {{ memoryEvaluation.dataset_version }}</span></div>
+                <span :class="['evaluation-gate', memoryEvaluation.technical_gates_passed ? 'passed' : 'failed']">
+                  {{ memoryEvaluation.technical_gates_passed ? '技术门通过' : '技术门未通过' }}
+                </span>
+              </div>
+              <div class="diagnostic-evaluation-grid">
+                <div><strong>{{ metricPercent(memoryEvaluation.metrics.relevant_memory_recall) }}</strong><span>相关记忆召回</span></div>
+                <div><strong>{{ metricPercent(memoryEvaluation.metrics.stale_wrong_injection_rate) }}</strong><span>过期/错误注入率</span></div>
+                <div><strong>{{ memoryEvaluation.metrics.deleted_memory_recall }}</strong><span>删除后召回数</span></div>
+                <div><strong>{{ memoryEvaluation.metrics.cross_principal_leakage }}</strong><span>跨用户/租户泄漏</span></div>
+                <div><strong>{{ metricPercent(memoryEvaluation.metrics.context_budget_pass_rate) }}</strong><span>Token 预算遵守率</span></div>
+                <div><strong>{{ metricPercent(memoryEvaluation.metrics.deterministic_replay_rate) }}</strong><span>确定性重放率</span></div>
+              </div>
+              <div class="evaluation-candidate-warning">
+                <strong>候选报告，不是正式基线：</strong>
+                <span v-for="limitation in memoryEvaluation.limitations" :key="limitation">{{ limitation }}</span>
+              </div>
+              <small>{{ memoryEvaluation.evaluator_version }} · 报告 SHA-256 {{ memoryEvaluation.report_sha256.slice(0, 16) }}… · 人工复核 {{ memoryEvaluation.human_reviewed ? '完成' : '未完成' }}</small>
+            </template>
+          </section>
           <div v-if="memoryPreview" class="memory-stats">
             <span :class="['memory-cache-badge', `cache-${memoryPreview.window.cache_status}`]">
               {{ memoryCacheLabel(memoryPreview.window.cache_status) }}
@@ -574,6 +599,9 @@ export default {
     const memoryPreviewOpen = ref(false)
     const loadingMemoryPreview = ref(false)
     const memoryPreview = ref(null)
+    const memoryEvaluationOpen = ref(false)
+    const loadingMemoryEvaluation = ref(false)
+    const memoryEvaluation = ref(null)
     const profileMemories = ref(null)
     const profileDrafts = ref({})
     const profileMemoryBusy = ref('')
@@ -1037,6 +1065,21 @@ export default {
         ElMessage.error(error.response?.data?.message || '诊断评测报告暂时不可用')
       } finally {
         loadingDiagnosticEvaluation.value = false
+      }
+    }
+
+    const toggleMemoryEvaluation = async () => {
+      memoryEvaluationOpen.value = !memoryEvaluationOpen.value
+      if (!memoryEvaluationOpen.value || memoryEvaluation.value || loadingMemoryEvaluation.value) return
+      try {
+        loadingMemoryEvaluation.value = true
+        const response = await api.get('/evaluations/memory/latest')
+        memoryEvaluation.value = response.data
+      } catch (error) {
+        memoryEvaluationOpen.value = false
+        ElMessage.error(error.response?.data?.message || '记忆评测报告暂时不可用')
+      } finally {
+        loadingMemoryEvaluation.value = false
       }
     }
 
@@ -1685,6 +1728,9 @@ export default {
       memoryPreviewOpen,
       loadingMemoryPreview,
       memoryPreview,
+      memoryEvaluationOpen,
+      loadingMemoryEvaluation,
+      memoryEvaluation,
       profileMemories,
       profileDrafts,
       profileMemoryBusy,
@@ -1717,6 +1763,7 @@ export default {
       rebuildWorkingMemory,
       correctProfileMemory,
       deleteProfileMemory,
+      toggleMemoryEvaluation,
       toggleDiagnosticEvaluation,
       previewResolution,
       closeResolutionProposal,

@@ -1,0 +1,259 @@
+{
+  "evaluator_version": "memory-evaluator-v1",
+  "dataset_version": "devsupport-memory-v1",
+  "generated_at": "2026-09-04T20:08:53.456888Z",
+  "human_reviewed": false,
+  "baseline_eligible": false,
+  "technical_gates_passed": true,
+  "metric_notes": {
+    "cross_principal_leakage": "Other-user or other-tenant values present in context; target is exactly zero.",
+    "deleted_memory_recall": "Deleted fixture values present in rebuilt context; target is exactly zero.",
+    "relevant_memory_recall": "Expected relevant keys returned divided by all expected relevant keys.",
+    "stale_wrong_injection_rate": "Forbidden stale, conflicting, low-confidence or unrelated values injected divided by all forbidden values."
+  },
+  "metrics": {
+    "case_count": 20,
+    "relevant_memory_recall": 1,
+    "stale_wrong_injection_rate": 0,
+    "deleted_memory_recall": 0,
+    "cross_principal_leakage": 0,
+    "context_budget_pass_rate": 1,
+    "deterministic_replay_rate": 1,
+    "latency_p50_ms": 0,
+    "latency_p95_ms": 0
+  },
+  "cases": [
+    {
+      "id": "mem-rel-01",
+      "category": "relevant",
+      "expected_keys": [
+        "redis_version"
+      ],
+      "actual_keys": [
+        "redis_version"
+      ],
+      "within_budget": true,
+      "deterministic": true,
+      "latency_ms": 0
+    },
+    {
+      "id": "mem-rel-02",
+      "category": "relevant",
+      "expected_keys": [
+        "mysql_version"
+      ],
+      "actual_keys": [
+        "mysql_version"
+      ],
+      "within_budget": true,
+      "deterministic": true,
+      "latency_ms": 0
+    },
+    {
+      "id": "mem-rel-03",
+      "category": "relevant",
+      "expected_keys": [
+        "go_version",
+        "cloud_provider"
+      ],
+      "actual_keys": [
+        "cloud_provider",
+        "go_version"
+      ],
+      "within_budget": true,
+      "deterministic": true,
+      "latency_ms": 0
+    },
+    {
+      "id": "mem-rel-04",
+      "category": "relevant",
+      "expected_keys": [
+        "mysql_version",
+        "redis_version",
+        "cloud_provider",
+        "deployment_mode",
+        "go_version"
+      ],
+      "actual_keys": [
+        "cloud_provider",
+        "deployment_mode",
+        "go_version",
+        "mysql_version",
+        "redis_version"
+      ],
+      "within_budget": true,
+      "deterministic": true,
+      "latency_ms": 0
+    },
+    {
+      "id": "mem-stale-01",
+      "category": "stale_wrong",
+      "expected_keys": [
+        "redis_version"
+      ],
+      "actual_keys": [
+        "redis_version"
+      ],
+      "within_budget": true,
+      "deterministic": true,
+      "latency_ms": 0
+    },
+    {
+      "id": "mem-stale-02",
+      "category": "stale_wrong",
+      "within_budget": true,
+      "deterministic": true,
+      "latency_ms": 0
+    },
+    {
+      "id": "mem-stale-03",
+      "category": "stale_wrong",
+      "within_budget": true,
+      "deterministic": true,
+      "latency_ms": 0
+    },
+    {
+      "id": "mem-stale-04",
+      "category": "stale_wrong",
+      "within_budget": true,
+      "deterministic": true,
+      "latency_ms": 0
+    },
+    {
+      "id": "mem-del-01",
+      "category": "deleted",
+      "within_budget": true,
+      "deterministic": true,
+      "latency_ms": 0
+    },
+    {
+      "id": "mem-del-02",
+      "category": "deleted",
+      "expected_keys": [
+        "mysql_version"
+      ],
+      "actual_keys": [
+        "mysql_version"
+      ],
+      "within_budget": true,
+      "deterministic": true,
+      "latency_ms": 0
+    },
+    {
+      "id": "mem-del-03",
+      "category": "deleted",
+      "within_budget": true,
+      "deterministic": true,
+      "latency_ms": 0
+    },
+    {
+      "id": "mem-del-04",
+      "category": "deleted",
+      "within_budget": true,
+      "deterministic": true,
+      "latency_ms": 0
+    },
+    {
+      "id": "mem-acl-01",
+      "category": "cross_principal",
+      "within_budget": true,
+      "deterministic": true,
+      "latency_ms": 0
+    },
+    {
+      "id": "mem-acl-02",
+      "category": "cross_principal",
+      "within_budget": true,
+      "deterministic": true,
+      "latency_ms": 0
+    },
+    {
+      "id": "mem-acl-03",
+      "category": "cross_principal",
+      "expected_keys": [
+        "redis_version"
+      ],
+      "actual_keys": [
+        "redis_version"
+      ],
+      "within_budget": true,
+      "deterministic": true,
+      "latency_ms": 0
+    },
+    {
+      "id": "mem-acl-04",
+      "category": "cross_principal",
+      "expected_keys": [
+        "cloud_provider"
+      ],
+      "actual_keys": [
+        "cloud_provider"
+      ],
+      "within_budget": true,
+      "deterministic": true,
+      "latency_ms": 0
+    },
+    {
+      "id": "mem-budget-01",
+      "category": "context_budget",
+      "expected_keys": [
+        "redis_version",
+        "cloud_provider",
+        "deployment_mode",
+        "go_version",
+        "os"
+      ],
+      "actual_keys": [
+        "cloud_provider",
+        "deployment_mode",
+        "go_version",
+        "os",
+        "redis_version"
+      ],
+      "within_budget": true,
+      "deterministic": true,
+      "latency_ms": 0
+    },
+    {
+      "id": "mem-budget-02",
+      "category": "context_budget",
+      "expected_keys": [
+        "redis_version"
+      ],
+      "actual_keys": [
+        "redis_version"
+      ],
+      "within_budget": true,
+      "deterministic": true,
+      "latency_ms": 0
+    },
+    {
+      "id": "mem-budget-03",
+      "category": "context_budget",
+      "expected_keys": [
+        "cloud_provider",
+        "deployment_mode"
+      ],
+      "actual_keys": [
+        "cloud_provider",
+        "deployment_mode"
+      ],
+      "within_budget": true,
+      "deterministic": true,
+      "latency_ms": 0
+    },
+    {
+      "id": "mem-budget-04",
+      "category": "context_budget",
+      "expected_keys": [
+        "redis_version"
+      ],
+      "actual_keys": [
+        "redis_version"
+      ],
+      "within_budget": true,
+      "deterministic": true,
+      "latency_ms": 0
+    }
+  ]
+}
