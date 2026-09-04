@@ -1332,3 +1332,11 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 文件打开前要求固定目标是普通非符号链接文件，并验证解析路径没有逃出项目根。日志摘录会去 ANSI 控制序列并脱敏 URL/DSN 凭据、Bearer、password/token/secret/api-key、JWT 和邮箱。ToolAgent 可把“Worker 健康 + slow sql 告警日志”规划为 Health + Log 两个调用，二者仍分别经过统一 Runtime。
 - 首次 Release `20260905060051-d15dba5bb09e` 在线命中 Worker `SLOW SQL` 后，发现 Go 二进制把本地编译绝对源码路径写进 GORM 日志。提交 `4c6a3498` 增加跨 Windows/Linux 的源码路径归一化为 `<source>/<file>.go:<line>`，并以回归测试锁定；这是线上取证反向推动安全修复的真实闭环。
 - 最终 Release `20260905060533-4c6a3498ecf7`，bundle SHA-256 `2db1ca61c3f9d4e240f6ba6618ab242f1ac9dc30dbfdc23845aecaa939a7970e`，四进程门全部通过。线上 direct 空匹配仍返回可审计 success，不把“无错误”伪装成失败；ToolAgent 的 Worker ready + warning 两步均 success。页面与扫描结果不再出现 `F:/Kama_Project`。MySQL 审计记录为 tool_primary success `3`、tool_agent_v1 success `1`；Prometheus 当前记录 primary `2`、agent `1` 与 cache miss `3`（指标按进程重启清零，数据库审计跨发布保留）。更新后的 30 条候选评测仍全门通过，报告 SHA-256 为 `11f4b4fe932c3a4a6f2175bd84fa6295ffaf4617311e2b7886574ea2cccf9f53`。
+
+## 49. 2026-09-05 MCP 协议源进入统一治理
+
+- 提交 `0730ee3d` 将 MCP 从演示工具宿主改为单一、受限的部署证据协议源。MCP Server 只暴露 `deployment_manifest_source`，不接受调用参数，只读取固定的 `release-manifest.json`，限制 64 KiB、严格拒绝未知字段，并只返回公开白名单字段；计算器、时间、天气、联网搜索等 demo 工具继续禁用。
+- 主后端新增 `mcp_deployment_evidence@1.0.0` Adapter。远端 MCP 只负责协议取数，调用前后的精确工具名、Schema、Intent、Permission、SideEffect、预算、超时、重试、缓存、熔断、结果上限、审计和指标全部由统一 Tool Runtime 执行。单测证明权限拒绝时 MCP 协议调用次数为 0，远端未知字段会 fail-closed，传输错误只按只读幂等规则重试。
+- MCP 默认从 `:8081` 收紧为 `127.0.0.1:8081`。云端 `/proc/net/tcp` 的监听记录为 `0100007F:1F91 0A`，即 loopback:8081 LISTEN；它不是新增公网工具入口。ToolAgent 的显式 MCP 发布清单问题只规划该 Adapter，不能绕过 Runtime 直连协议源。
+- Release `20260905061957-0730ee3debaa`，bundle SHA-256 `97e6fc03d46d7c3706554b9b115c48158ac55cb8c1272edb649f7a962dd012a8`，Backend/Index Worker live/ready、MCP、Vue 编译/HTTP 和唯一进程门全部通过。浏览器 direct 与 ToolAgent 两条真实路径均返回当前 release、Git SHA 和 `mcp:deployment_manifest_source:<release>` 证据引用。
+- MySQL 持久审计分别记录 `tool_primary/success/1` 与 `tool_agent_v1/success/1`；Prometheus 进程内指标对应 success 各 1、cache miss 2，标签不含 URL、用户、Call ID 或 Trace ID。这个纵切证明 MCP 只是 Adapter 协议边界，而不是治理旁路；当前仍只有一个受限来源，不能宣称已有通用外部 MCP 市场接入。
