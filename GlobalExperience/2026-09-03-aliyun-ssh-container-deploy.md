@@ -822,3 +822,34 @@ Three versioned acceptance files live in
 verify upload, asynchronous indexing, key/symbol retrieval, line-level
 citations, and grounded answering. Do not replace this user test with remote
 database injection; the real browser upload path is part of the feature.
+
+## 24. M3-B2 Document Version Alias and Frontend Gate Rollback
+
+Release `20260904173743-fe795b9e8759` adds immutable candidate uploads for an
+existing logical document. MySQL `knowledge_documents.current_version` is the
+authoritative read alias: the worker writes and verifies the candidate chunks
+first, then moves this alias inside the same transaction that marks the job
+complete. Retrieval joins chunks to the active document version, so a failed
+candidate cannot replace or leak alongside the last successful version.
+Completion is monotonic; a delayed older job cannot roll the alias back from a
+higher version.
+
+The first deployment candidate, `20260904173435-a779ec2ec4cc`, passed Backend
+and Worker health but failed the Vue ESLint gate because the newly added block
+mixed tabs and spaces. The deploy script stopped the candidate and restored the
+previous release, including successful Backend/Worker/frontend checks. Do not
+disable lint to get around this gate. Normalize source indentation locally,
+commit the formatting fix, and rerun the same immutable deployment. The second
+release passed Vue compilation and HTTP readiness along with all service gates.
+
+This incident confirms two reusable rules:
+
+- UI lint/compile is part of release readiness, not a cosmetic follow-up.
+- A failed late gate must exercise the existing full rollback path; do not
+  manually patch the half-deployed directory or restart individual processes.
+
+Acceptance fixtures `m3b-version-alias-v1.md`, `m3b-version-alias-v2.md`, and
+`m3b-version-alias-invalid.json` are checked in. The signed-in page test should
+prove v1 remains visible while v2 is queued, v2 becomes the only authoritative
+version after success, and an invalid later candidate reports failure while the
+last successful version remains queryable.
