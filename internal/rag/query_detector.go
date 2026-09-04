@@ -65,16 +65,7 @@ type QueryAssessmentSignals struct {
 // It deliberately avoids an LLM call so the decision is reproducible, cheap,
 // and suitable as the gate in front of conditional rewrite/rerank.
 func AssessQuery(query string, hits []SearchHit, diagnostics SearchDiagnostics) QueryAssessment {
-	signals, score, queryReasons := inspectQuery(query)
-	assessment := QueryAssessment{
-		Version: QueryAssessmentVersion, Complexity: QueryComplexitySimple,
-		ComplexityScore: roundScore(score), Gap: QueryGapNone, Signals: signals,
-	}
-	if score >= complexityThreshold {
-		assessment.Complexity = QueryComplexityComplex
-		assessment.RewriteRecommended = true
-	}
-	assessment.ReasonCodes = append(assessment.ReasonCodes, queryReasons...)
+	assessment := AnalyzeQueryShape(query)
 
 	populateRetrievalSignals(&assessment.Signals, hits)
 	if assessment.Signals.AmbiguousReference {
@@ -118,6 +109,28 @@ func AssessQuery(query string, hits []SearchHit, diagnostics SearchDiagnostics) 
 	if !assessment.DeepRecommended {
 		assessment.ReasonCodes = appendReason(assessment.ReasonCodes, "simple_query_high_confidence")
 	}
+	return assessment
+}
+
+// AnalyzeQueryShape performs the pre-retrieval part of the assessment. It is
+// safe for routing because it does not infer a retrieval gap before retrieval
+// has actually run.
+func AnalyzeQueryShape(query string) QueryAssessment {
+	signals, score, queryReasons := inspectQuery(query)
+	assessment := QueryAssessment{
+		Version: QueryAssessmentVersion, Complexity: QueryComplexitySimple,
+		ComplexityScore: roundScore(score), Gap: QueryGapNone, Signals: signals,
+		ReasonCodes: queryReasons,
+	}
+	if score >= complexityThreshold {
+		assessment.Complexity = QueryComplexityComplex
+		assessment.RewriteRecommended = true
+	}
+	if signals.AmbiguousReference {
+		assessment.Gap = QueryGapHard
+		assessment.RewriteRecommended = true
+	}
+	assessment.DeepRecommended = assessment.RewriteRecommended
 	return assessment
 }
 
