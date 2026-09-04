@@ -315,7 +315,7 @@ func WriteRAGReportMarkdown(writer io.Writer, report RAGReport) error {
 	}
 	_, err := fmt.Fprintf(writer, `# DevSupport RAG Core Evaluation
 
-- Status: **%s**
+- Technical metric status: **%s**
 - Dataset: %s (%d cases)
 - Fixture: %s
 - Candidate: %s
