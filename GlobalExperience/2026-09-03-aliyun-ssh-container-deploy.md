@@ -794,3 +794,31 @@ The report is reproducible at the dataset/fixture/retriever/config level, but
 the external model is mutable. The 20 labels are still `pending_user`, so the
 technical PASS is not yet eligible to freeze as an interview or regression
 baseline (`human_reviewed=false`, `baseline_eligible=false`).
+
+## 23. M3-B1 Structured Document Indexing
+
+Release `20260904164832-ac761f4ef97e` adds real parser-aware indexing for
+JSON, YAML/YML, and Go source while preserving the Markdown/TXT path. All Go
+and MCP tests ran locally; the server received prebuilt Linux artifacts only.
+Bundle verification, atomic switch, backend/worker readiness, MCP TCP, and Vue
+compile/HTTP passed.
+
+The implementation preserves data a later answer must cite:
+
+- JSON/YAML scalar values become deterministic key-path sections such as
+  `service > retry > max_attempts`, with source line ranges.
+- Go source uses the standard Go AST and emits package, type, var/const,
+  function, and method sections; oversized declarations split on source lines
+  while keeping the owning symbol and bounded token size.
+- Invalid JSON/YAML/Go syntax is a non-retryable parse failure and cannot write
+  partial MySQL chunks or Redis vectors.
+- Structured-data and Go parser families domain-separate their document
+  fingerprints, so identical bytes interpreted as TXT and YAML do not reuse an
+  incompatible index. The legacy Markdown/TXT hash stays unchanged, avoiding a
+  one-time duplicate of existing uploads.
+
+Three versioned acceptance files live in
+`evals/fixtures/_manual_uploads`. Use them through the signed-in public page to
+verify upload, asynchronous indexing, key/symbol retrieval, line-level
+citations, and grounded answering. Do not replace this user test with remote
+database injection; the real browser upload path is part of the feature.
