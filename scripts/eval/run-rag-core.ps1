@@ -51,7 +51,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "copy evaluator into container failed" }
 
     Write-Host "[eval] running 20-case RAG slice against an isolated Redis index"
-    & ssh @sshOptions $SshHost "docker exec -w /root/GopherAI- '$Container' '$remoteRoot/GopherAI-rag-eval' -dataset '$remoteRoot/devsupport-rag-core-v1.jsonl' -fixture '$remoteRoot/kb-fixture-v1.json' -out-json '$remoteRoot/devsupport-rag-core-latest.json' -out-md '$remoteRoot/devsupport-rag-core-latest.md' -candidate '$Candidate'"
+    & ssh @sshOptions $SshHost "docker exec -e GOMAXPROCS=1 -w /root/GopherAI- '$Container' nice -n 10 '$remoteRoot/GopherAI-rag-eval' -dataset '$remoteRoot/devsupport-rag-core-v1.jsonl' -fixture '$remoteRoot/kb-fixture-v1.json' -out-json '$remoteRoot/devsupport-rag-core-latest.json' -out-md '$remoteRoot/devsupport-rag-core-latest.md' -candidate '$Candidate'"
     $evalExit = $LASTEXITCODE
 
     & ssh @sshOptions $SshHost "docker cp '${Container}:$remoteRoot/devsupport-rag-core-latest.json' '$remoteRoot/devsupport-rag-core-latest.json' && docker cp '${Container}:$remoteRoot/devsupport-rag-core-latest.md' '$remoteRoot/devsupport-rag-core-latest.md'"
