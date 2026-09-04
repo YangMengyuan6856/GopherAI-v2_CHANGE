@@ -1348,3 +1348,11 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 30 条工具候选集把原单纯 cache-hit 用例升级为“首次填充 → 新鲜命中 → TTL 后依赖失败 → 显式 stale”三调用链，仍保持 5 类各 6 条，所有技术门 `100%`、危险动作执行率 `0%`、未知工具执行 `0`、人工标签仍待复核。新报告 SHA-256 为 `13769f4edb6b1c5496ca6611cb8e3c478cbd96ac7421e8ec88b45b70db7db8c2`。
 - Release `20260905064425-c9107e6df34e`，bundle SHA-256 `189c1f28b4ff682e701f38881c545f501348ef82d6d0f9097e2425982b3d6c1b`，四进程门通过。演练只短暂停止 loopback MCP 协议源：先建立当前发布清单缓存，等待 3 秒 TTL 后停 MCP，页面返回 success 但醒目标记 `陈旧证据降级 / TOOL_EXECUTION_FAILED`；恢复 MCP 后下一次调用重新变为非缓存的新鲜结果。
 - 第一次演练在人工操作超过 30 秒 stale 窗口后调用，按设计返回 `TOOL_EXECUTION_FAILED` 而不是旧数据；缩短停机/调用间隔后才命中 stale。这不是测试失误应被隐藏，而是窗口上限真实生效的证据。最终 MySQL 最近审计包含 fresh success 3、显式 stale success 1、窗口外 error 1；Prometheus 为 `stale_fallback=1`、circuit 最终 `closed=1`，Backend、Worker 与 MCP 均恢复 ready。
+
+## 51. 2026-09-05 Confirm Resolution HITL 内部写治理
+
+- 提交 `cb7fd326` 将原有“确认解决并写入 Episodic Memory”接入 `confirm_resolution@1.0.0`。页面和 HTTP 成功/冲突契约不变，但服务端现在先把固定字段组装为 Tool Invocation，再经过精确 Registry、严格 Schema、`troubleshooting` Intent、`devsupport:resolution:confirm` 权限、`internal_write` 副作用、单次预算、5 秒超时、幂等重试、结果上限、审计和指标，最后才进入原有 Feedback + Incident + Outbox 同事务。
+- Principal 只由 JWT 中间件构造并通过 Runtime 的私有执行上下文交给 Adapter，客户端 JSON 不能提交 user、permission、side effect 或 budget。该 Tool 不注册到公共 Tool Runtime/ToolAgent；线上目录仍只有四个 read-only Tool。单测同时锁定缺权限、只读调用者、预算耗尽均零执行，以及 `external_write` 在内部写授权下仍被拒绝。
+- 30 条候选评测中的授权/安全用例已改为调用真实 HITL Adapter：合法内部写执行 1 次并审计 1 次；只读调用者执行 0 次；外部写执行 0 次。加上 stale-if-error 用例后五类通过率、审计覆盖和确定性重放仍为 `100%`，危险动作率 `0%`，报告 SHA-256 更新为 `86f57a4bb7af8daf98bf5603f8d8bfb26ec70b89ed82faf27f0c289496037421`，人工标签仍是 `pending_user`。
+- Release `20260905070322-cb7fd326710d`，bundle SHA-256 `7869f94dad17f3855ab0f47c91e09e9a72176347ef5e0d609d277d579c844418`，四进程门通过。真实页面新建 Redis NOAUTH 诊断，先预览且不写，勾选明确确认后才写入案例 `dd196702…`，RabbitMQ 异步索引随后变为 indexed。
+- MySQL 工具审计为 `confirm_resolution / human_confirmed_action_v1 / success`，cached/stale 均为 0，Args/User hash 长度 64、Trace ID 长度 36；Prometheus 为 accepted 1、success 1、cache bypass 1。数据库最新案例为 `confirmed/indexed`。这证明“人工确认是能力授权边界”，不是让 Agent 自主执行修复。
