@@ -28,6 +28,10 @@
           <input type="checkbox" id="streamingMode" v-model="isStreaming" />
           流式响应
         </label>
+        <label for="knowledgeMode" class="knowledge-mode" title="显式要求统一聊天入口使用 rag_fast；关闭时普通聊天保持原路径">
+          <input type="checkbox" id="knowledgeMode" v-model="knowledgeRequired" />
+          知识库回答
+        </label>
         <button class="upload-btn" @click="triggerFileUpload" :disabled="uploading">📎 上传文档(.md/.txt)</button>
         <button class="search-toggle-btn" @click="toggleKnowledgeSearch">🔎 证据检索</button>
         <input
@@ -121,6 +125,12 @@
           <div v-if="message.role === 'assistant' && message.meta && message.meta.traceId" class="routing-meta">
             自动路由 · {{ message.meta.strategy }} · {{ message.meta.policyVersion }} · Trace {{ message.meta.traceId.slice(0, 8) }}
           </div>
+          <div v-if="message.role === 'assistant' && message.meta && message.meta.citations && message.meta.citations.length" class="chat-citations">
+            <span v-for="(citation, citationIndex) in message.meta.citations" :key="citation.citation_id">
+              [{{ citationIndex + 1 }}] {{ citation.document }} · v{{ citation.version }} ·
+              {{ citation.section || '未命名章节' }} · L{{ citation.line_start }}-{{ citation.line_end }}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -168,6 +178,7 @@ export default {
     const messagesRef = ref(null)
     const messageInput = ref(null)
     const isStreaming = ref(false)
+    const knowledgeRequired = ref(false)
     const uploading = ref(false)
     const fileInput = ref(null)
     const knowledgeDocuments = ref([])
@@ -402,7 +413,7 @@ export default {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
       }
-      const body = { message: question }
+      const body = { message: question, knowledge_required: knowledgeRequired.value }
       if (!tempSession.value) body.session_id = currentSessionId.value
 
       try {
@@ -505,7 +516,7 @@ export default {
 
     async function handleNormal(question) {
       if (tempSession.value) {
-        const response = await api.post('/chat/auto', { message: question })
+        const response = await api.post('/chat/auto', { message: question, knowledge_required: knowledgeRequired.value })
         if (response.data && response.data.session_id) {
           const sessionId = String(response.data.session_id)
           const aiMessage = {
@@ -513,7 +524,8 @@ export default {
             content: response.data.message || '',
             meta: {
               status: 'done', traceId: response.data.trace_id || '',
-              strategy: response.data.strategy || '自动选择', policyVersion: response.data.policy_version || ''
+              strategy: response.data.strategy || '自动选择', policyVersion: response.data.policy_version || '',
+              citations: response.data.citations || [], needsUserInput: response.data.needs_user_input || false
             }
           }
 
@@ -536,14 +548,19 @@ export default {
 
         sessionMsgs.push({ role: 'user', content: question })
 
-        const response = await api.post('/chat/auto', { message: question, session_id: currentSessionId.value })
+        const response = await api.post('/chat/auto', {
+          message: question,
+          session_id: currentSessionId.value,
+          knowledge_required: knowledgeRequired.value
+        })
         if (response.data && response.data.session_id) {
           const aiMessage = {
             role: 'assistant',
             content: response.data.message || '',
             meta: {
               status: 'done', traceId: response.data.trace_id || '',
-              strategy: response.data.strategy || '自动选择', policyVersion: response.data.policy_version || ''
+              strategy: response.data.strategy || '自动选择', policyVersion: response.data.policy_version || '',
+              citations: response.data.citations || [], needsUserInput: response.data.needs_user_input || false
             }
           }
           sessionMsgs.push(aiMessage)
@@ -742,6 +759,7 @@ export default {
       messagesRef,
       messageInput,
       isStreaming,
+      knowledgeRequired,
       uploading,
       fileInput,
       knowledgeDocuments,
@@ -1145,11 +1163,34 @@ export default {
   font-weight: 700;
 }
 
+.knowledge-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: rgba(25, 169, 116, 0.1);
+  color: #167a57;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .routing-meta {
   margin-top: 9px;
   color: #8492a6;
   font-size: 11px;
   letter-spacing: 0.01em;
+}
+
+.chat-citations {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px dashed rgba(64, 158, 255, 0.25);
+  color: #607d9b;
+  font-size: 11px;
 }
 
 .upload-btn {

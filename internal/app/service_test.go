@@ -30,6 +30,16 @@ func (selector fakeSelector) Select(context.Context, contract.RequestContext, co
 	return selector.decision, nil
 }
 
+type capturingSelector struct {
+	decision contract.StrategyDecision
+	intent   contract.IntentResult
+}
+
+func (selector *capturingSelector) Select(_ context.Context, _ contract.RequestContext, intent contract.IntentResult) (contract.StrategyDecision, error) {
+	selector.intent = intent
+	return selector.decision, nil
+}
+
 type fakeStrategy struct{ fail bool }
 
 func (fakeStrategy) Name() string { return "legacy_chat" }
@@ -74,6 +84,24 @@ func TestChatRunsFixedStrategyAndBuildsTrace(t *testing.T) {
 	}
 	if output.Trace.TraceID != "trace-1" || len(output.Trace.Steps) != 2 {
 		t.Fatalf("trace was not completed: %#v", output.Trace)
+	}
+}
+
+func TestExplicitKnowledgeRequestCreatesProjectQAIntentStage(t *testing.T) {
+	selector := &capturingSelector{decision: contract.StrategyDecision{
+		StrategyName: "legacy_chat", StrategyVersion: "legacy-v0", PolicyVersion: "policy-v0",
+		ReasonCode: "test", Budgets: defaultBudgets,
+	}}
+	service, err := NewService(selector, &fakeClock{now: time.Date(2026, 9, 3, 10, 0, 0, 0, time.UTC)}, &fakeIDs{values: []string{"request-1", "trace-1"}}, fakeStrategy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := service.Chat(context.Background(), ChatInput{UserID: "user", TenantID: "user", Question: "question", KnowledgeRequired: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selector.intent.Intent != ProjectQAIntent || selector.intent.Version != ExplicitIntentVersion || selector.intent.Stages[0].Stage != "explicit_request" || !output.Request.KnowledgeRequired {
+		t.Fatalf("explicit knowledge intent was not preserved: intent=%+v request=%+v", selector.intent, output.Request)
 	}
 }
 

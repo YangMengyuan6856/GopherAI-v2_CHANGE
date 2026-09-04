@@ -8,6 +8,9 @@ func TestDefaultProviderEnablesDevSupport(t *testing.T) {
 	if !provider.Enabled(DevSupportEnabled) {
 		t.Fatal("devsupport must default to enabled for the new auto entry")
 	}
+	if !provider.Enabled(RAGFastEnabled) {
+		t.Fatal("rag_fast must default to enabled behind its explicit request gate")
+	}
 }
 
 func TestEnvironmentOverridesDefault(t *testing.T) {

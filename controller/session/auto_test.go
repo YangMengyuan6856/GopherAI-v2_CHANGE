@@ -16,6 +16,20 @@ import (
 
 type fakeChatApplication struct{}
 
+type capturingChatApplication struct {
+	input app.ChatInput
+}
+
+func (application *capturingChatApplication) Chat(_ context.Context, input app.ChatInput) (app.ChatOutput, error) {
+	application.input = input
+	return testOutput(input), nil
+}
+
+func (application *capturingChatApplication) Stream(_ context.Context, input app.ChatInput, _ app.StreamEmitter) (app.ChatOutput, error) {
+	application.input = input
+	return testOutput(input), nil
+}
+
 func (fakeChatApplication) Chat(_ context.Context, input app.ChatInput) (app.ChatOutput, error) {
 	return testOutput(input), nil
 }
@@ -57,6 +71,20 @@ func TestAutoChatDoesNotRequireModelType(t *testing.T) {
 	}
 	if response.Message != "answer" || response.Strategy != "legacy_chat" || response.SessionID != "session-1" {
 		t.Fatalf("unexpected response: %#v", response)
+	}
+}
+
+func TestAutoChatPropagatesExplicitKnowledgeRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	application := new(capturingChatApplication)
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Set("userName", "user")
+	context.Request = httptest.NewRequest(http.MethodPost, "/api/v1/chat/auto", bytes.NewBufferString(`{"message":"question","knowledge_required":true}`))
+	context.Request.Header.Set("Content-Type", "application/json")
+	NewAutoHandler(application).Chat(context)
+	if recorder.Code != http.StatusOK || !application.input.KnowledgeRequired {
+		t.Fatalf("knowledge request was not propagated: code=%d input=%+v", recorder.Code, application.input)
 	}
 }
 

@@ -6,7 +6,10 @@ import (
 	"strings"
 )
 
-const DevSupportEnabled = "devsupport.enabled"
+const (
+	DevSupportEnabled = "devsupport.enabled"
+	RAGFastEnabled    = "rag.fast.enabled"
+)
 
 type Provider interface {
 	Enabled(name string) bool
@@ -26,7 +29,7 @@ func NewEnvProvider(defaults map[string]bool) *EnvProvider {
 }
 
 func DefaultProvider() *EnvProvider {
-	return NewEnvProvider(map[string]bool{DevSupportEnabled: true})
+	return NewEnvProvider(map[string]bool{DevSupportEnabled: true, RAGFastEnabled: true})
 }
 
 func (provider *EnvProvider) Enabled(name string) bool {

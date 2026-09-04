@@ -9,18 +9,19 @@ import (
 const SchemaVersion = "1"
 
 type RequestContext struct {
-	TraceID       string           `json:"trace_id"`
-	RequestID     string           `json:"request_id"`
-	UserID        string           `json:"user_id"`
-	TenantID      string           `json:"tenant_id"`
-	SessionID     string           `json:"session_id,omitempty"`
-	Question      string           `json:"question"`
-	Locale        string           `json:"locale"`
-	StartedAt     time.Time        `json:"started_at"`
-	Deadline      time.Time        `json:"deadline"`
-	PolicyVersion string           `json:"policy_version,omitempty"`
-	Debug         bool             `json:"debug"`
-	Budgets       ExecutionBudgets `json:"budgets"`
+	TraceID           string           `json:"trace_id"`
+	RequestID         string           `json:"request_id"`
+	UserID            string           `json:"user_id"`
+	TenantID          string           `json:"tenant_id"`
+	SessionID         string           `json:"session_id,omitempty"`
+	Question          string           `json:"question"`
+	KnowledgeRequired bool             `json:"knowledge_required,omitempty"`
+	Locale            string           `json:"locale"`
+	StartedAt         time.Time        `json:"started_at"`
+	Deadline          time.Time        `json:"deadline"`
+	PolicyVersion     string           `json:"policy_version,omitempty"`
+	Debug             bool             `json:"debug"`
+	Budgets           ExecutionBudgets `json:"budgets"`
 }
 
 func (request RequestContext) Validate() error {

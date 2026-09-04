@@ -5,6 +5,7 @@ import (
 	"GopherAI/internal/contract"
 	"GopherAI/internal/observability"
 	"GopherAI/internal/platform/feature"
+	knowledgeplatform "GopherAI/internal/platform/knowledge"
 	"GopherAI/internal/platform/legacy"
 	"GopherAI/internal/policy"
 	"GopherAI/middleware/requestid"
@@ -33,23 +34,26 @@ type ChatObserver interface {
 }
 
 type AutoChatRequest struct {
-	Message         string `json:"message" binding:"required"`
-	SessionID       string `json:"session_id,omitempty"`
-	ClientRequestID string `json:"client_request_id,omitempty"`
-	Debug           bool   `json:"debug"`
+	Message           string `json:"message" binding:"required"`
+	SessionID         string `json:"session_id,omitempty"`
+	ClientRequestID   string `json:"client_request_id,omitempty"`
+	Debug             bool   `json:"debug"`
+	KnowledgeRequired bool   `json:"knowledge_required"`
 }
 
 type AutoChatResponse struct {
-	SchemaVersion string              `json:"schema_version"`
-	TraceID       string              `json:"trace_id"`
-	RequestID     string              `json:"request_id"`
-	SessionID     string              `json:"session_id"`
-	Message       string              `json:"message"`
-	Intent        string              `json:"intent"`
-	Strategy      string              `json:"strategy"`
-	PolicyVersion string              `json:"policy_version"`
-	Confidence    float64             `json:"confidence"`
-	Citations     []contract.Citation `json:"citations,omitempty"`
+	SchemaVersion  string              `json:"schema_version"`
+	TraceID        string              `json:"trace_id"`
+	RequestID      string              `json:"request_id"`
+	SessionID      string              `json:"session_id"`
+	Message        string              `json:"message"`
+	Intent         string              `json:"intent"`
+	Strategy       string              `json:"strategy"`
+	PolicyVersion  string              `json:"policy_version"`
+	Confidence     float64             `json:"confidence"`
+	Resolved       bool                `json:"resolved"`
+	NeedsUserInput bool                `json:"needs_user_input"`
+	Citations      []contract.Citation `json:"citations,omitempty"`
 }
 
 func NewAutoHandler(application ChatApplication) *AutoHandler {
@@ -63,7 +67,7 @@ func NewObservedAutoHandler(application ChatApplication, observer ChatObserver) 
 func NewDefaultAutoHandler() *AutoHandler {
 	flags := feature.DefaultProvider()
 	selector := policy.NewFixedSelector(flags)
-	application, err := app.NewService(selector, app.SystemClock{}, app.UUIDGenerator{}, legacy.NewDefaultChatStrategy())
+	application, err := app.NewService(selector, app.SystemClock{}, app.UUIDGenerator{}, legacy.NewDefaultChatStrategy(), knowledgeplatform.NewDefaultChatStrategy())
 	if err != nil {
 		panic(fmt.Sprintf("initialize auto chat application: %v", err))
 	}
@@ -85,16 +89,18 @@ func (handler *AutoHandler) Chat(context *gin.Context) {
 	setTraceHeaders(context, output)
 	handler.record(output, nil)
 	context.JSON(http.StatusOK, AutoChatResponse{
-		SchemaVersion: contract.SchemaVersion,
-		TraceID:       output.Request.TraceID,
-		RequestID:     output.Request.RequestID,
-		SessionID:     output.Result.SessionID,
-		Message:       output.Result.Answer,
-		Intent:        output.Intent.Intent,
-		Strategy:      output.Decision.StrategyName,
-		PolicyVersion: output.Decision.PolicyVersion,
-		Confidence:    output.Result.Confidence,
-		Citations:     output.Result.Citations,
+		SchemaVersion:  contract.SchemaVersion,
+		TraceID:        output.Request.TraceID,
+		RequestID:      output.Request.RequestID,
+		SessionID:      output.Result.SessionID,
+		Message:        output.Result.Answer,
+		Intent:         output.Intent.Intent,
+		Strategy:       output.Decision.StrategyName,
+		PolicyVersion:  output.Decision.PolicyVersion,
+		Confidence:     output.Result.Confidence,
+		Resolved:       output.Result.Resolved,
+		NeedsUserInput: output.Result.NeedsUserInput,
+		Citations:      output.Result.Citations,
 	})
 }
 
@@ -151,6 +157,7 @@ func chatInput(context *gin.Context, request *AutoChatRequest) app.ChatInput {
 	return app.ChatInput{
 		TraceID: traceID, RequestID: requestID, UserID: userID, TenantID: userID,
 		SessionID: strings.TrimSpace(request.SessionID), Question: strings.TrimSpace(request.Message), Locale: "zh-CN", Debug: request.Debug,
+		KnowledgeRequired: request.KnowledgeRequired,
 	}
 }
 

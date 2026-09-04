@@ -10,8 +10,10 @@ import (
 )
 
 const (
-	LegacyIntent        = "legacy"
-	LegacyIntentVersion = "legacy-v0"
+	LegacyIntent          = "legacy"
+	LegacyIntentVersion   = "legacy-v0"
+	ProjectQAIntent       = "project_qa"
+	ExplicitIntentVersion = "explicit-v1"
 )
 
 var defaultBudgets = contract.ExecutionBudgets{
@@ -44,14 +46,15 @@ type ChatStrategy interface {
 }
 
 type ChatInput struct {
-	TraceID   string
-	RequestID string
-	UserID    string
-	TenantID  string
-	SessionID string
-	Question  string
-	Locale    string
-	Debug     bool
+	TraceID           string
+	RequestID         string
+	UserID            string
+	TenantID          string
+	SessionID         string
+	Question          string
+	KnowledgeRequired bool
+	Locale            string
+	Debug             bool
 }
 
 type ChatOutput struct {
@@ -155,7 +158,7 @@ func (service *Service) prepare(ctx context.Context, input ChatInput) (ChatOutpu
 	}
 	request := contract.RequestContext{
 		TraceID: traceID, RequestID: requestID, UserID: input.UserID, TenantID: input.TenantID,
-		SessionID: input.SessionID, Question: input.Question, Locale: locale, StartedAt: startedAt,
+		SessionID: input.SessionID, Question: input.Question, KnowledgeRequired: input.KnowledgeRequired, Locale: locale, StartedAt: startedAt,
 		Deadline: startedAt.Add(service.budgets.TotalTimeout), Debug: input.Debug, Budgets: service.budgets,
 	}
 	output := ChatOutput{Request: request}
@@ -165,6 +168,10 @@ func (service *Service) prepare(ctx context.Context, input ChatInput) (ChatOutpu
 
 	intent := contract.IntentResult{Intent: LegacyIntent, Confidence: 1, Version: LegacyIntentVersion,
 		Stages: []contract.IntentStageResult{{Stage: "fixed", Intent: LegacyIntent, Confidence: 1, ReasonCode: "m2_legacy_adapter"}}}
+	if input.KnowledgeRequired {
+		intent = contract.IntentResult{Intent: ProjectQAIntent, Confidence: 1, Version: ExplicitIntentVersion,
+			Stages: []contract.IntentStageResult{{Stage: "explicit_request", Intent: ProjectQAIntent, Confidence: 1, ReasonCode: "knowledge_required"}}}
+	}
 	output.Intent = intent
 	decision, err := service.selector.Select(ctx, request, intent)
 	if err != nil {
