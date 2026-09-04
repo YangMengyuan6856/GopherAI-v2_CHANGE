@@ -1290,3 +1290,10 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 本地候选报告结果：相关记忆召回 `100%`、过期/错误注入 `0%`、删除后召回 `0`、跨 principal 泄漏 `0`、预算遵守率 `100%`、确定性重放率 `100%`。20 条标签仍为 `pending_user`，因此 `baseline_eligible=false`；该报告只证明确定性选择/隔离/预算契约，不冒充真实 MySQL 故障注入、语义向量召回或长对话回答质量。
 - 页面“三级记忆”面板新增只返回汇总、不返回逐例内容的中文看板，并展示报告 SHA-256、技术门、人工复核状态和三项限制。后端严格校验恰好 20 条、报告元数据和 baseline 资格，提供私有缓存 ETag。
 - Release `20260905041551-24f3b559b235`（commit `24f3b559b235d99334e6590a76fb1c532fbcec4e`，bundle SHA-256 `77af3f5acd18ad2530027395705084a474494206cb63082fc66c7a4c88af6a8f`）通过 Backend/Index Worker live/ready、MCP、Vue 编译/HTTP 和唯一进程门。本地全量 `go test ./...`、`go vet ./...`、前端生产构建以及 profile/evaluation/memory/controller 的 Race 定向测试均通过。
+
+## 43. 2026-09-05 结构化上下文压缩与累计预算缺陷
+
+- 提交 `a9d424d9` 将 Diagnostic Harness 的持久化 Checkpoint、公开 Step 和会话工作窗口接入 `context-assembler-v2`。输出显式保留 goal、constraints、confirmed facts、open questions、completed/failed steps、evidence refs 和 next action，并只使用公开摘要；Checkpoint 私有 Artifact、principal hash 和隐藏思维链不会进入 API。
+- 在构造长上下文成对集时发现原 Assembler 只判断“单条 Working Message + 当前已用 Token”是否超限，却没有把同轮已经选择但尚未 append 的多条消息累计进去，因而多条消息各自可放入、合计却可能超预算。修复后选择阶段维护累计 Token，并新增多消息回归测试；这说明 Context 评测不仅用于展示指标，也能发现线上预算实现缺陷。
+- `devsupport-context-compression-v1` 包含 12 条候选用例，`answer/clarify/refuse/resume` 各 3 条。当前结果为 constraints、confirmed facts、open questions、next action 保留率均 `100%`，平均估算 Token 降幅 `52.56%`，超预算 `0`，确定性重放 `100%`。标签仍为 `pending_user`，Token 是稳定本地估算而非供应商账单，因此 `baseline_eligible=false`。
+- Release `20260905043801-a9d424d9ee2d`（commit `a9d424d9ee2d78668b7e40d0d3e4959b44c96b13`，bundle SHA-256 `1f736d41ae33f7e561d82c400588066fb5a3d5e4fed062837b93d44b16e96ddc`）通过 Backend/Index Worker live/ready、MCP、Vue 编译/HTTP 和唯一进程门。本地全量测试、`go vet`、前端生产构建及 memory/evaluation/agentrun/evaluation-controller Race 均通过；登录态页面的集中人工验收留到用户约定时段。
