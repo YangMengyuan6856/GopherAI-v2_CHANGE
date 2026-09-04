@@ -530,9 +530,10 @@ worker, Redis indexing, retrieval, citation, or grounded-answer gates.
 
 ## 17. M3-A2 Reliable Index Worker Release
 
-Release `20260904101913-b1ac2744abda` deployed the reliable asynchronous index
-worker from feature commit `1c99674e626b40074153c7382e23961bb710620b` and
-the polling-log fix `b1ac2744abda675b2ceb2553a80b0bc87531abaf`.
+Release `20260904102319-9862406cd662` deployed the reliable asynchronous index
+worker from feature commit `1c99674e626b40074153c7382e23961bb710620b`, the
+polling-log fix `b1ac2744abda675b2ceb2553a80b0bc87531abaf`, and the
+frontend status-meaning clarification `9862406cd662a3ac3e6b7fda52d7e759b8f5e9bb`.
 
 Verified results:
 
