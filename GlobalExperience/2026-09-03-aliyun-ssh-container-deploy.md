@@ -1243,3 +1243,11 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 `0ef0e4731d96261070ced3613d1a64892391b1e42c6c6a7006e07fa0a3638e9c`，全部运行门
 通过；该版本还提供只返回摘要、不返回逐例内容的可追溯诊断评测看板，并醒目标记 40 条
 标签未人工复核、同集迭代、尚无密封留出集，不能将技术候选包装成正式基线。
+## 37. 2026-09-05 R1 取消传播与 R2 工作记忆发布证据
+
+- `0d274ae4` 为 Diagnostic Harness 增加请求 Context 取消收敛：SSE 断连会停止下游分析，Run 持久化为 `CANCELLED / REQUEST_CONTEXT_CANCELLED`；用户主动取消仍稳定保留 `USER_CANCELLED`。本地全量测试、`go vet`、Race 定向测试和 Linux 三产物通过。
+- Release `20260905015430-0d274ae40bf5-dirty` 通过 Backend、Index Worker、MCP、Vue 门禁；此 release 的 dirty 仅来自本地交叉编译目录 `.codex-tmp` 未被 tar 排除，不是未提交业务代码。
+- `7f46cd15` 将 `.codex-tmp` 同时加入 Git 忽略和部署 tar 排除。下一次 release `20260905021713-264ca3227bdd` 显示 `source dirty: False`，发布包从约 147 MB 降至约 90 MB。经验：发布器不能只依赖 `.gitignore`，打包命令也必须显式排除本地构建产物。
+- `264ca322` 上线 R2 第一层：MySQL 权威消息同步写、Redis 最近 20 条/24h 热窗口、最新消息 ID 新鲜度核验、Redis miss/stale/error 时从 MySQL 重建，以及 `context-assembler-v2` Token 预算预览。
+- 浏览器选择历史会话后首次显示 `rebuilt_from_mysql`、8/20 条；显式安全重建后再刷新显示 `hit`。真实新增一问一答后窗口变为 10/20，MySQL 最新消息 ID 为 1832；Redis LLEN 为 10，TTL 为 86237 秒，key 使用用户+会话 SHA-256。
+- 远程取证脚本要特别处理 TOML 空密码。把多个值用 tab 输出后，Bash `read` 的空白 IFS 会折叠空字段，可能把后一个 `db=0` 错当成 Redis 密码并产生无害但误导的 `AUTH failed`。后续应使用非空白分隔符、JSON 或逐字段 base64，不把空字段交给默认 IFS 解析。
