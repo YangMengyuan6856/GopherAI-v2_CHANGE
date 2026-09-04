@@ -17,6 +17,7 @@ import (
 const (
 	RAGCoreDatasetVersion = "devsupport-rag-core-v1"
 	RAGCoreCaseCount      = 20
+	ragCaseTimeout        = 90 * time.Second
 )
 
 type RAGExpected struct {
@@ -206,12 +207,14 @@ func RunRAGCore(ctx context.Context, cases []RAGCase, fixtureVersion string, can
 	var recallSum, ndcgSum, mrrSum float64
 	var relevantCitations, totalCitations, coveredCases, resolvedCases, errorCases, unauthorized int
 	for _, item := range cases {
+		caseContext, cancelCase := context.WithTimeout(ctx, ragCaseTimeout)
 		result := RAGCaseResult{ID: item.ID, Question: item.Question, ExpectedEvidenceIDs: append([]string(nil), item.Expected.EvidenceIDs...)}
-		searchOutput, searchErr := searcher.Search(ctx, rag.SearchInput{TenantID: tenantID, UserID: userID, Query: item.Question, TopK: 5})
+		searchOutput, searchErr := searcher.Search(caseContext, rag.SearchInput{TenantID: tenantID, UserID: userID, Query: item.Question, TopK: 5})
 		if searchErr != nil {
 			result.Error = "search: " + searchErr.Error()
 			errorCases++
 			report.Cases = append(report.Cases, result)
+			cancelCase()
 			continue
 		}
 		for _, hit := range searchOutput.Hits {
@@ -226,11 +229,12 @@ func RunRAGCore(ctx context.Context, cases []RAGCase, fixtureVersion string, can
 		mrrSum += result.ReciprocalRank
 		unauthorized += result.UnauthorizedHits
 
-		answerOutput, answerErr := answerer.Answer(ctx, knowledgeagent.Input{TenantID: tenantID, UserID: userID, Question: item.Question, TopK: 5})
+		answerOutput, answerErr := answerer.Answer(caseContext, knowledgeagent.Input{TenantID: tenantID, UserID: userID, Question: item.Question, TopK: 5})
 		if answerErr != nil {
 			result.Error = "answer: " + answerErr.Error()
 			errorCases++
 			report.Cases = append(report.Cases, result)
+			cancelCase()
 			continue
 		}
 		result.AnswerResolved = answerOutput.Result.Resolved
@@ -249,6 +253,7 @@ func RunRAGCore(ctx context.Context, cases []RAGCase, fixtureVersion string, can
 			coveredCases++
 		}
 		report.Cases = append(report.Cases, result)
+		cancelCase()
 	}
 
 	caseCount := float64(len(cases))
