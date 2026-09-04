@@ -3,6 +3,7 @@ package session
 import (
 	"GopherAI/internal/app"
 	"GopherAI/internal/contract"
+	"GopherAI/internal/observability"
 	"GopherAI/internal/platform/feature"
 	"GopherAI/internal/platform/legacy"
 	"GopherAI/internal/policy"
@@ -11,7 +12,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 
@@ -25,6 +25,11 @@ type ChatApplication interface {
 
 type AutoHandler struct {
 	application ChatApplication
+	observer    ChatObserver
+}
+
+type ChatObserver interface {
+	Record(output app.ChatOutput, requestError error)
 }
 
 type AutoChatRequest struct {
@@ -51,6 +56,10 @@ func NewAutoHandler(application ChatApplication) *AutoHandler {
 	return &AutoHandler{application: application}
 }
 
+func NewObservedAutoHandler(application ChatApplication, observer ChatObserver) *AutoHandler {
+	return &AutoHandler{application: application, observer: observer}
+}
+
 func NewDefaultAutoHandler() *AutoHandler {
 	flags := feature.DefaultProvider()
 	selector := policy.NewFixedSelector(flags)
@@ -58,7 +67,7 @@ func NewDefaultAutoHandler() *AutoHandler {
 	if err != nil {
 		panic(fmt.Sprintf("initialize auto chat application: %v", err))
 	}
-	return NewAutoHandler(application)
+	return NewObservedAutoHandler(application, observability.NewDefaultRecorder())
 }
 
 func (handler *AutoHandler) Chat(context *gin.Context) {
@@ -69,12 +78,12 @@ func (handler *AutoHandler) Chat(context *gin.Context) {
 	}
 	output, err := handler.application.Chat(context.Request.Context(), chatInput(context, request))
 	if err != nil {
-		handler.logResult("auto_chat_failed", output, err)
+		handler.record(output, err)
 		handler.writeJSONError(context, err)
 		return
 	}
 	setTraceHeaders(context, output)
-	handler.logResult("auto_chat_completed", output, nil)
+	handler.record(output, nil)
 	context.JSON(http.StatusOK, AutoChatResponse{
 		SchemaVersion: contract.SchemaVersion,
 		TraceID:       output.Request.TraceID,
@@ -120,7 +129,7 @@ func (handler *AutoHandler) Stream(context *gin.Context) {
 		return nil
 	})
 	if err != nil {
-		handler.logResult("auto_chat_stream_failed", output, err)
+		handler.record(output, err)
 		domainError := publicDomainError(err, output.Request.TraceID)
 		encoded, marshalErr := json.Marshal(contract.StreamEvent{Type: contract.StreamEventError, SchemaVersion: contract.SchemaVersion, TraceID: domainError.TraceID, RequestID: output.Request.RequestID, Error: domainError})
 		if marshalErr == nil && context.Request.Context().Err() == nil {
@@ -130,7 +139,7 @@ func (handler *AutoHandler) Stream(context *gin.Context) {
 		return
 	}
 	setTraceHeaders(context, output)
-	handler.logResult("auto_chat_stream_completed", output, nil)
+	handler.record(output, nil)
 }
 
 func chatInput(context *gin.Context, request *AutoChatRequest) app.ChatInput {
@@ -196,16 +205,8 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func (handler *AutoHandler) logResult(event string, output app.ChatOutput, err error) {
-	fields := map[string]any{
-		"event": event, "request_id": output.Request.RequestID, "trace_id": output.Request.TraceID,
-		"session_id": output.Result.SessionID, "intent": output.Intent.Intent,
-		"strategy": output.Decision.StrategyName, "policy_version": output.Decision.PolicyVersion,
-	}
-	if err != nil {
-		fields["error_code"] = publicDomainError(err, output.Request.TraceID).Code
-	}
-	if encoded, marshalErr := json.Marshal(fields); marshalErr == nil {
-		log.Print(string(encoded))
+func (handler *AutoHandler) record(output app.ChatOutput, err error) {
+	if handler.observer != nil {
+		handler.observer.Record(output, err)
 	}
 }

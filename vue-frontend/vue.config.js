@@ -12,6 +12,10 @@ module.exports = {
       '/health': {
         target: 'http://localhost:9090',
         changeOrigin: true
+      },
+      '/metrics': {
+        target: 'http://localhost:9090',
+        changeOrigin: true
       }
     }
   }

@@ -66,6 +66,7 @@ func migration() error {
 		new(model.Message),
 		new(model.ConversationSummary),
 		new(model.MemoryEntry),
+		new(model.AgentRun),
 	)
 }
 
