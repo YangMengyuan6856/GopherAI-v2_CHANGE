@@ -1276,3 +1276,10 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 真实浏览器输入“阿里云 ECS、Ubuntu 22.04、Docker、Go 1.24、Redis 7.2、NOAUTH”后，Profile 控制台显示 5 条待确认、0 条已确认；诊断仍按 `policy-diagnostic-v2` 独立形成 95% 待验证假设。将 Redis 值改成 7.4 并确认后生成 active v2、置信度 100%、有效期 180 天，其余 4 条仍为候选。
 - 随后另一个 Run 观察到 Redis 7.5，系统没有静默覆盖 7.4，而是把两个版本都标为 `conflicted`，已确认数降为 0、冲突数升为 2；用户再次选择 7.4 后生成 active v3 并 supersede 两个冲突版本。只读数据库最终证据为 active/user_corrected `1`、candidate/diagnostic_observation `4`、superseded observations `2`、superseded correction `1`。
 - 该版本只证明 M5-14 和 M5-16 的候选/CRUD/冲突纵向链路；active Profile 尚未进入 Context Assembler。候选、冲突、过期事实一律不得参与模型上下文，后续召回必须再次落实同用户 ACL、相关 TopK 和 Token 预算门，不能因为页面出现“三级记忆”就宣称 M5-15/M5-17/M5-29 已完成。
+
+## 41. 2026-09-05 Profile 相关召回与真实生成上下文
+
+- 提交 `3784ecb8` 完成 `profile-recall-v1` 纵向切片：MySQL 查询同时约束 tenant/user hash、`active`、置信度不低于 0.8、未过期；应用层再按当前问题中的 Redis/MySQL/Go/容器/云/OS 信号筛选，TopK 不超过 5。Context Assembler 再执行固定键 allowlist、同键去重和 Token 预算。候选、冲突、过期、低置信和无关事实都不能进入模型输入。
+- Profile 查询在普通聊天的真实生成前执行；命中时以独立 system context `confirmed_environment.<key>=<value>` 注入，并附加“当前用户明确陈述/项目证据优先”的冲突规则。查询失败按 `unavailable` fail-open，不阻断模型；Prometheus 只使用 `hit/no_match/unavailable` 固定标签并记录耗时和返回条数。
+- Release `20260905035546-48063a54986e`（commit `48063a54`，bundle SHA-256 `c216438f9aa1ad107b4acaab82fb26dfc260784afe809c56c37b7601033fb072`）通过四进程门。真实普通聊天连续询问已确认 Redis 版本，两次均回答 `7.4`；页面显示 `Profile 命中 1 条 · profile-recall-v1` 和实际组装项 `confirmed_environment.redis_version=7.4`。无关问题 `PROFILE-NO-MATCH` 显示“Profile 无相关事实”，上下文没有 Redis 项。
+- 现场指标为 `gopherai_profile_memory_recalls_total{status="hit"}=1`、`no_match=1`、`unavailable=0`，单次命中返回 1 条、耗时约 1.16ms。测试时发现回答持久化后，预览会重复展示最新问句；`48063a54` 改为跳过与当前问题匹配的最新 user 消息，并把页面文案改成“按当前历史和预算重建的上下文预览”，避免把回答后重建结果冒充生成时快照。
