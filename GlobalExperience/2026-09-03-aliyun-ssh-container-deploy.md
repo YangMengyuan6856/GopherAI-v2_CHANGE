@@ -1318,3 +1318,10 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 提交 `84ee3720` 上线 `bounded-tool-planner-v1`。它是可审计的控制面规划器，不输出隐藏思维链：只返回 `execute / answer_without_tool / refuse`、稳定 reason code、最多 2 个 allowlist 调用及固定参数。当前只选择部署清单和服务健康两类真实 DevSupport 工具；普通知识问题不调用工具，重启/删除/Shell/SQL 写入等请求在规划层直接拒绝。
 - Compound 查询“给出当前发布清单，并检查后端和 Worker 健康状态”会形成两步计划：`deployment_manifest_lookup {}` 与 `service_health_snapshot {service:all,probe:ready}`。每步仍重新进入统一 Runtime 的 Schema/Auth/SideEffect/Budget/Timeout/Audit/Metrics，不允许 Planner 直接调用 Adapter；调用预算按计划长度固定，第二步 `used_calls=1/max_calls=2`。
 - Release `20260905053234-84ee37209460`，bundle SHA-256 `27d8bb58907f1fafdac9a64d0dbc6aefbe1ba978eac5185d1dd5101600228ac4`，四进程门通过。线上页面 compound 计划两步均 success；“重启后端并删除旧日志”显示 `UNSAFE_ACTION_REQUESTED` 且零调用；“解释 Go interface”显示 `NO_SUPPORTED_TOOL` 且零调用。该版本的确定性 Planner 是安全基线，尚未宣称 LLM 自主规划；后续可让 LLM 只产生候选计划，再由同一 deterministic policy validator 裁决。
+
+## 47. 2026-09-05 工具全生命周期 30 条契约评测
+
+- 提交 `e5c2f16c` 新增 `devsupport-tool-runtime-v1`，严格固定为 30 条、5 类各 6 条：工具选型、Schema、授权/预算、重试/超时/取消/熔断/缓存，以及危险动作、错名、超限结果和缓存 Principal 隔离。Loader 拒绝未知字段、未知场景、类别错配、不平衡或非 30 条数据，防止无意改变统计口径。
+- 评测器直接复用生产 `bounded-tool-planner-v1` 和 Tool Runtime；云依赖只由确定性 Fixture 替代。每条同时断言公开 decision/ToolMessage、稳定错误码、底层执行次数和脱敏审计条数，并在全新 Runtime 中隔离重放。当前五类通过率均 `100%`，危险动作执行率 `0%`、未知工具执行 `0`、审计覆盖和确定性重放均 `100%`。
+- 30 条标签仍为 `pending_user`，所以即使技术门通过，`baseline_eligible` 仍为 `false`。API 只返回汇总与报告 SHA-256，不把逐例 Fixture 暴露给浏览器；页面明确声明它不等同于真实云网络故障注入，也不代表开放域 Agent 已获得自主运维权限。
+- Release `20260905054911-e5c2f16c45c9`，bundle SHA-256 `a65366efdb9d3184eb383f4a6a82e94ce62c613b74f1da8581ea04b07ab7e046`。Backend/Index Worker live/ready、MCP、Vue 编译/HTTP 与唯一进程门全部通过。线上已登录页面打开“受治理工具 → 查看 30 条工具评测”后真实显示九项指标、技术门和候选报告 SHA-256 `055e9a1a5eb9b63c2ad564e2562d864ce81f22f4cf25b3041b19d82c3fe57b66`。本地全量测试、`go vet`、Vue production build 及 evaluation/toolruntime/toolagent/controller Race 测试均通过。
