@@ -18,6 +18,7 @@ const (
 	StrategyName     = "rag_fast"
 	StrategyVersion  = "rag-fast-v1"
 	maxEvidenceRunes = 14_000
+	maxModelAttempts = 2
 )
 
 var (
@@ -89,31 +90,85 @@ func (agent *Agent) Answer(ctx context.Context, input Input) (Output, error) {
 		return output, nil
 	}
 
-	response, err := agent.model.Generate(ctx, []*schema.Message{
+	messages := []*schema.Message{
 		schema.SystemMessage(systemPrompt()),
 		schema.UserMessage(buildEvidencePrompt(input.Question, evidence)),
-	})
-	if err != nil {
-		return output, fmt.Errorf("generate grounded answer: %w", err)
-	}
-	parsed, err := parseModelOutput(response)
-	if err != nil {
-		return output, err
-	}
-	answer, citations, err := agent.citations.BuildAndVerify(input.TenantID, parsed.Answer, parsed.Citations, evidence)
-	if err != nil {
-		return output, fmt.Errorf("%w: %v", ErrModelOutput, err)
 	}
 	usage := contract.ModelUsage{}
-	if response.ResponseMeta != nil && response.ResponseMeta.Usage != nil {
-		usage.InputTokens = response.ResponseMeta.Usage.PromptTokens
-		usage.OutputTokens = response.ResponseMeta.Usage.CompletionTokens
+	var verificationErr error
+	for attempt := 0; attempt < maxModelAttempts; attempt++ {
+		response, generateErr := agent.model.Generate(ctx, messages)
+		if generateErr != nil {
+			return output, fmt.Errorf("generate grounded answer: %w", generateErr)
+		}
+		accumulateUsage(&usage, response)
+		parsed, parseErr := parseModelOutput(response)
+		if parseErr == nil {
+			answer, citations, verifyErr := agent.citations.BuildAndVerify(input.TenantID, parsed.Answer, parsed.Citations, evidence)
+			if verifyErr == nil {
+				output.Result = contract.AgentResult{
+					Answer: answer, Citations: citations, Evidence: evidence, Confidence: gateResult.TopScore,
+					Resolved: true, NeedsUserInput: false, Usage: usage,
+				}
+				return output, nil
+			}
+			verificationErr = verifyErr
+		} else {
+			verificationErr = parseErr
+		}
+		if attempt+1 < maxModelAttempts {
+			messages = append(messages, schema.UserMessage(citationRepairPrompt()))
+		}
+	}
+
+	answer, citations, fallbackErr := agent.citations.BuildAndVerify(
+		input.TenantID,
+		fallbackCitationAnswer(evidence),
+		fallbackReferences(evidence),
+		evidence,
+	)
+	if fallbackErr != nil {
+		return output, fmt.Errorf("%w: %v", ErrModelOutput, verificationErr)
 	}
 	output.Result = contract.AgentResult{
-		Answer: answer, Citations: citations, Evidence: evidence, Confidence: gateResult.TopScore,
-		Resolved: true, NeedsUserInput: false, Usage: usage,
+		Answer: answer, Citations: citations, Evidence: evidence, Confidence: gateResult.TopScore, Usage: usage,
+		Resolved: false, NeedsUserInput: true,
+		FollowUpQuestions: []string{"模型生成结果未通过引用一致性校验，请展开引用核对原始证据后重试。"},
 	}
 	return output, nil
+}
+
+func citationRepairPrompt() string {
+	return `上一条输出未通过机器校验。请重新检查原始 <evidence_pack>，只返回一个 JSON 对象；answer 中使用的每个事实后都写 [E数字]，citations 与 answer 中实际出现的编号完全一致。不要添加证据包以外的编号。`
+}
+
+func fallbackReferences(evidence []contract.Evidence) []string {
+	limit := len(evidence)
+	if limit > 3 {
+		limit = 3
+	}
+	references := make([]string, 0, limit)
+	for index := 0; index < limit; index++ {
+		references = append(references, fmt.Sprintf("E%d", index+1))
+	}
+	return references
+}
+
+func fallbackCitationAnswer(evidence []contract.Evidence) string {
+	references := fallbackReferences(evidence)
+	markers := make([]string, 0, len(references))
+	for _, reference := range references {
+		markers = append(markers, "["+reference+"]")
+	}
+	return "模型生成结果未通过引用一致性校验，已停止输出未经验证的结论。请展开并核对以下已授权证据：" + strings.Join(markers, " ")
+}
+
+func accumulateUsage(usage *contract.ModelUsage, response *schema.Message) {
+	if usage == nil || response == nil || response.ResponseMeta == nil || response.ResponseMeta.Usage == nil {
+		return
+	}
+	usage.InputTokens += response.ResponseMeta.Usage.PromptTokens
+	usage.OutputTokens += response.ResponseMeta.Usage.CompletionTokens
 }
 
 func systemPrompt() string {

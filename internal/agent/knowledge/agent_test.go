@@ -4,7 +4,6 @@ import (
 	"GopherAI/internal/contract"
 	"GopherAI/internal/rag"
 	"context"
-	"errors"
 	"strings"
 	"testing"
 
@@ -24,15 +23,19 @@ func (retriever *fakeRetriever) Search(_ context.Context, input rag.SearchInput)
 }
 
 type fakeModel struct {
-	response *schema.Message
-	err      error
-	calls    int
-	input    []*schema.Message
+	response  *schema.Message
+	responses []*schema.Message
+	err       error
+	calls     int
+	input     []*schema.Message
 }
 
 func (chatModel *fakeModel) Generate(_ context.Context, input []*schema.Message, _ ...model.Option) (*schema.Message, error) {
 	chatModel.calls++
 	chatModel.input = input
+	if len(chatModel.responses) >= chatModel.calls {
+		return chatModel.responses[chatModel.calls-1], chatModel.err
+	}
 	return chatModel.response, chatModel.err
 }
 
@@ -83,11 +86,26 @@ func TestAgentDoesNotCallModelWhenEvidenceGateRejects(t *testing.T) {
 	}
 }
 
-func TestAgentRejectsUnverifiableModelOutput(t *testing.T) {
+func TestAgentRepairsUnverifiableModelOutputOnce(t *testing.T) {
+	chatModel := &fakeModel{responses: []*schema.Message{
+		{Content: `{"answer":"答案没有引用","citations":["E1"]}`},
+		{Content: `{"answer":"默认重试次数为 7。[E1]","citations":["E1"]}`},
+	}}
+	agent, _ := NewAgent(&fakeRetriever{output: strongEvidence()}, chatModel, rag.DefaultEvidenceGate(), rag.NewCitationBuilder())
+	output, err := agent.Answer(context.Background(), Input{TenantID: "tenant-a", UserID: "user-a", Question: "问题"})
+	if err != nil || !output.Result.Resolved || chatModel.calls != 2 || output.Result.Answer != "默认重试次数为 7。[1]" {
+		t.Fatalf("expected one bounded repair, output=%+v calls=%d err=%v", output, chatModel.calls, err)
+	}
+	if !strings.Contains(chatModel.input[len(chatModel.input)-1].Content, "未通过机器校验") {
+		t.Fatalf("repair instruction was not sent: %+v", chatModel.input)
+	}
+}
+
+func TestAgentFallsBackToAuthorizedCitationsAfterRepairFails(t *testing.T) {
 	chatModel := &fakeModel{response: &schema.Message{Content: `{"answer":"答案没有引用","citations":["E1"]}`}}
 	agent, _ := NewAgent(&fakeRetriever{output: strongEvidence()}, chatModel, rag.DefaultEvidenceGate(), rag.NewCitationBuilder())
-	_, err := agent.Answer(context.Background(), Input{TenantID: "tenant-a", UserID: "user-a", Question: "问题"})
-	if !errors.Is(err, ErrModelOutput) {
-		t.Fatalf("expected invalid model output, got %v", err)
+	output, err := agent.Answer(context.Background(), Input{TenantID: "tenant-a", UserID: "user-a", Question: "问题"})
+	if err != nil || output.Result.Resolved || !output.Result.NeedsUserInput || chatModel.calls != 2 || len(output.Result.Citations) != 1 || !strings.Contains(output.Result.Answer, "停止输出未经验证的结论") {
+		t.Fatalf("expected safe cited fallback, output=%+v calls=%d err=%v", output, chatModel.calls, err)
 	}
 }
