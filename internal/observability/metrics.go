@@ -395,7 +395,7 @@ func (metrics *Metrics) SetToolCircuitState(tool string, state string) {
 
 func boundedToolName(value string) string {
 	switch value {
-	case "deployment_manifest_lookup", "service_health_snapshot", "bounded_log_signature", "mcp_deployment_evidence", "confirm_resolution":
+	case "deployment_manifest_lookup", "service_health_snapshot", "bounded_log_signature", "mcp_deployment_evidence", "official_document_search", "confirm_resolution":
 		return value
 	default:
 		return "unknown"
