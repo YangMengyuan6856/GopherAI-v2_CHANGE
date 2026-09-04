@@ -727,5 +727,63 @@ compile, and frontend HTTP checks passed. Signed-in browser checks confirmed:
 - leaving the control unchecked keeps ordinary messages on
   `legacy_chat · policy-v0`.
 
-The later clean release containing bounded citation repair must be recorded
-after the ECS host recovers from the accidental runtime-container test load.
+After the ECS instance was restarted, the three existing containers were found
+intact and stopped (`Exited 255`). Do not recreate them. Running the normal
+deployment script started `rabbitmq`, `redis-vector`, and `gopherai2`, preserved
+the container-resident configuration/uploads/frontend dependencies, and
+activated clean release `20260904155804-ec798aee6281`. A later final release,
+`20260904161139-4b1d4d0e3307`, contains the same citation repair plus the RAG
+evaluation fixes and checked-in report. Backend/worker ready checks, MCP TCP,
+Vue compile/HTTP, bundle checksum, and the four expected application processes
+all passed.
+
+### 21.1 Restart recovery sequence
+
+After an ECS reboot, first run read-only checks for uptime, memory, and
+`docker ps -a`. It is normal for the project containers to remain in an Exited
+state. If all three named containers still exist, run the deployment script
+instead of manually starting services or deleting anything. The script starts
+the dependencies, starts MySQL inside `gopherai2`, preserves runtime data,
+switches the verified release atomically, and applies finite health gates.
+
+The successful recovery confirmed the original incident was resource
+exhaustion from compiling/testing inside the runtime container, not container
+corruption. The safe response is one ECS restart followed by a locally built
+clean release; additional concurrent SSH sessions or remote builds would only
+extend the outage.
+
+## 22. Isolated M3 RAG Evaluation
+
+The first real 20-case cloud evaluation ran only a locally cross-built binary
+inside `gopherai2` with `GOMAXPROCS=1` and `nice -n 10`. It used the dedicated
+Redis index `gopher:eval-rag-core-v1:v1:kb:chunks:idx`, which was dropped before
+and after each run. A post-run `FT._LIST` showed only production and historical
+indexes; no evaluation index remained.
+
+The first attempt exposed an Ark/DashScope constraint: one embedding request
+may contain at most 10 texts. The shared indexing default had been 16, so an
+11-chunk fixture failed before producing a report. Commit `c2676e8e` lowers the
+production boundary to 10 and adds an 11-chunk `10 + 1` batching regression
+test. This protects real large-document indexing as well as evaluation.
+
+The complete run for candidate `d6add7fe` passed the technical gate:
+
+- Recall@5: `1.0000`
+- nDCG@5: `0.9815`
+- MRR: `0.9750`
+- Citation Precision: `0.9545`
+- Citation Coverage: `0.9500`
+- Unauthorized Recall: `0`
+- Resolved Answer Rate: `0.9500`
+- Error Rate: `0`
+
+Unresolved safety responses may list the authorized evidence inspected while
+making no factual claim. Keep those IDs in each case trace, but score Citation
+Precision only on resolved factual answers; coverage and resolved-answer rate
+continue to penalize the refusal. This avoids double-penalizing safety without
+hiding it.
+
+The report is reproducible at the dataset/fixture/retriever/config level, but
+the external model is mutable. The 20 labels are still `pending_user`, so the
+technical PASS is not yet eligible to freeze as an interview or regression
+baseline (`human_reviewed=false`, `baseline_eligible=false`).
