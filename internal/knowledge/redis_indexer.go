@@ -14,7 +14,10 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const DefaultEmbeddingBatchSize = 16
+// DefaultEmbeddingBatchSize stays within the Ark/DashScope embedding API limit.
+// Keeping the provider limit at the indexing boundary also protects large
+// documents, whose chunk count commonly exceeds one request.
+const DefaultEmbeddingBatchSize = 10
 
 var safeEnvironment = regexp.MustCompile(`[^a-zA-Z0-9_-]+`)
 

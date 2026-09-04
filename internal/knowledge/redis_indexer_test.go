@@ -4,6 +4,7 @@ import (
 	"GopherAI/model"
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -39,6 +40,19 @@ type fakeEmbedder struct {
 func (embedder *fakeEmbedder) EmbedStrings(_ context.Context, texts []string, _ ...embedding.Option) ([][]float64, error) {
 	embedder.texts = append([]string(nil), texts...)
 	return embedder.vectors, embedder.err
+}
+
+type batchRecordingEmbedder struct {
+	callSizes []int
+}
+
+func (embedder *batchRecordingEmbedder) EmbedStrings(_ context.Context, texts []string, _ ...embedding.Option) ([][]float64, error) {
+	embedder.callSizes = append(embedder.callSizes, len(texts))
+	vectors := make([][]float64, len(texts))
+	for index := range texts {
+		vectors[index] = []float64{float64(index), 1}
+	}
+	return vectors, nil
 }
 
 func TestRedisChunkIndexerCreatesTenantFilteredSchemaAndWritesVectors(t *testing.T) {
@@ -82,6 +96,28 @@ func TestRedisChunkIndexerRejectsEmbeddingDimensionMismatch(t *testing.T) {
 	err = indexer.Index(context.Background(), []model.KnowledgeChunk{{ID: "chunk", Content: "content"}})
 	if err == nil || countCommand(client.calls, "HSET") != 0 {
 		t.Fatalf("dimension mismatch must fail before Redis write: %v", err)
+	}
+}
+
+func TestRedisChunkIndexerKeepsEmbeddingRequestsWithinProviderLimit(t *testing.T) {
+	client := new(fakeRedisExecutor)
+	embedder := new(batchRecordingEmbedder)
+	indexer, err := NewRedisChunkIndexer(client, embedder, "test", 2, DefaultEmbeddingBatchSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunks := make([]model.KnowledgeChunk, 11)
+	for index := range chunks {
+		chunks[index] = model.KnowledgeChunk{ID: fmt.Sprintf("chunk-%d", index), Content: "content"}
+	}
+	if err := indexer.Index(context.Background(), chunks); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(embedder.callSizes, []int{10, 1}) {
+		t.Fatalf("unexpected embedding batch sizes: %v", embedder.callSizes)
+	}
+	if countCommand(client.calls, "HSET") != len(chunks) {
+		t.Fatalf("expected %d indexed chunks, got %d", len(chunks), countCommand(client.calls, "HSET"))
 	}
 }
 
