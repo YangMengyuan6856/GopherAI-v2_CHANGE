@@ -112,7 +112,11 @@ func run(ctx context.Context, datasetPath string, fixturePath string, jsonPath s
 		return fmt.Errorf("create eval knowledge agent: %w", err)
 	}
 
-	report := evaluation.RunRAGCore(ctx, cases, fixture.Version, candidate, evalTenantID, evalUserID, cachedRetriever, answerer)
+	report := evaluation.RunRAGCoreWithObserver(ctx, cases, fixture.Version, candidate, evalTenantID, evalUserID, cachedRetriever, answerer,
+		func(completed int, total int, result evaluation.RAGCaseResult) {
+			log.Printf("rag eval progress=%d/%d case=%s recall_at_5=%.4f ndcg_at_5=%.4f resolved=%t citation_covered=%t error=%t",
+				completed, total, result.ID, result.RecallAt5, result.NDCGAt5, result.AnswerResolved, result.CitationCovered, result.Error != "")
+		})
 	if err := writeReports(report, jsonPath, markdownPath); err != nil {
 		return err
 	}

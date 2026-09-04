@@ -65,6 +65,8 @@ type RAGAnswerer interface {
 	Answer(ctx context.Context, input knowledgeagent.Input) (knowledgeagent.Output, error)
 }
 
+type RAGProgressObserver func(completed int, total int, result RAGCaseResult)
+
 type RAGCaseResult struct {
 	ID                   string   `json:"id"`
 	Question             string   `json:"question"`
@@ -194,6 +196,10 @@ func ValidateRAGCore(cases []RAGCase, fixture RAGFixture) error {
 }
 
 func RunRAGCore(ctx context.Context, cases []RAGCase, fixtureVersion string, candidateVersion string, tenantID string, userID string, searcher RAGSearcher, answerer RAGAnswerer) RAGReport {
+	return RunRAGCoreWithObserver(ctx, cases, fixtureVersion, candidateVersion, tenantID, userID, searcher, answerer, nil)
+}
+
+func RunRAGCoreWithObserver(ctx context.Context, cases []RAGCase, fixtureVersion string, candidateVersion string, tenantID string, userID string, searcher RAGSearcher, answerer RAGAnswerer, observer RAGProgressObserver) RAGReport {
 	targets := DefaultRAGTargets()
 	report := RAGReport{
 		SchemaVersion: "1", DatasetVersion: RAGCoreDatasetVersion, FixtureVersion: fixtureVersion,
@@ -214,6 +220,7 @@ func RunRAGCore(ctx context.Context, cases []RAGCase, fixtureVersion string, can
 			result.Error = "search: " + searchErr.Error()
 			errorCases++
 			report.Cases = append(report.Cases, result)
+			notifyRAGProgress(observer, len(report.Cases), len(cases), result)
 			cancelCase()
 			continue
 		}
@@ -234,6 +241,7 @@ func RunRAGCore(ctx context.Context, cases []RAGCase, fixtureVersion string, can
 			result.Error = "answer: " + answerErr.Error()
 			errorCases++
 			report.Cases = append(report.Cases, result)
+			notifyRAGProgress(observer, len(report.Cases), len(cases), result)
 			cancelCase()
 			continue
 		}
@@ -253,6 +261,7 @@ func RunRAGCore(ctx context.Context, cases []RAGCase, fixtureVersion string, can
 			coveredCases++
 		}
 		report.Cases = append(report.Cases, result)
+		notifyRAGProgress(observer, len(report.Cases), len(cases), result)
 		cancelCase()
 	}
 
@@ -266,6 +275,12 @@ func RunRAGCore(ctx context.Context, cases []RAGCase, fixtureVersion string, can
 		report.Metrics.CitationPrecision >= targets.CitationPrecision && report.Metrics.CitationCoverage >= targets.CitationCoverage &&
 		report.Metrics.UnauthorizedRecall == targets.UnauthorizedRecall && errorCases == 0
 	return report
+}
+
+func notifyRAGProgress(observer RAGProgressObserver, completed int, total int, result RAGCaseResult) {
+	if observer != nil {
+		observer(completed, total, result)
+	}
 }
 
 func WriteRAGReportMarkdown(writer io.Writer, report RAGReport) error {

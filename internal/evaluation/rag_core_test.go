@@ -39,12 +39,22 @@ func TestRAGCoreScoringAndReport(t *testing.T) {
 		"q1": {Result: contract.AgentResult{Resolved: true, Citations: []contract.Citation{{EvidenceID: "a"}}}},
 		"q2": {Result: contract.AgentResult{Resolved: true, Citations: []contract.Citation{{EvidenceID: "b"}, {EvidenceID: "c"}}}},
 	}}
-	report := RunRAGCore(context.Background(), cases, "fixture", "candidate", "tenant", "user", searcher, answerer)
+	progressCalls := 0
+	report := RunRAGCoreWithObserver(context.Background(), cases, "fixture", "candidate", "tenant", "user", searcher, answerer,
+		func(completed int, total int, _ RAGCaseResult) {
+			progressCalls++
+			if completed != progressCalls || total != len(cases) {
+				t.Fatalf("unexpected progress: completed=%d total=%d", completed, total)
+			}
+		})
 	if report.Metrics.RecallAt5 != 1 || report.Metrics.CitationPrecision != 1 || report.Metrics.CitationCoverage != 1 || report.Metrics.UnauthorizedRecall != 0 {
 		t.Fatalf("unexpected metrics: %+v", report.Metrics)
 	}
 	if report.Metrics.NDCGAt5 >= 1 || report.Metrics.MRR >= 1 {
 		t.Fatalf("ranking penalty was not applied: %+v", report.Metrics)
+	}
+	if progressCalls != len(cases) {
+		t.Fatalf("expected progress for every case, got %d", progressCalls)
 	}
 	var markdown strings.Builder
 	if err := WriteRAGReportMarkdown(&markdown, report); err != nil || !strings.Contains(markdown.String(), "Citation Precision") {
