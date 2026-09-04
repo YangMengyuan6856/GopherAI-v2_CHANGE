@@ -76,6 +76,9 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 		metrics.documentUploads,
 		metrics.documentBytes,
 	)
+	for _, status := range []string{"accepted", "duplicate", "rejected", "error"} {
+		metrics.documentUploads.WithLabelValues(status).Add(0)
+	}
 	return metrics
 }
 

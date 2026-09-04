@@ -90,7 +90,7 @@
 <script>
 
 
-import { ref, nextTick, computed, onMounted } from 'vue'
+import { ref, nextTick, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '../utils/api'
 
@@ -110,6 +110,7 @@ export default {
     const uploading = ref(false)
     const fileInput = ref(null)
     const knowledgeDocuments = ref([])
+    let knowledgePollTimer = null
 
     const renderMarkdown = (text) => {
       if (!text && text !== '') return ''
@@ -574,6 +575,13 @@ export default {
     onMounted(() => {
       loadSessions()
       loadKnowledgeDocuments()
+      knowledgePollTimer = window.setInterval(loadKnowledgeDocuments, 3000)
+    })
+
+    onUnmounted(() => {
+      if (knowledgePollTimer) {
+        window.clearInterval(knowledgePollTimer)
+      }
     })
 
     // expose to template

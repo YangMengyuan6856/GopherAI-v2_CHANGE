@@ -149,6 +149,12 @@ function Build-LocalLinuxArtifacts {
         "-C", (Join-Path $RepoRoot "common\mcp"), "build", "-p", "1",
         "-o", (Join-Path $ArtifactDirectory "gopherai-mcp"), "."
     )
+    Write-Host "[build] index worker linux/amd64 CGO_ENABLED=0"
+    Invoke-Checked -FilePath $GoExecutable -Arguments @(
+        "-C", $RepoRoot, "build", "-p", "1",
+        "-o", (Join-Path $ArtifactDirectory "GopherAI-index-worker"),
+        "./cmd/index-worker"
+    )
 }
 
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..\..")).Path
@@ -225,7 +231,7 @@ try {
         build_strategy = $buildStrategy
         target = "linux/amd64"
         go_version = $goVersion
-        included_components = @("backend", "mcp", "frontend-source")
+        included_components = @("backend", "index-worker", "mcp", "frontend-source")
         config_included = [bool]$DeployConfig
         migrations = @()
         rollback = "previous-directory"
@@ -238,7 +244,7 @@ try {
         "-czf", $bundlePath,
         "--exclude=.git", "--exclude=.claude", "--exclude=uploads",
         "--exclude=vue-frontend/node_modules", "--exclude=vue-frontend/dist",
-        "--exclude=backend.log", "--exclude=mcp.log", "--exclude=frontend.log"
+        "--exclude=backend.log", "--exclude=index-worker.log", "--exclude=mcp.log", "--exclude=frontend.log"
     )
     if (-not $DeployConfig) { $tarArgs += "--exclude=config/config.toml" }
     $tarArgs += @("-C", $repoRoot, ".", "-C", $payloadRoot, "release-manifest.json")
@@ -318,16 +324,19 @@ if [ "$deploy_config" != "true" ] && [ -f "$project_path/config/config.toml" ]; 
 fi
 
 if [ "$build_in_container" = "true" ]; then
-  echo "[container] building backend and MCP with -p 1"
+  echo "[container] building backend, index worker and MCP with -p 1"
   (cd "$new_path" && go build -p 1 -o GopherAI main.go pprof_server.go)
+  (cd "$new_path" && go build -p 1 -o GopherAI-index-worker ./cmd/index-worker)
   (cd "$new_path/common/mcp" && go build -p 1 -o gopherai-mcp .)
 else
   echo "[container] installing locally built Linux binaries"
   test -f "$new_path/.deploy-bin/GopherAI"
+  test -f "$new_path/.deploy-bin/GopherAI-index-worker"
   test -f "$new_path/.deploy-bin/gopherai-mcp"
   cp "$new_path/.deploy-bin/GopherAI" "$new_path/GopherAI"
+  cp "$new_path/.deploy-bin/GopherAI-index-worker" "$new_path/GopherAI-index-worker"
   cp "$new_path/.deploy-bin/gopherai-mcp" "$new_path/common/mcp/gopherai-mcp"
-  chmod 0755 "$new_path/GopherAI" "$new_path/common/mcp/gopherai-mcp"
+  chmod 0755 "$new_path/GopherAI" "$new_path/GopherAI-index-worker" "$new_path/common/mcp/gopherai-mcp"
   rm -rf -- "$new_path/.deploy-bin"
 fi
 
@@ -350,8 +359,9 @@ stop_legacy_matches() {
 }
 
 stop_application() {
-  stop_pid_file frontend; stop_pid_file mcp; stop_pid_file backend
+  stop_pid_file frontend; stop_pid_file mcp; stop_pid_file index-worker; stop_pid_file backend
   stop_legacy_matches '^\./GopherAI$'
+  stop_legacy_matches '^\./GopherAI-index-worker$'
   stop_legacy_matches '^\./gopherai-mcp -mode server$'
   stop_legacy_matches 'node .*vue-cli-service.*serve'
   sleep 2
@@ -447,14 +457,23 @@ start_release() {
   wait_tcp redis-vector 6379 60
 
   cd "$release_path"; : > backend.log; nohup ./GopherAI > backend.log 2>&1 & echo "$!" > "$run_path/backend.pid"
+  port="$(backend_port)"; [ -n "$port" ] || port=9090
+  wait_backend_health "$port"
+
+  if [ -x "$release_path/GopherAI-index-worker" ]; then
+    cd "$release_path"; : > index-worker.log; nohup ./GopherAI-index-worker > index-worker.log 2>&1 & echo "$!" > "$run_path/index-worker.pid"
+    wait_http_health "http://127.0.0.1:9091/health/live" 90
+    wait_http_health "http://127.0.0.1:9091/health/ready" 90
+  else
+    echo "index worker is absent in historical release; skipping worker start"
+  fi
+
   cd "$release_path/common/mcp"; : > mcp.log; nohup ./gopherai-mcp -mode server > mcp.log 2>&1 & echo "$!" > "$run_path/mcp.pid"
   if [ "$skip_frontend" != "true" ]; then
     [ -d "$release_path/vue-frontend/node_modules" ] || { echo "frontend node_modules is missing" >&2; return 1; }
     cd "$release_path/vue-frontend"; : > frontend.log; nohup npm run serve > frontend.log 2>&1 & echo "$!" > "$run_path/frontend.pid"
   fi
 
-  port="$(backend_port)"; [ -n "$port" ] || port=9090
-  wait_backend_health "$port"
   wait_tcp 127.0.0.1 8081 60
   [ "$skip_frontend" = "true" ] || wait_frontend_ready 8080 180
 }
@@ -491,10 +510,12 @@ if ! start_release "$project_path"; then rollback_release; exit 1; fi
 
 echo "[container] release active: $release_id"
 echo "[container] bundle sha256: $expected_sha"
-sha256sum "$project_path/GopherAI" "$project_path/common/mcp/gopherai-mcp"
-pgrep -af '^\./GopherAI$|^\./gopherai-mcp -mode server$|node .*vue-cli-service.*serve' || true
+sha256sum "$project_path/GopherAI" "$project_path/GopherAI-index-worker" "$project_path/common/mcp/gopherai-mcp"
+pgrep -af '^\./GopherAI$|^\./GopherAI-index-worker$|^\./gopherai-mcp -mode server$|node .*vue-cli-service.*serve' || true
 echo "[container] sanitized backend log tail"
 tail -n 30 "$project_path/backend.log" 2>/dev/null | sed -E 's#(amqp://)[^@]+@#\1***:***@#g' || true
+echo "[container] index worker log tail"
+tail -n 30 "$project_path/index-worker.log" 2>/dev/null | sed -E 's#(amqp://)[^@]+@#\1***:***@#g' || true
 echo "[container] MCP log tail"
 tail -n 20 "$project_path/common/mcp/mcp.log" 2>/dev/null || true
 if [ "$skip_frontend" != "true" ]; then echo "[container] frontend log tail"; tail -n 20 "$project_path/vue-frontend/frontend.log" 2>/dev/null || true; fi
