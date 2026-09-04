@@ -661,3 +661,71 @@ slice: it makes the evidence contract independently testable without routing
 all ordinary chat through RAG before M4 intent recognition exists. The next
 slice may register `rag_fast` with the shared AppService behind an explicit
 feature/request gate; automatic `project_qa` selection remains an M4 concern.
+
+## 20. Never Compile Or Run The Full Test Suite In The Runtime Container
+
+On 2026-09-04, an attempted `go test -p 1 ./...` inside `gopherai2` downloaded
+missing test dependencies and compiled the whole repository while the backend,
+index worker, MCP host, Vue development server, MySQL, Redis, and RabbitMQ were
+already running. Even with `-p 1`, the small ECS instance entered severe memory
+and CPU pressure: TCP ports still accepted connections, but SSH timed out during
+banner exchange and HTTP returned no response.
+
+Operational rule:
+
+- Run root-module tests and nested MCP tests on Windows with the installed Go
+  toolchain.
+- Cross-build Linux/amd64 binaries locally with `CGO_ENABLED=0` and `-p 1`.
+- Upload only prebuilt binaries plus source/static assets.
+- On the ECS host/container, perform only checksum verification, atomic release
+  switching, finite health checks, process checks, and lightweight isolated
+  runtime evaluations.
+- Never use `go test ./...`, `go build ./...`, `npm install`, or other
+  dependency-heavy compilation as a post-deploy check on this runtime host.
+
+If Windows has a stale machine-wide `GOROOT` pointing at `F:\Golang`, invoking
+`go.exe` by absolute path is not enough: explicitly set
+`GOROOT=C:\Program Files\Go` for the test/build process. Preserve `GOPATH` only
+as the module cache. The deployment script already uses the installed toolchain
+for cross-builds; ad-hoc verification commands must follow the same rule.
+
+If this mistake causes SSH banner timeouts, stop launching additional remote
+commands because each connection competes for the same exhausted resources.
+Terminate stale local `ssh.exe` clients, wait for the remote compile to exit or
+be OOM-killed, and use the ECS console to restart the instance only if it does
+not recover. After recovery, verify containers and health first, then redeploy a
+clean prebuilt release. Do not delete or recreate `gopherai2`: the application,
+configuration, upload data, MySQL service, and frontend dependencies live in
+that container.
+
+## 21. M3-A5 Unified `rag_fast` Chat Integration
+
+M3-A5 registers KnowledgeAgent as the real `rag_fast` AppService strategy behind
+an explicit `knowledge_required` request flag and environment feature flag.
+This preserves ordinary Legacy chat while automatic `project_qa` recognition
+remains an M4 task.
+
+Implementation commits:
+
+- `18eda3902a56619ca080288ff72ff4f627189f98`: AppService strategy, policy,
+  explicit intent, SSE citation events, frontend control, and session storage.
+- `6a830d09262d2755f84c198b53af1d20d7dc0c05`: preserve verified citation
+  locations in the legacy text-only message history.
+- `061767aee784bcaca7d4d32f896586982ec34c40`: report `KnowledgeAgent` and
+  `rag_fast` as separate observability dimensions.
+- `6ecc3ceac9830999a14cd7bb56a94cba22e93c59`: retry citation-format repair once,
+  then return a cited safe fallback instead of exposing unverified model text.
+
+The first three commits were deployed as release
+`20260904112941-061767aee784`; live/ready, index-worker health, MCP TCP, Vue
+compile, and frontend HTTP checks passed. Signed-in browser checks confirmed:
+
+- checked `知识库回答` routes to `rag_fast · policy-rag-fast-v1` and returns the
+  two conflicting retry values with expandable citations;
+- reopening the stored conversation preserves human-readable document,
+  version, section, and line-range references;
+- leaving the control unchecked keeps ordinary messages on
+  `legacy_chat · policy-v0`.
+
+The later clean release containing bounded citation repair must be recorded
+after the ECS host recovers from the accidental runtime-container test load.
