@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/cloudwego/eino/components/embedding"
 	"github.com/redis/go-redis/v9"
@@ -338,18 +339,29 @@ func aclFilter(tenantID string, userID string) string {
 
 func keywordTerms(query string) []string {
 	fields := strings.Fields(strings.ToLower(query))
-	terms := make([]string, 0, len(fields))
-	seen := make(map[string]struct{}, len(fields))
+	terms := make([]string, 0, len(fields)*2)
+	seen := make(map[string]struct{}, len(fields)*2)
+	add := func(value string) {
+		value = escapeText(value)
+		if value == "" {
+			return
+		}
+		if _, exists := seen[value]; exists {
+			return
+		}
+		seen[value] = struct{}{}
+		terms = append(terms, value)
+	}
 	for _, field := range fields {
-		field = escapeText(field)
-		if field == "" {
-			continue
+		add(field)
+		parts := strings.FieldsFunc(field, func(character rune) bool {
+			return !unicode.IsLetter(character) && !unicode.IsDigit(character)
+		})
+		if len(parts) > 1 {
+			for _, part := range parts {
+				add(part)
+			}
 		}
-		if _, exists := seen[field]; exists {
-			continue
-		}
-		seen[field] = struct{}{}
-		terms = append(terms, field)
 	}
 	return terms
 }

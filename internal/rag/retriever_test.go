@@ -120,6 +120,9 @@ func TestHybridRetrieverAppliesTenantAndUserFiltersToBothRetrievers(t *testing.T
 	if !strings.Contains(backend.calls[1].query, `err\-42`) {
 		t.Fatalf("keyword special characters were not escaped: %s", backend.calls[1].query)
 	}
+	if !strings.Contains(backend.calls[1].query, `err | 42`) {
+		t.Fatalf("identifier components were not expanded for tokenizer compatibility: %s", backend.calls[1].query)
+	}
 }
 
 func TestHybridRetrieverDegradesToKeywordWhenEmbeddingFails(t *testing.T) {
