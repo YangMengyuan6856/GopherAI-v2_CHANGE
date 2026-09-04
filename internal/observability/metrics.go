@@ -10,19 +10,21 @@ import (
 )
 
 type Metrics struct {
-	requests          *prometheus.CounterVec
-	requestDuration   *prometheus.HistogramVec
-	intentDecisions   *prometheus.CounterVec
-	intentConfidence  *prometheus.HistogramVec
-	agentRuns         *prometheus.CounterVec
-	agentDuration     *prometheus.HistogramVec
-	persistFailures   *prometheus.CounterVec
-	documentUploads   *prometheus.CounterVec
-	documentBytes     prometheus.Histogram
-	retrievals        *prometheus.CounterVec
-	retrievalDuration *prometheus.HistogramVec
-	retrievalResults  *prometheus.HistogramVec
-	gatherer          prometheus.Gatherer
+	requests                *prometheus.CounterVec
+	requestDuration         *prometheus.HistogramVec
+	intentDecisions         *prometheus.CounterVec
+	intentConfidence        *prometheus.HistogramVec
+	agentRuns               *prometheus.CounterVec
+	agentDuration           *prometheus.HistogramVec
+	persistFailures         *prometheus.CounterVec
+	documentUploads         *prometheus.CounterVec
+	documentBytes           prometheus.Histogram
+	retrievals              *prometheus.CounterVec
+	retrievalDuration       *prometheus.HistogramVec
+	retrievalResults        *prometheus.HistogramVec
+	knowledgeAnswers        *prometheus.CounterVec
+	knowledgeAnswerDuration *prometheus.HistogramVec
+	gatherer                prometheus.Gatherer
 }
 
 func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) *Metrics {
@@ -81,6 +83,15 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 			Help:    "Number of authoritative knowledge chunks returned per retrieval.",
 			Buckets: []float64{0, 1, 2, 3, 5, 8, 10},
 		}, []string{"mode"}),
+		knowledgeAnswers: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_knowledge_answers_total",
+			Help: "Total KnowledgeAgent rag_fast attempts by bounded outcome and evidence-gate reason.",
+		}, []string{"status", "gate_reason"}),
+		knowledgeAnswerDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "gopherai_knowledge_answer_duration_seconds",
+			Help:    "KnowledgeAgent rag_fast end-to-end duration in seconds.",
+			Buckets: []float64{0.1, 0.25, 0.5, 1, 2, 4, 8, 15, 30, 45},
+		}, []string{"status"}),
 		gatherer: gatherer,
 	}
 	registerer.MustRegister(
@@ -96,6 +107,8 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 		metrics.retrievals,
 		metrics.retrievalDuration,
 		metrics.retrievalResults,
+		metrics.knowledgeAnswers,
+		metrics.knowledgeAnswerDuration,
 	)
 	for _, status := range []string{"accepted", "duplicate", "rejected", "error"} {
 		metrics.documentUploads.WithLabelValues(status).Add(0)
@@ -105,7 +118,28 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 			metrics.retrievals.WithLabelValues(status, mode).Add(0)
 		}
 	}
+	for _, status := range []string{"answered", "insufficient", "verifier_rejected", "rejected", "error"} {
+		metrics.knowledgeAnswers.WithLabelValues(status, "none").Add(0)
+	}
 	return metrics
+}
+
+func (metrics *Metrics) RecordKnowledgeAnswer(status string, gateReason string, duration time.Duration) {
+	if metrics == nil {
+		return
+	}
+	switch status {
+	case "answered", "insufficient", "verifier_rejected", "rejected", "error":
+	default:
+		status = "error"
+	}
+	switch gateReason {
+	case "sufficient", "no_evidence", "no_cross_retriever_support", "low_top_score":
+	default:
+		gateReason = "none"
+	}
+	metrics.knowledgeAnswers.WithLabelValues(status, gateReason).Inc()
+	metrics.knowledgeAnswerDuration.WithLabelValues(status).Observe(duration.Seconds())
 }
 
 func (metrics *Metrics) Handler() http.Handler {

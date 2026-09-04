@@ -4,6 +4,7 @@ import (
 	"GopherAI/common/mysql"
 	redisstore "GopherAI/common/redis"
 	"GopherAI/config"
+	knowledgeagent "GopherAI/internal/agent/knowledge"
 	"GopherAI/internal/contract"
 	knowledgeapp "GopherAI/internal/knowledge"
 	"GopherAI/internal/observability"
@@ -20,6 +21,7 @@ import (
 	"time"
 
 	embeddingArk "github.com/cloudwego/eino-ext/components/embedding/ark"
+	modelOpenAI "github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/gin-gonic/gin"
 )
 
@@ -41,12 +43,23 @@ type RetrievalMetrics interface {
 	RecordKnowledgeRetrieval(status string, mode string, duration time.Duration, resultCount int)
 }
 
+type AnswerApplication interface {
+	Answer(ctx context.Context, input knowledgeagent.Input) (knowledgeagent.Output, error)
+}
+
+type AnswerMetrics interface {
+	RecordKnowledgeAnswer(status string, gateReason string, duration time.Duration)
+}
+
 type Handler struct {
 	application      Application
 	search           SearchApplication
 	searchInitError  error
+	answer           AnswerApplication
+	answerInitError  error
 	uploadMetrics    UploadMetrics
 	retrievalMetrics RetrievalMetrics
+	answerMetrics    AnswerMetrics
 }
 
 type uploadResponse struct {
@@ -83,6 +96,23 @@ type searchResponse struct {
 	Diagnostics   ragapp.SearchDiagnostics `json:"diagnostics"`
 }
 
+type answerRequest struct {
+	Question string `json:"question" binding:"required"`
+	TopK     int    `json:"top_k,omitempty"`
+}
+
+type answerResponse struct {
+	SchemaVersion   string                    `json:"schema_version"`
+	TraceID         string                    `json:"trace_id"`
+	RequestID       string                    `json:"request_id"`
+	Agent           string                    `json:"agent"`
+	Strategy        string                    `json:"strategy"`
+	StrategyVersion string                    `json:"strategy_version"`
+	Result          contract.AgentResult      `json:"result"`
+	EvidenceGate    ragapp.EvidenceGateResult `json:"evidence_gate"`
+	Diagnostics     ragapp.SearchDiagnostics  `json:"diagnostics"`
+}
+
 func NewHandler(application Application, metrics UploadMetrics) *Handler {
 	return &Handler{application: application, uploadMetrics: metrics}
 }
@@ -92,8 +122,63 @@ func NewDefaultHandler() *Handler {
 	metrics := observability.DefaultMetrics()
 	handler := NewHandler(knowledgeapp.NewDefaultService(repository), metrics)
 	handler.retrievalMetrics = metrics
+	handler.answerMetrics = metrics
 	handler.search = new(lazyDefaultSearchApplication)
+	handler.answer = new(lazyDefaultAnswerApplication)
 	return handler
+}
+
+func (handler *Handler) Answer(context *gin.Context) {
+	startedAt := time.Now()
+	status := "error"
+	gateReason := "none"
+	defer func() {
+		if handler.answerMetrics != nil {
+			handler.answerMetrics.RecordKnowledgeAnswer(status, gateReason, time.Since(startedAt))
+		}
+	}()
+	request := new(answerRequest)
+	if err := context.ShouldBindJSON(request); err != nil {
+		status = "rejected"
+		handler.writeError(context, contract.NewDomainError("INVALID_KNOWLEDGE_ANSWER", contract.ErrorValidation, "请输入有效的知识库问题", false, err))
+		return
+	}
+	request.Question = strings.TrimSpace(request.Question)
+	if handler.answer == nil {
+		handler.writeError(context, contract.NewDomainError("KNOWLEDGE_ANSWER_UNAVAILABLE", contract.ErrorDependencyUnavailable, "知识库回答暂时不可用", true, handler.answerInitError))
+		return
+	}
+	userID := context.GetString("userName")
+	output, err := handler.answer.Answer(context.Request.Context(), knowledgeagent.Input{
+		TenantID: userID, UserID: userID, Question: request.Question, TopK: request.TopK,
+	})
+	gateReason = output.Gate.ReasonCode
+	if err != nil {
+		switch {
+		case errors.Is(err, knowledgeagent.ErrInvalidQuestion), errors.Is(err, ragapp.ErrInvalidSearch):
+			status = "rejected"
+			handler.writeError(context, contract.NewDomainError("INVALID_KNOWLEDGE_ANSWER", contract.ErrorValidation, "问题为空、过长或返回数量超出范围", false, err))
+		case errors.Is(err, knowledgeagent.ErrModelOutput), errors.Is(err, ragapp.ErrCitationVerification):
+			status = "verifier_rejected"
+			handler.writeError(context, contract.NewDomainError("KNOWLEDGE_ANSWER_UNVERIFIED", contract.ErrorModel, "模型回答未通过引用校验，请稍后重试", true, err))
+		default:
+			handler.writeError(context, contract.NewDomainError("KNOWLEDGE_ANSWER_UNAVAILABLE", contract.ErrorDependencyUnavailable, "知识库回答暂时不可用", true, err))
+		}
+		return
+	}
+	if output.Result.Resolved {
+		status = "answered"
+	} else {
+		status = "insufficient"
+	}
+	requestID, traceID := requestid.IDs(context)
+	context.Header(requestid.RequestIDHeader, requestID)
+	context.Header(requestid.TraceIDHeader, traceID)
+	context.JSON(http.StatusOK, answerResponse{
+		SchemaVersion: contract.SchemaVersion, TraceID: traceID, RequestID: requestID,
+		Agent: knowledgeagent.AgentName, Strategy: knowledgeagent.StrategyName, StrategyVersion: knowledgeagent.StrategyVersion,
+		Result: output.Result, EvidenceGate: output.Gate, Diagnostics: output.Diagnostics,
+	})
 }
 
 func (handler *Handler) Upload(context *gin.Context) {
@@ -278,10 +363,45 @@ func newDefaultSearchApplication() (SearchApplication, error) {
 	)
 }
 
+func newDefaultAnswerApplication() (AnswerApplication, error) {
+	retriever, err := newDefaultSearchApplication()
+	if err != nil {
+		return nil, err
+	}
+	configuration := config.GetConfig()
+	apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+	if apiKey == "" {
+		return nil, errors.New("chat model API key is not configured")
+	}
+	chatModel, err := modelOpenAI.NewChatModel(context.Background(), &modelOpenAI.ChatModelConfig{
+		BaseURL: configuration.RagBaseUrl, APIKey: apiKey, Model: configuration.RagChatModelName,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return knowledgeagent.NewAgent(retriever, chatModel, ragapp.DefaultEvidenceGate(), ragapp.NewCitationBuilder())
+}
+
 type lazyDefaultSearchApplication struct {
 	once        sync.Once
 	application SearchApplication
 	err         error
+}
+
+type lazyDefaultAnswerApplication struct {
+	once        sync.Once
+	application AnswerApplication
+	err         error
+}
+
+func (application *lazyDefaultAnswerApplication) Answer(ctx context.Context, input knowledgeagent.Input) (knowledgeagent.Output, error) {
+	application.once.Do(func() {
+		application.application, application.err = newDefaultAnswerApplication()
+	})
+	if application.err != nil {
+		return knowledgeagent.Output{}, application.err
+	}
+	return application.application.Answer(ctx, input)
 }
 
 func (application *lazyDefaultSearchApplication) Search(ctx context.Context, input ragapp.SearchInput) (ragapp.SearchOutput, error) {

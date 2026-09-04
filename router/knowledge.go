@@ -12,4 +12,5 @@ func RegisterKnowledgeRouter(group *gin.RouterGroup) {
 	group.GET("/documents", handler.List)
 	group.GET("/jobs/:job_id", handler.Job)
 	group.POST("/search", handler.Search)
+	group.POST("/answer", handler.Answer)
 }

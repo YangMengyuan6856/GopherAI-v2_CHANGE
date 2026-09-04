@@ -57,7 +57,33 @@
           <button :disabled="!knowledgeQuery.trim() || searchingKnowledge" @click="searchKnowledge">
             {{ searchingKnowledge ? '检索中...' : '执行混合检索' }}
           </button>
+          <button
+            class="answer-evidence-btn"
+            :disabled="!knowledgeQuery.trim() || answeringKnowledge"
+            @click="answerKnowledge"
+          >
+            {{ answeringKnowledge ? '证据校验与回答中...' : '基于证据回答' }}
+          </button>
         </div>
+        <section v-if="knowledgeAnswer" :class="['knowledge-answer', { insufficient: !knowledgeAnswer.result.resolved }]">
+          <div class="knowledge-answer-header">
+            <strong>{{ knowledgeAnswer.result.resolved ? '✅ 证据门通过' : '⚠️ 证据不足' }}</strong>
+            <span>{{ knowledgeAnswer.agent }} · {{ knowledgeAnswer.strategy }} · {{ knowledgeAnswer.evidence_gate.reason_code }}</span>
+          </div>
+          <div class="knowledge-answer-text">{{ knowledgeAnswer.result.answer }}</div>
+          <div v-if="knowledgeAnswer.result.follow_up_questions && knowledgeAnswer.result.follow_up_questions.length" class="knowledge-follow-up">
+            <strong>需要补充：</strong>{{ knowledgeAnswer.result.follow_up_questions.join('；') }}
+          </div>
+          <div v-if="knowledgeAnswer.result.citations && knowledgeAnswer.result.citations.length" class="knowledge-citations">
+            <details v-for="(citation, index) in knowledgeAnswer.result.citations" :key="citation.citation_id">
+              <summary>
+                [{{ index + 1 }}] {{ citation.document }} · v{{ citation.version }} ·
+                {{ citation.section || '未命名章节' }} · L{{ citation.line_start }}-{{ citation.line_end }}
+              </summary>
+              <pre>{{ evidenceForCitation(citation).content || '证据内容不可用' }}</pre>
+            </details>
+          </div>
+        </section>
         <div v-if="knowledgeSearchDiagnostics" class="knowledge-search-summary">
           {{ retrievalModeLabel(knowledgeSearchDiagnostics.mode) }} · Dense {{ knowledgeSearchDiagnostics.dense_candidates }} 条 ·
           BM25 {{ knowledgeSearchDiagnostics.keyword_candidates }} 条 · 融合后 {{ knowledgeSearchDiagnostics.fused_candidates }} 条
@@ -150,6 +176,8 @@ export default {
     const searchingKnowledge = ref(false)
     const knowledgeSearchResults = ref([])
     const knowledgeSearchDiagnostics = ref(null)
+    const answeringKnowledge = ref(false)
+    const knowledgeAnswer = ref(null)
     let knowledgePollTimer = null
 
     const renderMarkdown = (text) => {
@@ -575,6 +603,7 @@ export default {
       const query = knowledgeQuery.value.trim()
       if (!query || searchingKnowledge.value) return
       searchingKnowledge.value = true
+      knowledgeAnswer.value = null
       knowledgeSearchResults.value = []
       knowledgeSearchDiagnostics.value = null
       try {
@@ -587,6 +616,32 @@ export default {
       } finally {
         searchingKnowledge.value = false
       }
+    }
+
+    const answerKnowledge = async () => {
+      const question = knowledgeQuery.value.trim()
+      if (!question || answeringKnowledge.value) return
+      answeringKnowledge.value = true
+      knowledgeAnswer.value = null
+      try {
+        const response = await api.post('/knowledge/answer', { question, top_k: 5 })
+        knowledgeAnswer.value = response.data || null
+        if (knowledgeAnswer.value?.result?.resolved) {
+          ElMessage.success('回答已通过证据门和引用校验')
+        } else {
+          ElMessage.warning('证据不足，系统未调用模型生成结论')
+        }
+      } catch (error) {
+        console.error('Knowledge answer error:', error)
+        ElMessage.error(error.response?.data?.message || '知识库回答暂时不可用')
+      } finally {
+        answeringKnowledge.value = false
+      }
+    }
+
+    const evidenceForCitation = (citation) => {
+      const evidence = knowledgeAnswer.value?.result?.evidence || []
+      return evidence.find(item => item.id === citation.evidence_id) || {}
     }
 
     const loadKnowledgeDocuments = async () => {
@@ -695,6 +750,8 @@ export default {
       searchingKnowledge,
       knowledgeSearchResults,
       knowledgeSearchDiagnostics,
+      answeringKnowledge,
+      knowledgeAnswer,
       documentStatusLabel,
       retrievalModeLabel,
       renderMarkdown,
@@ -706,7 +763,9 @@ export default {
       triggerFileUpload,
       handleFileUpload,
       toggleKnowledgeSearch,
-      searchKnowledge
+      searchKnowledge,
+      answerKnowledge,
+      evidenceForCitation
     }
   }
 }
@@ -911,6 +970,10 @@ export default {
   font-weight: 600;
 }
 
+.knowledge-search-form .answer-evidence-btn {
+  background: linear-gradient(135deg, #19a974 0%, #2f80ed 100%);
+}
+
 .knowledge-search-form button:disabled {
   background: #b8c2cf;
   cursor: not-allowed;
@@ -920,6 +983,69 @@ export default {
   margin: 11px 0;
   color: #52677f;
   font-size: 12px;
+}
+
+.knowledge-answer {
+  margin-top: 12px;
+  padding: 13px;
+  border: 1px solid rgba(25, 169, 116, 0.35);
+  border-radius: 10px;
+  background: rgba(238, 252, 247, 0.96);
+}
+
+.knowledge-answer.insufficient {
+  border-color: rgba(230, 162, 60, 0.45);
+  background: rgba(255, 248, 235, 0.96);
+}
+
+.knowledge-answer-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #31506b;
+  font-size: 13px;
+}
+
+.knowledge-answer-header span {
+  color: #6e8195;
+  font-size: 11px;
+}
+
+.knowledge-answer-text {
+  margin-top: 10px;
+  white-space: pre-wrap;
+  line-height: 1.65;
+  color: #273b4d;
+}
+
+.knowledge-follow-up {
+  margin-top: 9px;
+  color: #9a630d;
+  font-size: 13px;
+}
+
+.knowledge-citations {
+  margin-top: 10px;
+}
+
+.knowledge-citations details {
+  margin-top: 6px;
+  padding: 7px 9px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.8);
+  color: #536a82;
+  font-size: 12px;
+}
+
+.knowledge-citations summary {
+  cursor: pointer;
+}
+
+.knowledge-citations pre {
+  max-height: 140px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .knowledge-search-results {

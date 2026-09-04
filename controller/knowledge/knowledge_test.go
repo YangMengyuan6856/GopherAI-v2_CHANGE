@@ -1,6 +1,7 @@
 package knowledge
 
 import (
+	knowledgeagent "GopherAI/internal/agent/knowledge"
 	"GopherAI/internal/contract"
 	knowledgeapp "GopherAI/internal/knowledge"
 	ragapp "GopherAI/internal/rag"
@@ -43,6 +44,13 @@ type fakeMetrics struct {
 	retrievalStatus string
 	retrievalMode   string
 	resultCount     int
+	answerStatus    string
+	gateReason      string
+}
+
+func (metrics *fakeMetrics) RecordKnowledgeAnswer(status string, gateReason string, _ time.Duration) {
+	metrics.answerStatus = status
+	metrics.gateReason = gateReason
 }
 
 func (metrics *fakeMetrics) RecordDocumentUpload(status string, sizeBytes int64) {
@@ -60,6 +68,17 @@ type fakeSearchApplication struct {
 	input  ragapp.SearchInput
 	output ragapp.SearchOutput
 	err    error
+}
+
+type fakeAnswerApplication struct {
+	input  knowledgeagent.Input
+	output knowledgeagent.Output
+	err    error
+}
+
+func (application *fakeAnswerApplication) Answer(_ context.Context, input knowledgeagent.Input) (knowledgeagent.Output, error) {
+	application.input = input
+	return application.output, application.err
 }
 
 func (application *fakeSearchApplication) Search(_ context.Context, input ragapp.SearchInput) (ragapp.SearchOutput, error) {
@@ -190,6 +209,75 @@ func TestSearchUnavailableDoesNotLeakInitializationCause(t *testing.T) {
 	}
 	if bytes.Contains(response.Body.Bytes(), []byte("secret embedding endpoint")) {
 		t.Fatalf("initialization cause leaked: %s", response.Body.String())
+	}
+}
+
+func TestAnswerReturnsEvidenceGateAndVerifiedCitationsWithAuthenticatedACL(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	answer := &fakeAnswerApplication{output: knowledgeagent.Output{
+		Result: contract.AgentResult{
+			Answer: "重试次数为 7。[1]", Resolved: true, Confidence: 0.97,
+			Citations: []contract.Citation{{ID: "C1", EvidenceID: "chunk-1", Document: "project.md", Version: "1", LineStart: 4, LineEnd: 5}},
+			Evidence:  []contract.Evidence{{ID: "chunk-1", TenantID: "user-a", Title: "project.md", Content: "重试次数为 7。"}},
+		},
+		Gate:        ragapp.EvidenceGateResult{Accepted: true, ReasonCode: ragapp.GateReasonSufficient, TopScore: 0.97, HybridEvidenceCount: 1},
+		Diagnostics: ragapp.SearchDiagnostics{Mode: "hybrid", DenseCandidates: 1, KeywordCandidates: 1, FusedCandidates: 1},
+	}}
+	metrics := new(fakeMetrics)
+	handler := NewHandler(new(fakeApplication), metrics)
+	handler.answer = answer
+	handler.answerMetrics = metrics
+	engine := gin.New()
+	engine.POST("/answer", requestid.Attach(), func(context *gin.Context) {
+		context.Set("userName", "user-a")
+		context.Next()
+	}, handler.Answer)
+
+	request := httptest.NewRequest(http.MethodPost, "/answer", bytes.NewBufferString(`{"question":"默认重试几次？","top_k":3}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	if answer.input.TenantID != "user-a" || answer.input.UserID != "user-a" || answer.input.TopK != 3 {
+		t.Fatalf("authenticated ACL was not propagated: %+v", answer.input)
+	}
+	var payload answerResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Agent != knowledgeagent.AgentName || payload.Strategy != knowledgeagent.StrategyName || !payload.Result.Resolved || len(payload.Result.Citations) != 1 {
+		t.Fatalf("unexpected answer response: %+v", payload)
+	}
+	if metrics.answerStatus != "answered" || metrics.gateReason != ragapp.GateReasonSufficient {
+		t.Fatalf("unexpected answer metric: %+v", metrics)
+	}
+}
+
+func TestAnswerReturnsDeterministicInsufficientEvidenceWithoutError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	answer := &fakeAnswerApplication{output: knowledgeagent.Output{
+		Result: contract.AgentResult{Answer: "当前知识库没有找到可用证据，因此没有调用模型生成答案。", NeedsUserInput: true},
+		Gate:   ragapp.EvidenceGateResult{ReasonCode: ragapp.GateReasonNoEvidence, FollowUpQuestions: []string{"请上传资料。"}},
+	}}
+	metrics := new(fakeMetrics)
+	handler := NewHandler(new(fakeApplication), metrics)
+	handler.answer = answer
+	handler.answerMetrics = metrics
+	engine := gin.New()
+	engine.POST("/answer", requestid.Attach(), func(context *gin.Context) {
+		context.Set("userName", "user-a")
+		context.Next()
+	}, handler.Answer)
+
+	request := httptest.NewRequest(http.MethodPost, "/answer", bytes.NewBufferString(`{"question":"不存在的资料"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || metrics.answerStatus != "insufficient" || metrics.gateReason != ragapp.GateReasonNoEvidence {
+		t.Fatalf("insufficient evidence should be a controlled 200 response: code=%d metric=%+v body=%s", response.Code, metrics, response.Body.String())
 	}
 }
 
