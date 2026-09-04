@@ -254,6 +254,9 @@ func SummarizeShadowIntent(decision *intentdomain.CascadeDecision) *contract.Sha
 	for _, reason := range decision.Diagnostics.FallbackReasons {
 		appendReason(reason)
 	}
+	if decision.Diagnostics.LLMEntitiesSanitized {
+		appendReason("llm_entities_sanitized")
+	}
 	return &contract.ShadowIntentSummary{
 		Intent: decision.Result.Intent, Confidence: decision.Result.Confidence,
 		FinalStage: decision.Diagnostics.FinalStage, Version: decision.Result.Version,

@@ -50,8 +50,28 @@ func TestStructuredLLMRecognizerRejectsMarkdownUnknownFieldsAndLowConfidence(t *
 		fake := &fakeIntentModel{response: &schema.Message{Content: test.content}}
 		recognizer, _ := NewStructuredLLMRecognizer(fake, time.Second)
 		decision := recognizer.Recognize(context.Background(), LLMInput{Question: "q"})
-		if decision.Status != LLMStatusFallback || decision.OutcomeReason != test.reason || decision.Result.Intent != General || !decision.Result.NeedsClarify {
+		if decision.Status != LLMStatusFallback || decision.OutcomeReason != test.reason || !decision.Result.NeedsClarify {
 			t.Fatalf("unsafe output accepted: %+v", decision)
+		}
+		if test.reason == LLMReasonLowConfidence && decision.Result.Intent != ProjectQA {
+			t.Fatalf("low-confidence candidate should be retained only for clarification: %+v", decision)
+		}
+	}
+}
+
+func TestStructuredLLMRecognizerSanitizesNonRoutingEntityShapeWithoutDiscardingIntent(t *testing.T) {
+	for _, content := range []string{
+		`{"intent":"project_qa","confidence":0.91,"entities":["deployment"],"is_compound":false,"needs_clarify":false}`,
+		`{"intent":"project_qa","confidence":0.91,"entities":{"port":9090,"component":" backend "},"is_compound":false,"needs_clarify":false}`,
+	} {
+		fake := &fakeIntentModel{response: &schema.Message{Content: content}}
+		recognizer, _ := NewStructuredLLMRecognizer(fake, time.Second)
+		decision := recognizer.Recognize(context.Background(), LLMInput{Question: "部署端口是什么？"})
+		if decision.Status != LLMStatusCompleted || decision.Result.Intent != ProjectQA || !decision.EntitiesSanitized {
+			t.Fatalf("bounded entity metadata should not discard a valid route decision: %+v", decision)
+		}
+		if len(decision.Result.Entities) > maxIntentEntities {
+			t.Fatalf("sanitized entities exceeded bound: %+v", decision.Result.Entities)
 		}
 	}
 }

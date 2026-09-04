@@ -290,6 +290,10 @@ func cascadeReasonCodes(decision intent.CascadeDecision) []string {
 	for _, reason := range decision.Diagnostics.FallbackReasons {
 		appendReason(reason)
 	}
+	appendReason(decision.Diagnostics.LLMValidationReason)
+	if decision.Diagnostics.LLMEntitiesSanitized {
+		appendReason("llm_entities_sanitized")
+	}
 	return reasons
 }
 

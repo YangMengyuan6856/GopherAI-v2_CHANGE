@@ -30,17 +30,19 @@ type CascadeInput struct {
 }
 
 type CascadeDiagnostics struct {
-	Version           string              `json:"version"`
-	FinalStage        string              `json:"final_stage"`
-	PrototypeCalled   bool                `json:"prototype_called"`
-	LLMCalled         bool                `json:"llm_called"`
-	PrototypeScores   []PrototypeScore    `json:"prototype_scores,omitempty"`
-	PrototypeMargin   float64             `json:"prototype_margin,omitempty"`
-	FallbackReasons   []string            `json:"fallback_reasons,omitempty"`
-	LLMUsage          contract.ModelUsage `json:"llm_usage"`
-	LatencyMillis     int64               `json:"latency_ms"`
-	PatternReasons    []string            `json:"pattern_reasons"`
-	PatternCandidates []string            `json:"pattern_candidates,omitempty"`
+	Version              string              `json:"version"`
+	FinalStage           string              `json:"final_stage"`
+	PrototypeCalled      bool                `json:"prototype_called"`
+	LLMCalled            bool                `json:"llm_called"`
+	PrototypeScores      []PrototypeScore    `json:"prototype_scores,omitempty"`
+	PrototypeMargin      float64             `json:"prototype_margin,omitempty"`
+	FallbackReasons      []string            `json:"fallback_reasons,omitempty"`
+	LLMUsage             contract.ModelUsage `json:"llm_usage"`
+	LLMValidationReason  string              `json:"llm_validation_reason,omitempty"`
+	LLMEntitiesSanitized bool                `json:"llm_entities_sanitized,omitempty"`
+	LatencyMillis        int64               `json:"latency_ms"`
+	PatternReasons       []string            `json:"pattern_reasons"`
+	PatternCandidates    []string            `json:"pattern_candidates,omitempty"`
 }
 
 type CascadeDecision struct {
@@ -101,6 +103,8 @@ func (recognizer *CascadeRecognizer) Recognize(ctx context.Context, input Cascad
 		Question: input.Question, PreviousIntent: input.PreviousIntent, Candidates: decision.Diagnostics.PrototypeScores,
 	})
 	decision.Diagnostics.LLMUsage = llm.Usage
+	decision.Diagnostics.LLMValidationReason = llm.ValidationReason
+	decision.Diagnostics.LLMEntitiesSanitized = llm.EntitiesSanitized
 	if llm.Status == LLMStatusCompleted {
 		stages := copyStages(pattern.Result.Stages)
 		if prototypeErr == nil {
@@ -112,7 +116,14 @@ func (recognizer *CascadeRecognizer) Recognize(ctx context.Context, input Cascad
 		return decision
 	}
 	decision.Diagnostics.FallbackReasons = append(decision.Diagnostics.FallbackReasons, llm.OutcomeReason)
-	decision.Result = degradedCascadeResult(pattern, prototype, prototypeErr)
+	if llm.OutcomeReason == LLMReasonLowConfidence && IsKnown(llm.Result.Intent) {
+		stages := copyStages(pattern.Result.Stages)
+		if prototypeErr == nil {
+			stages = append(stages, prototype.Result.Stages...)
+		}
+		llm.Result.Stages = append(stages, llm.Result.Stages...)
+	}
+	decision.Result = degradedCascadeResult(pattern, prototype, prototypeErr, llm)
 	decision.Diagnostics.FinalStage = "degraded_clarification"
 	return decision
 }
@@ -122,10 +133,15 @@ func cascadeResult(result contract.IntentResult) contract.IntentResult {
 	return result
 }
 
-func degradedCascadeResult(pattern PatternDecision, prototype PrototypeDecision, prototypeErr error) contract.IntentResult {
+func degradedCascadeResult(pattern PatternDecision, prototype PrototypeDecision, prototypeErr error, llm LLMDecision) contract.IntentResult {
 	result := pattern.Result
+	if llm.OutcomeReason == LLMReasonLowConfidence && IsKnown(llm.Result.Intent) {
+		result = llm.Result
+	}
 	if len(pattern.CandidateSet) == 0 || result.Intent == General {
-		if prototypeErr == nil && IsKnown(prototype.Result.Intent) && prototype.Result.Intent != FollowUp {
+		if llm.OutcomeReason == LLMReasonLowConfidence && IsKnown(llm.Result.Intent) {
+			result = llm.Result
+		} else if prototypeErr == nil && IsKnown(prototype.Result.Intent) && prototype.Result.Intent != FollowUp {
 			result = prototype.Result
 		} else {
 			result = contract.IntentResult{Intent: General}

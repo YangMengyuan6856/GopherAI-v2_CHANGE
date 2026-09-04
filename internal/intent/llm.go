@@ -38,11 +38,13 @@ type LLMInput struct {
 }
 
 type LLMDecision struct {
-	Result        contract.IntentResult `json:"result"`
-	Status        string                `json:"status"`
-	OutcomeReason string                `json:"outcome_reason"`
-	Usage         contract.ModelUsage   `json:"usage"`
-	LatencyMillis int64                 `json:"latency_ms"`
+	Result            contract.IntentResult `json:"result"`
+	Status            string                `json:"status"`
+	OutcomeReason     string                `json:"outcome_reason"`
+	ValidationReason  string                `json:"validation_reason,omitempty"`
+	EntitiesSanitized bool                  `json:"entities_sanitized,omitempty"`
+	Usage             contract.ModelUsage   `json:"usage"`
+	LatencyMillis     int64                 `json:"latency_ms"`
 }
 
 type StructuredLLMRecognizer struct {
@@ -56,6 +58,14 @@ type llmModelOutput struct {
 	Entities     map[string]string `json:"entities"`
 	IsCompound   bool              `json:"is_compound"`
 	NeedsClarify bool              `json:"needs_clarify"`
+}
+
+type llmWireOutput struct {
+	Intent       string          `json:"intent"`
+	Confidence   float64         `json:"confidence"`
+	Entities     json.RawMessage `json:"entities"`
+	IsCompound   bool            `json:"is_compound"`
+	NeedsClarify bool            `json:"needs_clarify"`
 }
 
 func NewStructuredLLMRecognizer(intentModel IntentLLM, timeout time.Duration) (*StructuredLLMRecognizer, error) {
@@ -104,14 +114,19 @@ func (recognizer *StructuredLLMRecognizer) Recognize(ctx context.Context, input 
 		return result
 	}
 	accumulateIntentUsage(&result.Usage, response)
-	parsed, ok := parseLLMIntentOutput(response)
-	if !ok {
+	parsed, validationReason, entitiesSanitized := parseLLMIntentOutput(response)
+	result.ValidationReason = validationReason
+	result.EntitiesSanitized = entitiesSanitized
+	if validationReason != "" {
 		return result
 	}
 	if parsed.Confidence < 0.60 {
 		result.OutcomeReason = LLMReasonLowConfidence
-		result.Result.Stages[0].ReasonCode = LLMReasonLowConfidence
-		result.Result.Entities = parsed.Entities
+		result.Result = contract.IntentResult{
+			Intent: parsed.Intent, Confidence: parsed.Confidence, Entities: parsed.Entities,
+			IsCompound: parsed.IsCompound, NeedsClarify: true, Version: LLMVersion,
+			Stages: []contract.IntentStageResult{{Stage: "llm", Intent: parsed.Intent, Confidence: parsed.Confidence, ReasonCode: LLMReasonLowConfidence}},
+		}
 		return result
 	}
 	parsed.NeedsClarify = parsed.NeedsClarify || parsed.Confidence < 0.70
@@ -134,38 +149,103 @@ intent 必须是 project_qa、troubleshooting、doc_task、tool_task、follow_up
 confidence 取 0 到 1；不确定时低于 0.60 并 needs_clarify=true。不得输出 Markdown、解释或额外字段。`
 }
 
-func parseLLMIntentOutput(response *schema.Message) (llmModelOutput, bool) {
+func parseLLMIntentOutput(response *schema.Message) (llmModelOutput, string, bool) {
 	if response == nil {
-		return llmModelOutput{}, false
+		return llmModelOutput{}, "response_missing", false
 	}
 	content := strings.TrimSpace(response.Content)
-	if content == "" || strings.HasPrefix(content, "```") {
-		return llmModelOutput{}, false
+	if content == "" {
+		return llmModelOutput{}, "content_empty", false
+	}
+	if strings.HasPrefix(content, "```") {
+		return llmModelOutput{}, "markdown_fence", false
 	}
 	decoder := json.NewDecoder(strings.NewReader(content))
 	decoder.DisallowUnknownFields()
-	var parsed llmModelOutput
-	if err := decoder.Decode(&parsed); err != nil || decoder.More() {
-		return llmModelOutput{}, false
+	var wire llmWireOutput
+	if err := decoder.Decode(&wire); err != nil {
+		return llmModelOutput{}, classifyIntentJSONError(err), false
+	}
+	if decoder.More() {
+		return llmModelOutput{}, "json_trailing_content", false
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err == nil {
-		return llmModelOutput{}, false
+		return llmModelOutput{}, "json_trailing_content", false
 	}
-	if !IsKnown(parsed.Intent) || parsed.Confidence < 0 || parsed.Confidence > 1 || len(parsed.Entities) > maxIntentEntities {
-		return llmModelOutput{}, false
+	if !IsKnown(wire.Intent) {
+		return llmModelOutput{}, "intent_unknown", false
 	}
-	for key, value := range parsed.Entities {
+	if wire.Confidence < 0 || wire.Confidence > 1 {
+		return llmModelOutput{}, "confidence_out_of_range", false
+	}
+	entities, sanitized := sanitizeIntentEntities(wire.Entities)
+	return llmModelOutput{
+		Intent: wire.Intent, Confidence: wire.Confidence, Entities: entities,
+		IsCompound: wire.IsCompound, NeedsClarify: wire.NeedsClarify,
+	}, "", sanitized
+}
+
+func sanitizeIntentEntities(raw json.RawMessage) (map[string]string, bool) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, false
+	}
+	var values map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return nil, true
+	}
+	if len(values) > maxIntentEntities {
+		return nil, true
+	}
+	result := make(map[string]string, len(values))
+	sanitized := false
+	for key, rawValue := range values {
 		trimmedKey := strings.TrimSpace(key)
+		var value string
+		if err := json.Unmarshal(rawValue, &value); err != nil {
+			sanitized = true
+			continue
+		}
 		trimmedValue := strings.TrimSpace(value)
 		if trimmedKey == "" || trimmedValue == "" || utf8.RuneCountInString(trimmedKey) > 64 || utf8.RuneCountInString(trimmedValue) > 256 {
-			return llmModelOutput{}, false
+			sanitized = true
+			continue
 		}
 		if key != trimmedKey || value != trimmedValue {
-			return llmModelOutput{}, false
+			sanitized = true
+		}
+		result[trimmedKey] = trimmedValue
+	}
+	return result, sanitized
+}
+
+func classifyIntentJSONError(err error) string {
+	if err == nil {
+		return ""
+	}
+	var typeError *json.UnmarshalTypeError
+	if errors.As(err, &typeError) {
+		switch typeError.Field {
+		case "entities":
+			return "entities_type_invalid"
+		case "confidence":
+			return "confidence_type_invalid"
+		case "is_compound", "needs_clarify":
+			return "boolean_type_invalid"
+		case "intent":
+			return "intent_type_invalid"
+		default:
+			return "field_type_invalid"
 		}
 	}
-	return parsed, true
+	if strings.Contains(err.Error(), "unknown field") {
+		return "unknown_field"
+	}
+	var syntaxError *json.SyntaxError
+	if errors.As(err, &syntaxError) {
+		return "json_syntax_invalid"
+	}
+	return "json_schema_invalid"
 }
 
 func fallbackLLMDecision(reason string) LLMDecision {
