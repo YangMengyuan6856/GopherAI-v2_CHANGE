@@ -10,15 +10,17 @@ const (
 	GateReasonNoEvidence        = "no_evidence"
 	GateReasonNoHybridSupport   = "no_cross_retriever_support"
 	GateReasonLowConfidence     = "low_top_score"
+	GateReasonDenseLexical      = "sufficient_dense_lexical"
 	DefaultMinimumEvidenceScore = 0.80
 )
 
 type EvidenceGateResult struct {
-	Accepted            bool     `json:"accepted"`
-	ReasonCode          string   `json:"reason_code"`
-	TopScore            float64  `json:"top_score"`
-	HybridEvidenceCount int      `json:"hybrid_evidence_count"`
-	FollowUpQuestions   []string `json:"follow_up_questions,omitempty"`
+	Accepted             bool     `json:"accepted"`
+	ReasonCode           string   `json:"reason_code"`
+	TopScore             float64  `json:"top_score"`
+	HybridEvidenceCount  int      `json:"hybrid_evidence_count"`
+	LexicalEvidenceCount int      `json:"lexical_evidence_count"`
+	FollowUpQuestions    []string `json:"follow_up_questions,omitempty"`
 }
 
 type EvidenceGate struct {
@@ -51,7 +53,13 @@ func (gate *EvidenceGate) Evaluate(output SearchOutput) EvidenceGateResult {
 		result.FollowUpQuestions = []string{"请上传包含该问题答案的项目文档，或补充准确的配置名、错误码和相关日志。"}
 		return result
 	}
+	result.LexicalEvidenceCount = output.Diagnostics.LexicalCandidates
 	if result.HybridEvidenceCount == 0 || output.Diagnostics.DenseCandidates == 0 || output.Diagnostics.KeywordCandidates == 0 {
+		if output.Diagnostics.DenseCandidates > 0 && result.LexicalEvidenceCount > 0 {
+			result.Accepted = true
+			result.ReasonCode = GateReasonDenseLexical
+			return result
+		}
 		result.ReasonCode = GateReasonNoHybridSupport
 		result.FollowUpQuestions = []string{"当前证据只有单路召回，请补充文档中的准确术语、配置名或错误码后再试。"}
 		return result

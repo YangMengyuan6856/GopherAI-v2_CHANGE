@@ -39,7 +39,7 @@
       "section": "Evidence gate",
       "line_start": 42,
       "line_end": 48,
-      "content": "EVIDENCE_THRESHOLD：Evidence Gate v1 要求至少有一条同时被 Dense 与 BM25 命中的证据，且归一化最高分不低于 0.80；否则不调用回答模型。"
+      "content": "EVIDENCE_THRESHOLD：Evidence Gate v2 优先要求至少一条同时被 Dense 与 BM25 命中的证据，且归一化最高分不低于 0.80。若 BM25 中文分词未命中，只在 Dense 候选与问题有至少 4 个不同中文二元词重合且覆盖问题词元 20% 时放行；否则不调用回答模型。"
     },
     {
       "id": "mq-retry-max",

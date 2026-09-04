@@ -24,6 +24,7 @@ const (
 	ReciprocalRankK    = 60
 	RetrievalVersion   = "hybrid-rrf-v1"
 	defaultEnvironment = "prod"
+	maxKeywordTerms    = 32
 )
 
 var (
@@ -89,6 +90,7 @@ type SearchDiagnostics struct {
 	DenseCandidates   int                    `json:"dense_candidates"`
 	KeywordCandidates int                    `json:"keyword_candidates"`
 	FusedCandidates   int                    `json:"fused_candidates"`
+	LexicalCandidates int                    `json:"lexical_candidates"`
 	DegradedReasons   []string               `json:"degraded_reasons,omitempty"`
 	QueryAssessment   QueryAssessment        `json:"query_assessment"`
 	Deep              *DeepSearchDiagnostics `json:"deep,omitempty"`
@@ -206,6 +208,11 @@ func (retriever *HybridRetriever) Search(ctx context.Context, input SearchInput)
 		}
 	}
 	diagnostics.FusedCandidates = len(hits)
+	for _, hit := range hits {
+		if hasStrongLexicalSupport(input.Query, hit.Evidence.Content) {
+			diagnostics.LexicalCandidates++
+		}
+	}
 	diagnostics.QueryAssessment = AssessQuery(input.Query, hits, diagnostics)
 	return SearchOutput{Hits: hits, Diagnostics: diagnostics}, nil
 }
@@ -346,6 +353,9 @@ func keywordTerms(query string) []string {
 	terms := make([]string, 0, len(fields)*2)
 	seen := make(map[string]struct{}, len(fields)*2)
 	add := func(value string) {
+		if len(terms) >= maxKeywordTerms {
+			return
+		}
 		value = escapeText(value)
 		if value == "" {
 			return
@@ -366,8 +376,62 @@ func keywordTerms(query string) []string {
 				add(part)
 			}
 		}
+		for _, cjkRun := range cjkRuns(field) {
+			runes := []rune(cjkRun)
+			for _, width := range []int{2, 3} {
+				for index := 0; index+width <= len(runes); index++ {
+					add(string(runes[index : index+width]))
+				}
+			}
+		}
 	}
 	return terms
+}
+
+func cjkRuns(value string) []string {
+	runs := make([]string, 0, 2)
+	var current strings.Builder
+	flush := func() {
+		if current.Len() > 0 {
+			runs = append(runs, current.String())
+			current.Reset()
+		}
+	}
+	for _, character := range value {
+		if unicode.Is(unicode.Han, character) {
+			current.WriteRune(character)
+			continue
+		}
+		flush()
+	}
+	flush()
+	return runs
+}
+
+func hasStrongLexicalSupport(query string, content string) bool {
+	queryBigrams := cjkNGramSet(query, 2)
+	if len(queryBigrams) == 0 {
+		return false
+	}
+	contentBigrams := cjkNGramSet(content, 2)
+	matches := 0
+	for bigram := range queryBigrams {
+		if _, exists := contentBigrams[bigram]; exists {
+			matches++
+		}
+	}
+	return matches >= 4 && float64(matches)/float64(len(queryBigrams)) >= 0.20
+}
+
+func cjkNGramSet(value string, width int) map[string]struct{} {
+	result := make(map[string]struct{})
+	for _, run := range cjkRuns(value) {
+		runes := []rune(run)
+		for index := 0; index+width <= len(runes); index++ {
+			result[string(runes[index:index+width])] = struct{}{}
+		}
+	}
+	return result
 }
 
 func escapeTag(value string) string {

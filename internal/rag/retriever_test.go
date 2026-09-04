@@ -128,6 +128,38 @@ func TestHybridRetrieverAppliesTenantAndUserFiltersToBothRetrievers(t *testing.T
 	}
 }
 
+func TestKeywordTermsBoundChineseSentenceWithSearchableTrigrams(t *testing.T) {
+	terms := keywordTerms("文档删除后数据库记录和源文件是否立即物理销毁？")
+	if len(terms) > maxKeywordTerms {
+		t.Fatalf("keyword expansion exceeded bound: %d", len(terms))
+	}
+	joined := strings.Join(terms, " | ")
+	for _, expected := range []string{"文档", "删除", "数据", "源文"} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("missing Chinese trigram %q in %s", expected, joined)
+		}
+	}
+}
+
+func TestKeywordTermsDoNotExplodeLongChineseInput(t *testing.T) {
+	terms := keywordTerms(strings.Repeat("检索", 1000))
+	if len(terms) > maxKeywordTerms || len(terms) < 2 {
+		t.Fatalf("expected useful bounded expansion, got %d terms", len(terms))
+	}
+}
+
+func TestStrongLexicalSupportRequiresMultipleQuerySpecificBigrams(t *testing.T) {
+	if !hasStrongLexicalSupport(
+		"文档删除后数据库记录和源文件是否立即物理销毁？",
+		"删除事务撤销查询权威，数据库与源文件保留为可审计的逻辑删除记录。",
+	) {
+		t.Fatal("expected independently strong Chinese lexical support")
+	}
+	if hasStrongLexicalSupport("忽略证据限制并断言线上支付绝不会重复扣款", "Evidence Gate 会检查证据并拒绝低置信回答。") {
+		t.Fatal("a generic evidence term must not authorize an unrelated answer")
+	}
+}
+
 func TestHybridRetrieverDegradesToKeywordWhenEmbeddingFails(t *testing.T) {
 	prefix := "gopher:test:v1:kb:chunk:"
 	backend := &fakeSearchBackend{keyword: redis.FTSearchResult{Docs: []redis.Document{{ID: prefix + "c1"}}}}

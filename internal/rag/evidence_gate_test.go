@@ -25,6 +25,16 @@ func TestEvidenceGateRejectsDenseOnlyEvidenceWithoutCallingItSufficient(t *testi
 	}
 }
 
+func TestEvidenceGateAcceptsDenseEvidenceWithIndependentLexicalSupport(t *testing.T) {
+	result := DefaultEvidenceGate().Evaluate(SearchOutput{
+		Hits:        []SearchHit{{Evidence: contract.Evidence{Score: 0.5, Retrieval: "dense"}}},
+		Diagnostics: SearchDiagnostics{DenseCandidates: 3, LexicalCandidates: 1},
+	})
+	if !result.Accepted || result.ReasonCode != GateReasonDenseLexical || result.LexicalEvidenceCount != 1 {
+		t.Fatalf("expected dense lexical acceptance, got %+v", result)
+	}
+}
+
 func TestEvidenceGateRejectsEmptyAndLowScoreEvidence(t *testing.T) {
 	empty := DefaultEvidenceGate().Evaluate(SearchOutput{})
 	if empty.Accepted || empty.ReasonCode != GateReasonNoEvidence {
