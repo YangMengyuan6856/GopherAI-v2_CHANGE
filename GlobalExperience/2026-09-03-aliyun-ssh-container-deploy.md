@@ -1340,3 +1340,11 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - MCP 默认从 `:8081` 收紧为 `127.0.0.1:8081`。云端 `/proc/net/tcp` 的监听记录为 `0100007F:1F91 0A`，即 loopback:8081 LISTEN；它不是新增公网工具入口。ToolAgent 的显式 MCP 发布清单问题只规划该 Adapter，不能绕过 Runtime 直连协议源。
 - Release `20260905061957-0730ee3debaa`，bundle SHA-256 `97e6fc03d46d7c3706554b9b115c48158ac55cb8c1272edb649f7a962dd012a8`，Backend/Index Worker live/ready、MCP、Vue 编译/HTTP 和唯一进程门全部通过。浏览器 direct 与 ToolAgent 两条真实路径均返回当前 release、Git SHA 和 `mcp:deployment_manifest_source:<release>` 证据引用。
 - MySQL 持久审计分别记录 `tool_primary/success/1` 与 `tool_agent_v1/success/1`；Prometheus 进程内指标对应 success 各 1、cache miss 2，标签不含 URL、用户、Call ID 或 Trace ID。这个纵切证明 MCP 只是 Adapter 协议边界，而不是治理旁路；当前仍只有一个受限来源，不能宣称已有通用外部 MCP 市场接入。
+
+## 50. 2026-09-05 工具 stale-if-error 受控故障演练
+
+- 提交 `c9107e6d` 补齐 M6-06：Definition 可声明有界 `stale_if_error_ms`，但 Registry 只允许“只读 + 幂等 + 已启用短 TTL Cache”的工具使用，窗口上限 5 分钟；写工具、无 Cache 工具和越界策略在注册期拒绝。缓存键继续绑定 tool/version/args/tenant/user，Schema/Auth/SideEffect/Budget 仍在任何缓存读取前执行。
+- 新鲜 TTL 到期后，Runtime 会尝试真实刷新；只有依赖执行失败、工具超时或熔断已打开且仍处于 stale 窗口，才返回 `status=success, cached=true, stale=true`，同时携带固定 `degraded_reason` 和 `tool-cache-stale:<tool>@<version>` 证据引用。调用方主动取消/截止、结果序列化失败和响应超限不会被旧数据掩盖；窗口到期后 fail-closed。
+- 30 条工具候选集把原单纯 cache-hit 用例升级为“首次填充 → 新鲜命中 → TTL 后依赖失败 → 显式 stale”三调用链，仍保持 5 类各 6 条，所有技术门 `100%`、危险动作执行率 `0%`、未知工具执行 `0`、人工标签仍待复核。新报告 SHA-256 为 `13769f4edb6b1c5496ca6611cb8e3c478cbd96ac7421e8ec88b45b70db7db8c2`。
+- Release `20260905064425-c9107e6df34e`，bundle SHA-256 `189c1f28b4ff682e701f38881c545f501348ef82d6d0f9097e2425982b3d6c1b`，四进程门通过。演练只短暂停止 loopback MCP 协议源：先建立当前发布清单缓存，等待 3 秒 TTL 后停 MCP，页面返回 success 但醒目标记 `陈旧证据降级 / TOOL_EXECUTION_FAILED`；恢复 MCP 后下一次调用重新变为非缓存的新鲜结果。
+- 第一次演练在人工操作超过 30 秒 stale 窗口后调用，按设计返回 `TOOL_EXECUTION_FAILED` 而不是旧数据；缩短停机/调用间隔后才命中 stale。这不是测试失误应被隐藏，而是窗口上限真实生效的证据。最终 MySQL 最近审计包含 fresh success 3、显式 stale success 1、窗口外 error 1；Prometheus 为 `stale_fallback=1`、circuit 最终 `closed=1`，Backend、Worker 与 MCP 均恢复 ready。
