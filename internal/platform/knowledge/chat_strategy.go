@@ -8,6 +8,7 @@ import (
 	knowledgeagent "GopherAI/internal/agent/knowledge"
 	"GopherAI/internal/app"
 	"GopherAI/internal/contract"
+	memorydomain "GopherAI/internal/memory"
 	"GopherAI/internal/policy"
 	"GopherAI/internal/rag"
 	"GopherAI/model"
@@ -47,7 +48,7 @@ func NewChatStrategy(answerer Answerer, store ConversationStore) (*ChatStrategy,
 }
 
 func NewDefaultChatStrategy() *ChatStrategy {
-	strategy, err := NewChatStrategy(new(lazyDefaultAnswerer), &gormConversationStore{db: mysql.DB})
+	strategy, err := NewChatStrategy(new(lazyDefaultAnswerer), &gormConversationStore{db: mysql.DB, memory: memorydomain.NewDefaultService()})
 	if err != nil {
 		panic(fmt.Sprintf("initialize rag_fast chat strategy: %v", err))
 	}
@@ -120,7 +121,8 @@ func sessionError(err error) *contract.DomainError {
 }
 
 type gormConversationStore struct {
-	db *gorm.DB
+	db     *gorm.DB
+	memory *memorydomain.Service
 }
 
 func (store *gormConversationStore) ResolveSession(ctx context.Context, userID string, sessionID string, title string) (string, error) {
@@ -149,6 +151,16 @@ func (store *gormConversationStore) ResolveSession(ctx context.Context, userID s
 func (store *gormConversationStore) SaveExchange(ctx context.Context, userID string, sessionID string, question string, answer string) error {
 	if store == nil || store.db == nil {
 		return gorm.ErrInvalidDB
+	}
+	if store.memory != nil {
+		if _, err := store.memory.AppendExchange(ctx, userID, sessionID, question, answer); err != nil {
+			return err
+		}
+		if helper, exists := aihelper.GetGlobalManager().GetAIHelper(userID, sessionID); exists {
+			helper.AddMessage(question, userID, true, false)
+			helper.AddMessage(answer, userID, false, false)
+		}
+		return nil
 	}
 	err := store.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		messages := []model.Message{

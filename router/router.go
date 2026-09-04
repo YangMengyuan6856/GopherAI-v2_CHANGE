@@ -43,6 +43,11 @@ func InitRouter() *gin.Engine {
 		EvaluationGroup.Use(requestid.Attach(), jwt.Auth())
 		RegisterEvaluationRouter(EvaluationGroup)
 	}
+	{
+		MemoryGroup := enterRouter.Group("/memory")
+		MemoryGroup.Use(requestid.Attach(), jwt.Auth())
+		RegisterMemoryRouter(MemoryGroup)
+	}
 
 	{
 		FileGroup := enterRouter.Group("/file")

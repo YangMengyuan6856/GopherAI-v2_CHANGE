@@ -36,6 +36,7 @@
           <input type="checkbox" id="diagnosticMode" v-model="diagnosticMode" @change="onDiagnosticModeChanged" />
           故障诊断 Harness
         </label>
+        <button class="memory-toggle-btn" :disabled="!currentSessionId || tempSession" @click="toggleMemoryPreview">🧠 上下文记忆</button>
         <button
           class="upload-btn"
           title="支持 Markdown/TXT、JSON/YAML key path 和 Go 顶层符号索引"
@@ -212,6 +213,45 @@
           当前知识库没有召回相关证据；这只是检索结果，不会让聊天模型凭空回答。
         </div>
       </div>
+
+      <section v-if="memoryPreviewOpen" class="memory-workbench">
+        <div class="memory-workbench-header">
+          <div>
+            <strong>🧠 Context Assembler v2 · 第一层工作记忆</strong>
+            <span>MySQL 是权威消息源；Redis 只保存最近 20 条、TTL 24 小时，可随时重建</span>
+          </div>
+          <div>
+            <button :disabled="loadingMemoryPreview" @click="loadMemoryPreview">刷新</button>
+            <button :disabled="loadingMemoryPreview" @click="rebuildWorkingMemory">从 MySQL 安全重建</button>
+          </div>
+        </div>
+        <div v-if="loadingMemoryPreview" class="memory-loading">正在组装当前会话上下文...</div>
+        <template v-else-if="memoryPreview">
+          <div class="memory-stats">
+            <span :class="['memory-cache-badge', `cache-${memoryPreview.window.cache_status}`]">
+              {{ memoryCacheLabel(memoryPreview.window.cache_status) }}
+            </span>
+            <span>热窗口 {{ memoryPreview.window.messages.length }}/{{ memoryPreview.window.window_limit }} 条</span>
+            <span>TTL {{ Math.round(memoryPreview.window.cache_ttl_seconds / 3600) }} 小时</span>
+            <span>预算 {{ memoryPreview.context.estimated_tokens }}/{{ memoryPreview.context.budget_tokens }} Token</span>
+            <span>裁剪 {{ memoryPreview.context.dropped_by_budget }} 项</span>
+            <span>估算 Token 降幅 {{ metricPercent(memoryPreview.context.token_reduction_ratio) }}</span>
+          </div>
+          <div class="memory-boundary">
+            当前上线的是 Working Memory + Token 预算组装；已解决案例（Episodic）和环境事实（Profile）仍未开放，避免把未确认信息注入回答。
+          </div>
+          <details open>
+            <summary>本次实际纳入模型上下文的项目（{{ memoryPreview.context.included.length }}）</summary>
+            <ol class="memory-context-items">
+              <li v-for="(item, index) in memoryPreview.context.included" :key="`${item.kind}-${index}`">
+                <strong>{{ memoryContextKindLabel(item.kind) }}</strong>
+                <span>{{ item.required ? '不可压缩' : '按预算纳入' }} · 约 {{ item.estimated_tokens }} Token</span>
+                <p>{{ item.content }}</p>
+              </li>
+            </ol>
+          </details>
+        </template>
+      </section>
 
       <section v-if="diagnosticMode" class="diagnostic-workbench">
         <div class="diagnostic-workbench-header">
@@ -418,6 +458,9 @@ export default {
     const diagnosticEvaluationOpen = ref(false)
     const loadingDiagnosticEvaluation = ref(false)
     const diagnosticEvaluation = ref(null)
+    const memoryPreviewOpen = ref(false)
+    const loadingMemoryPreview = ref(false)
+    const memoryPreview = ref(null)
     const diagnosticRunStorageKey = 'gopherai.active-diagnostic-run-v1'
     const diagnosticModeStorageKey = 'gopherai.diagnostic-mode-v1'
     let knowledgePollTimer = null
@@ -548,6 +591,7 @@ export default {
 
 
       currentMessages.value = [...(sessions.value[sessionId].messages || [])]
+      if (memoryPreviewOpen.value) await loadMemoryPreview()
       await nextTick()
       scrollToBottom()
     }
@@ -623,6 +667,7 @@ export default {
         }
         await nextTick()
         scrollToBottom()
+        if (memoryPreviewOpen.value && currentSessionId.value && !tempSession.value) await loadMemoryPreview()
       }
     }
 
@@ -753,6 +798,62 @@ export default {
     }
 
     const metricPercent = (value) => `${((Number(value) || 0) * 100).toFixed(1)}%`
+
+    const memoryCacheLabel = (status) => ({
+      hit: 'Redis 热窗口命中',
+      rebuilt_from_mysql: '已从 MySQL 重建 Redis',
+      mysql_fallback_cache_unavailable: 'Redis 不可用，MySQL 降级'
+    }[status] || status)
+
+    const memoryContextKindLabel = (kind) => ({
+      safety_rule: '系统安全规则',
+      current_question: '当前问题',
+      constraint: '用户明确约束',
+      run_state: '当前 Run 状态',
+      confirmed_fact: '已确认事实',
+      open_question: '未决问题',
+      evidence_ref: '证据引用',
+      structured_summary: '结构化摘要',
+      working_message: '近期原始消息'
+    }[kind] || kind)
+
+    const loadMemoryPreview = async () => {
+      if (!currentSessionId.value || tempSession.value) return
+      try {
+        loadingMemoryPreview.value = true
+        const response = await api.get(`/memory/sessions/${encodeURIComponent(currentSessionId.value)}/context`, {
+          params: { budget_tokens: 1024 }
+        })
+        memoryPreview.value = response.data
+      } catch (error) {
+        memoryPreviewOpen.value = false
+        ElMessage.error(error.response?.data?.message || '上下文记忆暂时不可用')
+      } finally {
+        loadingMemoryPreview.value = false
+      }
+    }
+
+    const toggleMemoryPreview = async () => {
+      memoryPreviewOpen.value = !memoryPreviewOpen.value
+      if (memoryPreviewOpen.value) await loadMemoryPreview()
+    }
+
+    const rebuildWorkingMemory = async () => {
+      if (!currentSessionId.value || tempSession.value) return
+      try {
+        loadingMemoryPreview.value = true
+        const rebuildResponse = await api.post(`/memory/sessions/${encodeURIComponent(currentSessionId.value)}/rebuild`)
+        await loadMemoryPreview()
+        if (memoryPreview.value?.window && rebuildResponse.data?.window?.cache_status) {
+          memoryPreview.value.window.cache_status = rebuildResponse.data.window.cache_status
+        }
+        ElMessage.success('已删除当前用户该会话的 Redis 缓存，并从 MySQL 权威消息重建')
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || '工作记忆重建失败')
+      } finally {
+        loadingMemoryPreview.value = false
+      }
+    }
 
     const toggleDiagnosticEvaluation = async () => {
       diagnosticEvaluationOpen.value = !diagnosticEvaluationOpen.value
@@ -1344,6 +1445,9 @@ export default {
       diagnosticEvaluationOpen,
       loadingDiagnosticEvaluation,
       diagnosticEvaluation,
+      memoryPreviewOpen,
+      loadingMemoryPreview,
+      memoryPreview,
       documentStatusLabel,
       jobStatusLabel,
       retrievalModeLabel,
@@ -1357,6 +1461,11 @@ export default {
       diagnosticStateLabel,
       isDiagnosticTerminal,
       metricPercent,
+      memoryCacheLabel,
+      memoryContextKindLabel,
+      toggleMemoryPreview,
+      loadMemoryPreview,
+      rebuildWorkingMemory,
       toggleDiagnosticEvaluation,
       renderMarkdown,
       playTTS,
@@ -1524,6 +1633,103 @@ export default {
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.memory-workbench {
+  margin: 12px 20px 0;
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px solid #b8d9c7;
+  background: linear-gradient(135deg, #f2fff7 0%, #eef8ff 100%);
+  color: #243746;
+}
+
+.memory-workbench-header,
+.memory-workbench-header > div,
+.memory-stats {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.memory-workbench-header {
+  justify-content: space-between;
+}
+
+.memory-workbench-header > div:first-child {
+  align-items: flex-start;
+  flex-direction: column;
+}
+
+.memory-workbench-header span,
+.memory-stats,
+.memory-context-items span {
+  color: #547080;
+  font-size: 13px;
+}
+
+.memory-workbench button,
+.memory-toggle-btn {
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  background: #3b9f74;
+  color: #fff;
+}
+
+.memory-workbench button:disabled,
+.memory-toggle-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.memory-loading,
+.memory-stats,
+.memory-boundary,
+.memory-workbench details {
+  margin-top: 12px;
+}
+
+.memory-cache-badge {
+  border-radius: 999px;
+  padding: 4px 9px;
+  background: #d7f5e5;
+  color: #176744;
+  font-weight: 700;
+}
+
+.cache-mysql_fallback_cache_unavailable {
+  background: #fff1d6;
+  color: #8a5a00;
+}
+
+.memory-boundary {
+  border-left: 4px solid #5aa6b8;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 13px;
+}
+
+.memory-context-items {
+  max-height: 280px;
+  overflow: auto;
+  padding-left: 24px;
+}
+
+.memory-context-items li {
+  margin: 9px 0;
+}
+
+.memory-context-items span {
+  margin-left: 8px;
+}
+
+.memory-context-items p {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .diagnostic-workbench {

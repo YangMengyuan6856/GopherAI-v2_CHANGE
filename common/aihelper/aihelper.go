@@ -1,8 +1,8 @@
 package aihelper
 
 import (
-	"GopherAI/common/rabbitmq"
 	"GopherAI/config"
+	memorydomain "GopherAI/internal/memory"
 	"GopherAI/model"
 	"context"
 	"sync"
@@ -16,57 +16,73 @@ type AIHelper struct {
 	messages      []*model.Message
 	mu            sync.RWMutex
 	SessionID     string
-	saveFunc      func(*model.Message) (*model.Message, error)
+	saveFunc      func(context.Context, *model.Message) (*model.Message, error)
 	historyLoaded bool
-
-	summary      *SummaryMemory
-	longTermMem  *LongTermMemoryManager
-	userName     string
-	messageCount int // 本次会话累计消息数，用于触发长期记忆提取
+	userName      string
 }
 
 // NewAIHelper 创建新的AIHelper实例
 func NewAIHelper(model_ AIModel, SessionID string) *AIHelper {
+	memoryService := memorydomain.NewDefaultService()
 	return &AIHelper{
 		model:    model_,
 		messages: make([]*model.Message, 0),
-		saveFunc: func(msg *model.Message) (*model.Message, error) {
-			data := rabbitmq.GenerateMessageMQParam(msg.SessionID, msg.Content, msg.UserName, msg.IsUser)
-			err := rabbitmq.RMQMessage.Publish(data)
-			return msg, err
+		saveFunc: func(ctx context.Context, msg *model.Message) (*model.Message, error) {
+			role := memorydomain.RoleAssistant
+			if msg.IsUser {
+				role = memorydomain.RoleUser
+			}
+			persisted, err := memoryService.AppendMessage(ctx, msg.UserName, msg.SessionID, role, msg.Content)
+			if err != nil {
+				return nil, err
+			}
+			msg.ID, msg.CreatedAt = persisted.ID, persisted.CreatedAt
+			return msg, nil
 		},
 		SessionID: SessionID,
 	}
 }
 
-// InitMemory 初始化记忆系统（在获取 userName 后调用）
+// InitMemory binds the helper to an owner. Legacy free-form summary and
+// periodic profile extraction are intentionally not activated: the v2 memory
+// path only admits structured, source-aware memory.
 func (a *AIHelper) InitMemory(userName string) {
 	a.userName = userName
-	a.summary = NewSummaryMemory(a.SessionID, userName)
-	a.longTermMem = NewLongTermMemoryManager(userName)
-	a.summary.LoadFromDB()
 }
 
 // addMessage 添加消息到内存中并调用自定义存储函数
 func (a *AIHelper) AddMessage(Content string, UserName string, IsUser bool, Save bool) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	_ = a.AddMessageContext(context.Background(), Content, UserName, IsUser, Save)
+}
 
+func (a *AIHelper) AddMessageContext(ctx context.Context, Content string, UserName string, IsUser bool, Save bool) error {
 	userMsg := model.Message{
 		SessionID: a.SessionID,
 		Content:   Content,
 		UserName:  UserName,
 		IsUser:    IsUser,
 	}
-	a.messages = append(a.messages, &userMsg)
-	a.messageCount++
 	if Save {
-		a.saveFunc(&userMsg)
+		persisted, err := a.saveFunc(ctx, &userMsg)
+		if err != nil {
+			return err
+		}
+		userMsg = *persisted
 	}
+	a.mu.Lock()
+	a.messages = append(a.messages, &userMsg)
+	a.mu.Unlock()
+	return nil
 }
 
 // SaveMessage 保存消息到数据库（通过回调函数避免循环依赖）
 func (a *AIHelper) SetSaveFunc(saveFunc func(*model.Message) (*model.Message, error)) {
+	a.saveFunc = func(_ context.Context, message *model.Message) (*model.Message, error) {
+		return saveFunc(message)
+	}
+}
+
+func (a *AIHelper) SetContextSaveFunc(saveFunc func(context.Context, *model.Message) (*model.Message, error)) {
 	a.saveFunc = saveFunc
 }
 
@@ -97,84 +113,47 @@ func (a *AIHelper) GetMessages() []*model.Message {
 	return out
 }
 
-// buildContextMessages 使用三层记忆系统组装上下文
+// buildContextMessages assembles the bounded working-memory layer through the
+// same deterministic Context Assembler used by the public diagnostics view.
 func (a *AIHelper) buildContextMessages() []*schema.Message {
 	budget := GetContextTokenBudget()
-
-	// 如果记忆系统已初始化，使用三层上下文组装
-	if a.summary != nil {
-		// 异步触发摘要生成（如果需要的话）
-		if a.summary.shouldSummarize(a.messages, budget) {
-			if adapter, ok := a.model.(SummaryLLM); ok {
-				a.summary.TrySummarize(context.Background(), a.messages, budget, adapter)
-			}
-		}
-
-		systemPrompt := config.GetConfig().MemoryConfig.SystemPrompt
-		longTermMemory := ""
-		if a.longTermMem != nil {
-			longTermMemory = a.longTermMem.GetFormattedMemory()
-		}
-
-		return a.summary.BuildContext(a.messages, systemPrompt, longTermMemory, budget)
-	}
-
-	// 回退：无记忆系统时使用旧的截断逻辑
-	contextMsgs := a.messages
-	if budget > 0 {
-		contextMsgs = TruncateByTokenBudget(a.messages, budget)
-	}
-
-	// 即使没有记忆系统，也尝试注入 System Prompt
 	systemPrompt := config.GetConfig().MemoryConfig.SystemPrompt
+	working := make([]memorydomain.WorkingMessage, 0, len(a.messages))
+	currentQuestion := ""
+	for _, message := range a.messages {
+		role := memorydomain.RoleAssistant
+		if message.IsUser {
+			role = memorydomain.RoleUser
+			currentQuestion = message.Content
+		}
+		working = append(working, memorydomain.WorkingMessage{ID: message.ID, Role: role, Content: message.Content, CreatedAt: message.CreatedAt})
+	}
+	safetyRules := []string(nil)
 	if systemPrompt != "" {
-		result := make([]*schema.Message, 0, len(contextMsgs)+1)
-		result = append(result, &schema.Message{Role: schema.System, Content: systemPrompt})
-		for _, m := range contextMsgs {
-			role := schema.Assistant
-			if m.IsUser {
-				role = schema.User
-			}
-			result = append(result, &schema.Message{Role: role, Content: m.Content})
-		}
-		return result
+		safetyRules = append(safetyRules, systemPrompt)
 	}
-
-	schemaMsgs := make([]*schema.Message, 0, len(contextMsgs))
-	for _, m := range contextMsgs {
-		role := schema.Assistant
-		if m.IsUser {
+	assembly := memorydomain.NewAssembler().Assemble(memorydomain.AssembleInput{
+		SafetyRules: safetyRules, CurrentQuestion: currentQuestion, WorkingMessages: working, BudgetTokens: budget,
+	})
+	result := make([]*schema.Message, 0, len(assembly.Included))
+	for _, item := range assembly.Included {
+		role := schema.System
+		switch item.Role {
+		case memorydomain.RoleUser:
 			role = schema.User
+		case memorydomain.RoleAssistant:
+			role = schema.Assistant
 		}
-		schemaMsgs = append(schemaMsgs, &schema.Message{Role: role, Content: m.Content})
+		result = append(result, &schema.Message{Role: role, Content: item.Content})
 	}
-	return schemaMsgs
-}
-
-// triggerLongTermExtraction 定期触发长期记忆提取（每 20 条消息提取一次）
-func (a *AIHelper) triggerLongTermExtraction() {
-	if a.longTermMem == nil {
-		return
-	}
-
-	a.mu.RLock()
-	shouldExtract := a.messageCount > 0 && a.messageCount%20 == 0
-	modelInstance := a.model
-	msgs := make([]*model.Message, len(a.messages))
-	copy(msgs, a.messages)
-	a.mu.RUnlock()
-
-	if !shouldExtract {
-		return
-	}
-	if adapter, ok := modelInstance.(SummaryLLM); ok {
-		a.longTermMem.ExtractAndStore(context.Background(), msgs, a.SessionID, adapter)
-	}
+	return result
 }
 
 // GenerateResponse 同步生成
 func (a *AIHelper) GenerateResponse(userName string, ctx context.Context, userQuestion string) (*model.Message, error) {
-	a.AddMessage(userQuestion, userName, true, true)
+	if err := a.AddMessageContext(ctx, userQuestion, userName, true, true); err != nil {
+		return nil, err
+	}
 
 	a.mu.RLock()
 	messages := a.buildContextMessages()
@@ -193,15 +172,17 @@ func (a *AIHelper) GenerateResponse(userName string, ctx context.Context, userQu
 		IsUser:    false,
 	}
 
-	a.AddMessage(modelMsg.Content, userName, false, true)
-	a.triggerLongTermExtraction()
-
+	if err := a.AddMessageContext(ctx, modelMsg.Content, userName, false, true); err != nil {
+		return nil, err
+	}
 	return modelMsg, nil
 }
 
 // StreamResponse 流式生成
 func (a *AIHelper) StreamResponse(userName string, ctx context.Context, cb StreamCallback, userQuestion string) (*model.Message, error) {
-	a.AddMessage(userQuestion, userName, true, true)
+	if err := a.AddMessageContext(ctx, userQuestion, userName, true, true); err != nil {
+		return nil, err
+	}
 
 	a.mu.RLock()
 	messages := a.buildContextMessages()
@@ -220,9 +201,9 @@ func (a *AIHelper) StreamResponse(userName string, ctx context.Context, cb Strea
 		IsUser:    false,
 	}
 
-	a.AddMessage(modelMsg.Content, userName, false, true)
-	a.triggerLongTermExtraction()
-
+	if err := a.AddMessageContext(ctx, modelMsg.Content, userName, false, true); err != nil {
+		return nil, err
+	}
 	return modelMsg, nil
 }
 

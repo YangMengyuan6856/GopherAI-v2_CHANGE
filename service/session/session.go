@@ -5,6 +5,7 @@ import (
 	"GopherAI/common/code"
 	messagedao "GopherAI/dao/message"
 	sessiondao "GopherAI/dao/session"
+	memorydomain "GopherAI/internal/memory"
 	"GopherAI/model"
 	"context"
 	"fmt"
@@ -42,7 +43,7 @@ func ensureSessionOwnership(userName, sessionID string) error {
 	return nil
 }
 
-func ensureSessionHelper(userName, sessionID, modelType string, config map[string]interface{}) (*aihelper.AIHelper, error) {
+func ensureSessionHelper(requestContext context.Context, userName, sessionID, modelType string, config map[string]interface{}) (*aihelper.AIHelper, error) {
 	if err := ensureSessionOwnership(userName, sessionID); err != nil {
 		return nil, err
 	}
@@ -56,12 +57,12 @@ func ensureSessionHelper(userName, sessionID, modelType string, config map[strin
 		return helper, nil
 	}
 
-	messages, err := messagedao.GetMessagesBySessionID(sessionID)
+	window, err := memorydomain.NewDefaultService().Window(requestContext, userName, sessionID)
 	if err != nil {
 		return nil, err
 	}
-	for _, msg := range messages {
-		helper.AddMessage(msg.Content, msg.UserName, msg.IsUser, false)
+	for _, msg := range window.Messages {
+		helper.AddMessage(msg.Content, userName, msg.Role == memorydomain.RoleUser, false)
 	}
 	helper.MarkHistoryLoaded()
 	return helper, nil
@@ -88,7 +89,7 @@ func CreateSessionAndSendMessageContext(requestContext context.Context, userName
 		"apiKey":   "your-api-key", // TODO: 从配置中获取
 		"username": userName,       // 用于 RAG 模型获取用户文档
 	}
-	helper, err := ensureSessionHelper(userName, createdSession.ID, modelType, config)
+	helper, err := ensureSessionHelper(requestContext, userName, createdSession.ID, modelType, config)
 	if err != nil {
 		log.Println("CreateSessionAndSendMessage GetOrCreateAIHelper error:", err)
 		return "", "", code.AIModelFail
@@ -152,7 +153,7 @@ func StreamMessageToExistingSessionContext(requestContext context.Context, userN
 		"apiKey":   "your-api-key",
 		"username": userName,
 	}
-	helper, err := ensureSessionHelper(userName, sessionID, modelType, config)
+	helper, err := ensureSessionHelper(requestContext, userName, sessionID, modelType, config)
 	if err != nil {
 		log.Println("StreamMessageToExistingSessionContext GetOrCreateAIHelper error:", err)
 		return code.AIModelFail
@@ -208,7 +209,7 @@ func ChatSendContext(requestContext context.Context, userName string, sessionID 
 	config := map[string]interface{}{
 		"username": userName, // 用于 RAG 模型获取用户文档（若当前用户选择了RAG模型，该字段将会被用到）
 	}
-	helper, err := ensureSessionHelper(userName, sessionID, modelType, config)
+	helper, err := ensureSessionHelper(requestContext, userName, sessionID, modelType, config)
 	if err != nil {
 		log.Println("ChatSend GetOrCreateAIHelper error:", err)
 		return "", code.AIModelFail
