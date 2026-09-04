@@ -561,6 +561,9 @@ This release does not yet expose retrieval or document-grounded answering.
 `indexed` means the document is ready for the next hybrid-retrieval slice, not
 that the current Legacy chat strategy is already using it.
 
+The frontend therefore labels this state “索引完成，等待检索接入” instead of
+claiming that document question answering is already active.
+
 ### 17.1 Worker polling must not inherit development SQL logging
 
 The first worker release was healthy, but its one-second Outbox poll inherited

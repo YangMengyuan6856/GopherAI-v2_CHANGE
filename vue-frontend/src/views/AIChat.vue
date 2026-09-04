@@ -509,7 +509,7 @@ export default {
       const labels = {
         uploaded: '已接收，等待索引',
         parsing: '正在解析与索引',
-        indexed: '索引完成，可用于问答',
+        indexed: '索引完成，等待检索接入',
         failed: '索引失败'
       }
       return labels[status] || status
