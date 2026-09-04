@@ -77,15 +77,38 @@ func TestStructuredDataChunkerPreservesKeyPathsAndLines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertStructuredChunk(t, jsonChunks, "service > retry > max_attempts", "service.retry.max_attempts = 7", 4)
+	assertStructuredChunk(t, jsonChunks, "service > retry", "service.retry.max_attempts = 7", 4)
 
 	yamlContent := []byte("services:\n  - name: api\n    port: 9090\nfeature:\n  enabled: true\n")
 	yamlChunks, err := chunker.ParseAndChunk("config.yaml", yamlContent)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertStructuredChunk(t, yamlChunks, "services > [0] > port", "services[0].port = 9090", 3)
-	assertStructuredChunk(t, yamlChunks, "feature > enabled", "feature.enabled = true", 5)
+	assertStructuredChunk(t, yamlChunks, "services > [0]", "services[0].port = 9090", 3)
+	assertStructuredChunk(t, yamlChunks, "feature", "feature.enabled = true", 5)
+}
+
+func TestStructuredDataChunkerKeepsSiblingConfigurationFieldsTogether(t *testing.T) {
+	chunker, err := NewStructuredTextChunker(30, 40, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	yamlContent := []byte("service:\n  retry:\n    max_attempts: 6\n    dead_letter_exchange: gopher.jobs.dlx.v1\n")
+	chunks, err := chunker.ParseAndChunk("m3b-service.yaml", yamlContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, chunk := range chunks {
+		if chunk.SectionPath == "service > retry" &&
+			strings.Contains(chunk.Content, "service.retry.max_attempts = 6") &&
+			strings.Contains(chunk.Content, `service.retry.dead_letter_exchange = "gopher.jobs.dlx.v1"`) {
+			if chunk.LineStart > 3 || chunk.LineEnd < 4 {
+				t.Fatalf("sibling evidence has invalid line range: %+v", chunk)
+			}
+			return
+		}
+	}
+	t.Fatalf("expected retry siblings in one evidence chunk: %+v", chunks)
 }
 
 func TestGoChunkerPreservesTopLevelSymbolsAndSplitsLongFunctions(t *testing.T) {
@@ -180,7 +203,7 @@ func assertStructuredChunk(t *testing.T, chunks []ChunkDraft, section string, co
 	t.Helper()
 	for _, chunk := range chunks {
 		if chunk.SectionPath == section && strings.Contains(chunk.Content, content) {
-			if chunk.LineStart != line || chunk.LineEnd < line || len(chunk.ContentHash) != 64 {
+			if chunk.LineStart > line || chunk.LineEnd < line || len(chunk.ContentHash) != 64 {
 				t.Fatalf("unexpected structured citation metadata: %+v", chunk)
 			}
 			return

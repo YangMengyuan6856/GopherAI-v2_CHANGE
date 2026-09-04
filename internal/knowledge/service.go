@@ -41,6 +41,7 @@ const (
 	ParserVersionGoV1       = "go-ast-v1"
 	ChunkerVersionV1        = "structure-token-v1"
 	ChunkerVersionDataV1    = "key-path-token-v1"
+	ChunkerVersionDataV2    = "key-path-sibling-context-v2"
 	ChunkerVersionGoV1      = "go-symbol-token-v1"
 )
 
@@ -52,9 +53,9 @@ type documentFormat struct {
 var allowedDocumentFormats = map[string]documentFormat{
 	`.md`:   {parserVersion: ParserVersionV1, chunkerVersion: ChunkerVersionV1},
 	`.txt`:  {parserVersion: ParserVersionV1, chunkerVersion: ChunkerVersionV1},
-	`.json`: {parserVersion: ParserVersionDataV1, chunkerVersion: ChunkerVersionDataV1},
-	`.yaml`: {parserVersion: ParserVersionDataV1, chunkerVersion: ChunkerVersionDataV1},
-	`.yml`:  {parserVersion: ParserVersionDataV1, chunkerVersion: ChunkerVersionDataV1},
+	`.json`: {parserVersion: ParserVersionDataV1, chunkerVersion: ChunkerVersionDataV2},
+	`.yaml`: {parserVersion: ParserVersionDataV1, chunkerVersion: ChunkerVersionDataV2},
+	`.yml`:  {parserVersion: ParserVersionDataV1, chunkerVersion: ChunkerVersionDataV2},
 	`.go`:   {parserVersion: ParserVersionGoV1, chunkerVersion: ChunkerVersionGoV1},
 }
 
@@ -419,16 +420,41 @@ func (service *Service) Rebuild(ctx context.Context, tenantID string, userID str
 	if activeVersion == nil || activeVersion.Status != DocumentStatusIndexed || document.Status != DocumentStatusIndexed {
 		return AcceptResult{}, contract.NewDomainError("DOCUMENT_NOT_REBUILDABLE", contract.ErrorConflict, "只有已完成索引的活动文档可以重建", false, nil)
 	}
+	displayName := activeVersion.DisplayName
+	if displayName == "" {
+		displayName = document.DisplayName
+	}
+	format, allowed := allowedDocumentFormats[strings.ToLower(path.Ext(displayName))]
+	if !allowed {
+		return AcceptResult{}, contract.NewDomainError("DOCUMENT_TYPE_UNSUPPORTED", contract.ErrorValidation, "当前文档格式不再受支持，无法安全重建", false, nil)
+	}
+	artifact, err := os.Open(activeVersion.StoragePath)
+	if err != nil {
+		return AcceptResult{}, dependencyError("DOCUMENT_STORAGE_READ_FAILED", "无法读取活动文档，重建未开始", err)
+	}
+	hash := sha256.New()
+	size, copyErr := io.Copy(hash, io.LimitReader(artifact, service.maxBytes+1))
+	closeErr := artifact.Close()
+	if copyErr != nil {
+		return AcceptResult{}, dependencyError("DOCUMENT_STORAGE_READ_FAILED", "无法读取活动文档，重建未开始", copyErr)
+	}
+	if closeErr != nil {
+		return AcceptResult{}, dependencyError("DOCUMENT_STORAGE_READ_FAILED", "无法关闭活动文档，重建未开始", closeErr)
+	}
+	if size > service.maxBytes {
+		return AcceptResult{}, contract.NewDomainError("DOCUMENT_TOO_LARGE", contract.ErrorValidation, "活动文档超过当前重建大小限制", false, nil)
+	}
+	if size == 0 {
+		return AcceptResult{}, contract.NewDomainError("DOCUMENT_EMPTY", contract.ErrorValidation, "活动文档内容为空，无法重建", false, nil)
+	}
+	contentHash := documentContentHash(format, hex.EncodeToString(hash.Sum(nil)))
 	now := service.clock.Now()
 	candidate := &model.KnowledgeDocumentVersion{
 		ID: service.ids.NewID(), DocumentID: document.ID, Status: DocumentStatusUploaded,
-		DisplayName: activeVersion.DisplayName, MimeType: activeVersion.MimeType, SizeBytes: activeVersion.SizeBytes,
-		ContentHash: activeVersion.ContentHash, StoragePath: activeVersion.StoragePath,
-		ParserVersion: activeVersion.ParserVersion, ChunkerVersion: activeVersion.ChunkerVersion,
+		DisplayName: displayName, MimeType: activeVersion.MimeType, SizeBytes: size,
+		ContentHash: contentHash, StoragePath: activeVersion.StoragePath,
+		ParserVersion: format.parserVersion, ChunkerVersion: format.chunkerVersion,
 		CreatedAt: now, UpdatedAt: now,
-	}
-	if candidate.DisplayName == "" {
-		candidate.DisplayName = document.DisplayName
 	}
 	if candidate.MimeType == "" {
 		candidate.MimeType = document.MimeType

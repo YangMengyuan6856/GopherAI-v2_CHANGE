@@ -5,6 +5,8 @@ import (
 	"GopherAI/model"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"mime/multipart"
@@ -269,9 +271,9 @@ func TestAcceptSupportsStructuredAndGoDocumentFormats(t *testing.T) {
 		parserVersion  string
 		chunkerVersion string
 	}{
-		{filename: "config.json", content: "{\"retry\":7}\n", parserVersion: ParserVersionDataV1, chunkerVersion: ChunkerVersionDataV1},
-		{filename: "config.yaml", content: "retry: 7\n", parserVersion: ParserVersionDataV1, chunkerVersion: ChunkerVersionDataV1},
-		{filename: "config.yml", content: "retry: 9\n", parserVersion: ParserVersionDataV1, chunkerVersion: ChunkerVersionDataV1},
+		{filename: "config.json", content: "{\"retry\":7}\n", parserVersion: ParserVersionDataV1, chunkerVersion: ChunkerVersionDataV2},
+		{filename: "config.yaml", content: "retry: 7\n", parserVersion: ParserVersionDataV1, chunkerVersion: ChunkerVersionDataV2},
+		{filename: "config.yml", content: "retry: 9\n", parserVersion: ParserVersionDataV1, chunkerVersion: ChunkerVersionDataV2},
 		{filename: "worker.go", content: "package worker\n\nfunc Run() {}\n", parserVersion: ParserVersionGoV1, chunkerVersion: ChunkerVersionGoV1},
 	}
 	for _, test := range tests {
@@ -417,6 +419,44 @@ func TestRebuildCreatesIndependentCandidateFromActiveArtifact(t *testing.T) {
 	}
 	if repository.versions[1].StoragePath != repository.versions[0].StoragePath || repository.versions[1].ContentHash != repository.versions[0].ContentHash {
 		t.Fatalf("rebuild candidate must reuse immutable active artifact: %+v", repository.versions)
+	}
+}
+
+func TestRebuildMigratesStructuredDocumentToCurrentChunker(t *testing.T) {
+	repository := new(memoryRepository)
+	service, err := NewService(repository, t.TempDir(), DefaultMaxUploadBytes, fixedClock{value: time.Now().UTC()}, new(sequenceIDs))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := []byte("service:\n  retry:\n    max_attempts: 6\n    dead_letter_exchange: gopher.jobs.dlx.v1\n")
+	first, err := service.Accept(context.Background(), AcceptInput{
+		TenantID: "tenant", UserID: "user", TraceID: "initial", File: multipartFile(t, "service.yaml", content),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawDigest := sha256.Sum256(content)
+	oldFormat := documentFormat{parserVersion: ParserVersionDataV1, chunkerVersion: ChunkerVersionDataV1}
+	oldHash := documentContentHash(oldFormat, hex.EncodeToString(rawDigest[:]))
+	repository.documents[0].Status = DocumentStatusIndexed
+	repository.documents[0].ContentHash = oldHash
+	repository.versions[0].Status = DocumentStatusIndexed
+	repository.versions[0].ChunkerVersion = ChunkerVersionDataV1
+	repository.versions[0].ContentHash = oldHash
+
+	result, err := service.Rebuild(context.Background(), "tenant", "user", "rebuild-trace", first.Document.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := repository.versions[1]
+	if candidate.ParserVersion != ParserVersionDataV1 || candidate.ChunkerVersion != ChunkerVersionDataV2 {
+		t.Fatalf("rebuild did not adopt current structured chunker: %+v", candidate)
+	}
+	if candidate.ContentHash == oldHash || candidate.StoragePath != repository.versions[0].StoragePath {
+		t.Fatalf("rebuild must re-fingerprint and reuse the immutable artifact: %+v", repository.versions)
+	}
+	if result.PreviousVersion != 1 || result.PendingVersion != 2 || repository.documents[0].CurrentVersion != 1 {
+		t.Fatalf("migration must remain a staged candidate: result=%+v document=%+v", result, repository.documents[0])
 	}
 }
 

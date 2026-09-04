@@ -110,10 +110,13 @@ func appendPath(path []string, segment string) []string {
 }
 
 func structuredSection(path []string) string {
-	if len(path) == 0 {
+	// Group scalar siblings under their containing object/sequence item. The
+	// full leaf path remains in the content, while retrieving one field also
+	// brings the nearby fields needed by multi-part configuration questions.
+	if len(path) <= 1 {
 		return "$"
 	}
-	return strings.Join(path, " > ")
+	return strings.Join(path[:len(path)-1], " > ")
 }
 
 func structuredKeyPath(path []string) string {

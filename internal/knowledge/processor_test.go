@@ -140,11 +140,11 @@ func TestProcessorPersistsStructuredKeyPathMetadata(t *testing.T) {
 		t.Fatalf("expected one structured chunk, got %+v", repository.chunks)
 	}
 	chunk := repository.chunks[0]
-	if chunk.SectionPath != "service > retry > max_attempts" || chunk.LineStart != 3 || chunk.LineEnd != 3 {
+	if chunk.SectionPath != "service > retry" || chunk.LineStart != 3 || chunk.LineEnd != 3 {
 		t.Fatalf("structured metadata was not persisted: %+v", chunk)
 	}
 	metadata := make(map[string]any)
-	if err := json.Unmarshal([]byte(chunk.MetadataJSON), &metadata); err != nil || metadata["section_path"] != "service > retry > max_attempts" {
+	if err := json.Unmarshal([]byte(chunk.MetadataJSON), &metadata); err != nil || metadata["section_path"] != "service > retry" {
 		t.Fatalf("structured metadata JSON is incomplete: %s err=%v", chunk.MetadataJSON, err)
 	}
 }
