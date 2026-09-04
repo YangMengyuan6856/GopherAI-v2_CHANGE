@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -23,6 +24,11 @@ const (
 	ActionQuery     = "query"
 	ActionCompare   = "compare"
 	ActionUserCheck = "user_check"
+
+	CaseMemoryHit         = "hit"
+	CaseMemoryNoMatch     = "no_match"
+	CaseMemoryUnavailable = "unavailable"
+	CaseMemoryPolicyV1    = "case-recall-v1"
 )
 
 var ErrInvalidDiagnostic = errors.New("invalid diagnostic result")
@@ -64,6 +70,20 @@ type MissingInformation struct {
 	Critical bool   `json:"critical"`
 }
 
+// SimilarIncident is a user-confirmed historical case. It is deliberately
+// separated from EvidenceReference: past experience may suggest where to look,
+// but it is not evidence that the current incident has the same root cause.
+type SimilarIncident struct {
+	IncidentID             string    `json:"incident_id"`
+	Symptom                string    `json:"symptom"`
+	RootCause              string    `json:"root_cause"`
+	Resolution             string    `json:"resolution"`
+	MatchedErrorSignatures []string  `json:"matched_error_signatures"`
+	MatchedComponents      []string  `json:"matched_components"`
+	Score                  float64   `json:"score"`
+	ConfirmedAt            time.Time `json:"confirmed_at"`
+}
+
 type Result struct {
 	Version              string               `json:"version"`
 	Symptom              string               `json:"symptom"`
@@ -75,6 +95,9 @@ type Result struct {
 	ConclusionStatus     string               `json:"conclusion_status"`
 	ConfirmedRootCauseID string               `json:"confirmed_root_cause_id,omitempty"`
 	NeedsUserInput       bool                 `json:"needs_user_input"`
+	CaseMemoryStatus     string               `json:"case_memory_status,omitempty"`
+	CaseMemoryPolicy     string               `json:"case_memory_policy,omitempty"`
+	SimilarIncidents     []SimilarIncident    `json:"similar_incidents,omitempty"`
 }
 
 func (result Result) Validate() error {
@@ -102,6 +125,9 @@ func (result Result) Validate() error {
 		if err := missing.validate(); err != nil {
 			return err
 		}
+	}
+	if err := result.validateCaseMemory(); err != nil {
+		return err
 	}
 	if !sort.SliceIsSorted(result.Hypotheses, func(i, j int) bool { return result.Hypotheses[i].Confidence > result.Hypotheses[j].Confidence }) {
 		return invalid("hypotheses must be ordered by descending confidence")
@@ -134,6 +160,57 @@ func (result Result) Validate() error {
 		}
 	default:
 		return invalid("unsupported conclusion status")
+	}
+	return nil
+}
+
+func (result Result) validateCaseMemory() error {
+	if result.CaseMemoryStatus == "" {
+		if len(result.SimilarIncidents) != 0 || result.CaseMemoryPolicy != "" {
+			return invalid("case memory status is required when similar incidents are present")
+		}
+		return nil
+	}
+	if result.CaseMemoryPolicy != CaseMemoryPolicyV1 {
+		return invalid("unsupported case memory policy")
+	}
+	switch result.CaseMemoryStatus {
+	case CaseMemoryHit:
+		if len(result.SimilarIncidents) == 0 || len(result.SimilarIncidents) > 3 {
+			return invalid("case memory hit requires 1 to 3 incidents")
+		}
+	case CaseMemoryNoMatch, CaseMemoryUnavailable:
+		if len(result.SimilarIncidents) != 0 {
+			return invalid("case memory without a hit cannot return incidents")
+		}
+	default:
+		return invalid("unsupported case memory status")
+	}
+	for index, item := range result.SimilarIncidents {
+		if err := validateText("similar incident id", item.IncidentID, 1, 64); err != nil {
+			return err
+		}
+		if err := validateText("similar incident symptom", item.Symptom, 1, 1000); err != nil {
+			return err
+		}
+		if err := validateText("similar incident root cause", item.RootCause, 1, 500); err != nil {
+			return err
+		}
+		if err := validateText("similar incident resolution", item.Resolution, 1, 1000); err != nil {
+			return err
+		}
+		if item.Score < 0 || item.Score > 1 || item.ConfirmedAt.IsZero() {
+			return invalid("similar incident score or confirmation time is invalid")
+		}
+		if index > 0 && result.SimilarIncidents[index-1].Score < item.Score {
+			return invalid("similar incidents must be ordered by descending score")
+		}
+		if err := validateUniqueText("matched error signature", item.MatchedErrorSignatures, 256); err != nil {
+			return err
+		}
+		if err := validateUniqueText("matched component", item.MatchedComponents, 64); err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -7,13 +7,14 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"GopherAI/internal/harness"
 )
 
 const (
 	StrategyName  = "diagnosis_standard"
-	PolicyVersion = "policy-diagnostic-v1"
+	PolicyVersion = "policy-diagnostic-v2"
 	IntentName    = "troubleshooting"
 	artifactType  = "diagnostic-state-v1"
 )
@@ -30,6 +31,7 @@ type StartCommand struct {
 
 type ResumeCommand struct {
 	RunID           string
+	TenantID        string
 	UserID          string
 	ClientRequestID string
 	ExpectedVersion int64
@@ -59,10 +61,20 @@ type Analyzer interface {
 	AnalyzeContext(context.Context, string) (ExtractedInput, Result, error)
 }
 
+type CaseRetriever interface {
+	RetrieveSimilar(context.Context, string, string, ExtractedInput, int) ([]SimilarIncident, error)
+}
+
+type CaseRecallObserver interface {
+	RecordCaseRecall(string, time.Duration, int)
+}
+
 type Workflow struct {
-	lifecycle Lifecycle
-	agent     Analyzer
-	running   sync.Map
+	lifecycle     Lifecycle
+	agent         Analyzer
+	caseRetriever CaseRetriever
+	caseObserver  CaseRecallObserver
+	running       sync.Map
 }
 
 func NewWorkflow(lifecycle Lifecycle, agent Analyzer) (*Workflow, error) {
@@ -73,6 +85,18 @@ func NewWorkflow(lifecycle Lifecycle, agent Analyzer) (*Workflow, error) {
 		agent = NewAgent()
 	}
 	return &Workflow{lifecycle: lifecycle, agent: agent}, nil
+}
+
+// WithCaseRetriever enables fail-open episodic recall. It must be called while
+// assembling the application, before the workflow serves concurrent requests.
+func (workflow *Workflow) WithCaseRetriever(retriever CaseRetriever) *Workflow {
+	workflow.caseRetriever = retriever
+	return workflow
+}
+
+func (workflow *Workflow) WithCaseRecallObserver(observer CaseRecallObserver) *Workflow {
+	workflow.caseObserver = observer
+	return workflow
 }
 
 func (workflow *Workflow) Start(ctx context.Context, command StartCommand) (RunResponse, error) {
@@ -92,7 +116,7 @@ func (workflow *Workflow) Start(ctx context.Context, command StartCommand) (RunR
 	if harness.IsTerminal(detail.Run.State) || detail.Run.State == harness.StateWaitingUser {
 		return responseFromDetail(detail, created)
 	}
-	return workflow.execute(ctx, detail, command.UserID, message, created)
+	return workflow.execute(ctx, detail, command.TenantID, command.UserID, message, created)
 }
 
 func (workflow *Workflow) Resume(ctx context.Context, command ResumeCommand) (RunResponse, error) {
@@ -122,6 +146,7 @@ func (workflow *Workflow) Resume(ctx context.Context, command ResumeCommand) (Ru
 		}
 		return RunResponse{}, err
 	}
+	workflow.enrichWithCases(ctx, command.TenantID, command.UserID, extracted, &result)
 	checkpoint, err := diagnosticCheckpoint(detail.Checkpoint, extracted, &result, "plan_diagnosis")
 	if err != nil {
 		return RunResponse{}, err
@@ -141,7 +166,7 @@ func (workflow *Workflow) Resume(ctx context.Context, command ResumeCommand) (Ru
 	if err != nil {
 		return RunResponse{}, err
 	}
-	return workflow.execute(ctx, detail, command.UserID, combined, false)
+	return workflow.execute(ctx, detail, command.TenantID, command.UserID, combined, false)
 }
 
 func (workflow *Workflow) Get(ctx context.Context, runID string, userID string) (RunResponse, error) {
@@ -163,7 +188,7 @@ func (workflow *Workflow) Cancel(ctx context.Context, runID string, userID strin
 	return responseFromDetail(detail, false)
 }
 
-func (workflow *Workflow) execute(parent context.Context, detail harness.RunDetail, userID string, raw string, created bool) (RunResponse, error) {
+func (workflow *Workflow) execute(parent context.Context, detail harness.RunDetail, tenantID string, userID string, raw string, created bool) (RunResponse, error) {
 	ctx, cancel := context.WithCancel(parent)
 	workflow.running.Store(detail.Run.RunID, cancel)
 	defer func() {
@@ -188,6 +213,7 @@ func (workflow *Workflow) execute(parent context.Context, detail harness.RunDeta
 			}
 			return RunResponse{}, err
 		}
+		workflow.enrichWithCases(ctx, tenantID, userID, extracted, &result)
 	}
 
 	if detail.Run.State == harness.StateReceived {
@@ -278,6 +304,49 @@ func (workflow *Workflow) execute(parent context.Context, detail harness.RunDeta
 		return RunResponse{}, err
 	}
 	return responseFromDetail(detail, created)
+}
+
+func (workflow *Workflow) enrichWithCases(ctx context.Context, tenantID string, userID string, extracted ExtractedInput, result *Result) {
+	if result == nil {
+		return
+	}
+	// Recall is advisory and fail-open. It can populate only its dedicated
+	// fields; current hypotheses, confidence and evidence remain untouched.
+	candidate := *result
+	candidate.CaseMemoryStatus = CaseMemoryUnavailable
+	candidate.CaseMemoryPolicy = CaseMemoryPolicyV1
+	candidate.SimilarIncidents = nil
+	startedAt := time.Now()
+	record := func(status string, count int) {
+		if workflow.caseObserver != nil {
+			workflow.caseObserver.RecordCaseRecall(status, time.Since(startedAt), count)
+		}
+	}
+	if workflow.caseRetriever == nil {
+		*result = candidate
+		record(CaseMemoryUnavailable, 0)
+		return
+	}
+	items, err := workflow.caseRetriever.RetrieveSimilar(ctx, tenantID, userID, extracted, 3)
+	if err != nil {
+		*result = candidate
+		record(CaseMemoryUnavailable, 0)
+		return
+	}
+	if len(items) == 0 {
+		candidate.CaseMemoryStatus = CaseMemoryNoMatch
+		*result = candidate
+		record(CaseMemoryNoMatch, 0)
+		return
+	}
+	candidate.CaseMemoryStatus = CaseMemoryHit
+	candidate.SimilarIncidents = items
+	if candidate.Validate() != nil {
+		candidate.CaseMemoryStatus = CaseMemoryUnavailable
+		candidate.SimilarIncidents = nil
+	}
+	*result = candidate
+	record(candidate.CaseMemoryStatus, len(candidate.SimilarIncidents))
 }
 
 func (workflow *Workflow) advanceOrCancel(ctx context.Context, run harness.Run, userID string, command harness.AdvanceCommand) (harness.Run, error) {

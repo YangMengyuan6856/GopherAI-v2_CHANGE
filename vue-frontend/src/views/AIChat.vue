@@ -339,6 +339,38 @@
               </li>
             </ol>
           </details>
+          <section
+            v-if="activeDiagnosticRun.result?.case_memory_status"
+            :class="['case-memory-recall', `case-${activeDiagnosticRun.result.case_memory_status}`]"
+          >
+            <div class="case-memory-header">
+              <strong>🧠 Episodic Memory · 相似已解决案例</strong>
+              <span v-if="activeDiagnosticRun.result.case_memory_status === 'hit'">
+                命中 {{ activeDiagnosticRun.result.similar_incidents.length }} 条 · TopK≤3 · {{ activeDiagnosticRun.result.case_memory_policy }}
+              </span>
+              <span v-else-if="activeDiagnosticRun.result.case_memory_status === 'no_match'">已检索 · 无高相似案例</span>
+              <span v-else>召回暂不可用 · 当前诊断不受影响</span>
+            </div>
+            <p class="case-memory-disclaimer">
+              历史案例只提供排查经验，不是当前故障证据；不会改变本次根因假设、置信度或证据门判断。
+            </p>
+            <div v-if="activeDiagnosticRun.result.case_memory_status === 'hit'" class="case-memory-list">
+              <article v-for="item in activeDiagnosticRun.result.similar_incidents" :key="item.incident_id">
+                <div>
+                  <strong>相似度 {{ Math.round(item.score * 100) }}%</strong>
+                  <span>匹配错误特征：{{ item.matched_error_signatures.join('、') }}</span>
+                  <span v-if="item.matched_components.length">匹配组件：{{ item.matched_components.join('、') }}</span>
+                </div>
+                <details>
+                  <summary>查看历史根因与已验证解决办法</summary>
+                  <p><strong>当时现象：</strong>{{ item.symptom }}</p>
+                  <p><strong>当时根因：</strong>{{ item.root_cause }}</p>
+                  <p><strong>当时解决：</strong>{{ item.resolution }}</p>
+                  <small>案例 {{ item.incident_id.slice(0, 8) }} · 用户明确确认后才进入记忆</small>
+                </details>
+              </article>
+            </div>
+          </section>
           <div v-if="activeDiagnosticRun.result?.hypotheses?.length" class="diagnostic-hypotheses">
             <article v-for="hypothesis in activeDiagnosticRun.result.hypotheses" :key="hypothesis.id">
               <div class="hypothesis-header">
@@ -2103,6 +2135,70 @@ export default {
   display: grid;
   gap: 2px;
   margin: 5px 0;
+}
+
+.case-memory-recall {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #a7c8bd;
+  border-radius: 10px;
+  background: #f2fbf7;
+}
+
+.case-memory-recall.case-unavailable {
+  border-color: #ddc98e;
+  background: #fffaf0;
+}
+
+.case-memory-header,
+.case-memory-list article > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.case-memory-header span,
+.case-memory-list span,
+.case-memory-list small {
+  color: #617584;
+  font-size: 12px;
+}
+
+.case-memory-disclaimer {
+  margin: 8px 0;
+  padding-left: 9px;
+  border-left: 3px solid #4a9c7d;
+  color: #465b68;
+  font-size: 13px;
+}
+
+.case-memory-list {
+  display: grid;
+  gap: 8px;
+}
+
+.case-memory-list article {
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.case-memory-list details {
+  margin-top: 7px;
+}
+
+.case-memory-list summary {
+  cursor: pointer;
+  color: #356b5a;
+  font-weight: 700;
+}
+
+.case-memory-list p {
+  margin: 6px 0;
+  color: #4a5e6d;
+  font-size: 13px;
 }
 
 .diagnostic-hypotheses {

@@ -153,6 +153,20 @@ func TestRAGStrategyMetricsUseBoundedLabels(t *testing.T) {
 	}
 }
 
+func TestCaseRecallMetricsUseBoundedLabels(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	metrics := NewMetrics(registry, registry)
+	metrics.RecordCaseRecall("hit", 8*time.Millisecond, 2)
+	metrics.RecordCaseRecall("untrusted-user-value", -time.Second, 99)
+
+	if count := testutil.ToFloat64(metrics.caseMemoryRecalls.WithLabelValues("hit")); count != 1 {
+		t.Fatalf("expected one case-memory hit, got %v", count)
+	}
+	if count := testutil.ToFloat64(metrics.caseMemoryRecalls.WithLabelValues("unavailable")); count != 1 {
+		t.Fatalf("untrusted recall status must collapse to unavailable, got %v", count)
+	}
+}
+
 func TestHarnessMetricsTrackLifecycleWithoutIdentifierLabels(t *testing.T) {
 	registry := prometheus.NewRegistry()
 	metrics := NewMetrics(registry, registry)

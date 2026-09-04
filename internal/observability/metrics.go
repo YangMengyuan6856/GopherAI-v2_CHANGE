@@ -32,6 +32,9 @@ type Metrics struct {
 	ragStrategyRequests       *prometheus.CounterVec
 	ragStrategyDuration       *prometheus.HistogramVec
 	ragEnhancements           *prometheus.CounterVec
+	caseMemoryRecalls         *prometheus.CounterVec
+	caseMemoryRecallDuration  *prometheus.HistogramVec
+	caseMemoryRecallResults   *prometheus.HistogramVec
 	harnessRuns               *prometheus.CounterVec
 	harnessTransitions        *prometheus.CounterVec
 	harnessTerminals          *prometheus.CounterVec
@@ -135,6 +138,20 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 			Name: "gopherai_rag_enhancements_total",
 			Help: "Total conditional RAG enhancement component outcomes.",
 		}, []string{"component", "outcome"}),
+		caseMemoryRecalls: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_case_memory_recalls_total",
+			Help: "Total advisory episodic-memory recalls by bounded outcome.",
+		}, []string{"status"}),
+		caseMemoryRecallDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "gopherai_case_memory_recall_duration_seconds",
+			Help:    "Episodic-memory recall duration in seconds by bounded outcome.",
+			Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1},
+		}, []string{"status"}),
+		caseMemoryRecallResults: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "gopherai_case_memory_recall_results",
+			Help:    "Number of user-confirmed historical cases returned by recall.",
+			Buckets: []float64{0, 1, 2, 3},
+		}, []string{"status"}),
 		harnessRuns: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "gopherai_harness_runs_total",
 			Help: "Total durable harness create requests by bounded intent, strategy and idempotency outcome.",
@@ -181,6 +198,9 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 		metrics.ragStrategyRequests,
 		metrics.ragStrategyDuration,
 		metrics.ragEnhancements,
+		metrics.caseMemoryRecalls,
+		metrics.caseMemoryRecallDuration,
+		metrics.caseMemoryRecallResults,
 		metrics.harnessRuns,
 		metrics.harnessTransitions,
 		metrics.harnessTerminals,
@@ -205,6 +225,9 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 	for _, status := range []string{"answered", "insufficient", "verifier_rejected", "rejected", "error"} {
 		metrics.knowledgeAnswers.WithLabelValues(status, "none").Add(0)
 	}
+	for _, status := range []string{"hit", "no_match", "unavailable"} {
+		metrics.caseMemoryRecalls.WithLabelValues(status).Add(0)
+	}
 	for _, strategy := range []string{"rag_fast", "rag_deep"} {
 		for _, status := range []string{"answered", "insufficient", "verifier_rejected", "rejected", "error"} {
 			for _, enhancement := range []string{"skipped", "completed", "partial_fallback"} {
@@ -213,6 +236,31 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 		}
 	}
 	return metrics
+}
+
+// RecordCaseRecall implements diagnostic.CaseRecallObserver without importing
+// diagnostic, keeping the observability package below the workflow layer.
+func (metrics *Metrics) RecordCaseRecall(status string, duration time.Duration, count int) {
+	if metrics == nil {
+		return
+	}
+	switch status {
+	case "hit", "no_match", "unavailable":
+	default:
+		status = "unavailable"
+	}
+	if duration < 0 {
+		duration = 0
+	}
+	if count < 0 {
+		count = 0
+	}
+	if count > 3 {
+		count = 3
+	}
+	metrics.caseMemoryRecalls.WithLabelValues(status).Inc()
+	metrics.caseMemoryRecallDuration.WithLabelValues(status).Observe(duration.Seconds())
+	metrics.caseMemoryRecallResults.WithLabelValues(status).Observe(float64(count))
 }
 
 // RecordRunCreate implements harness.Observer. Only fixed-domain values reach

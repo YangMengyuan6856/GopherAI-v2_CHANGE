@@ -2,9 +2,14 @@ package incident
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"sort"
+	"strings"
 	"time"
 
+	"GopherAI/internal/diagnostic"
+	"GopherAI/internal/harness"
 	"GopherAI/model"
 
 	"gorm.io/gorm"
@@ -22,6 +27,103 @@ type Repository interface {
 type GormRepository struct{ db *gorm.DB }
 
 func NewGormRepository(db *gorm.DB) *GormRepository { return &GormRepository{db: db} }
+
+const (
+	caseRecallCandidateLimit = 100
+	caseRecallThreshold      = 0.60
+)
+
+// RetrieveSimilar implements diagnostic.CaseRetriever using MySQL as the
+// authority. IndexStatusIndexed is a hard eligibility gate: a case cannot be
+// recalled until the asynchronous RabbitMQ/Redis indexing pipeline completed.
+func (repository *GormRepository) RetrieveSimilar(ctx context.Context, tenantID string, userID string, query diagnostic.ExtractedInput, limit int) ([]diagnostic.SimilarIncident, error) {
+	if repository == nil || repository.db == nil {
+		return nil, gorm.ErrInvalidDB
+	}
+	tenantID, userID = strings.TrimSpace(tenantID), strings.TrimSpace(userID)
+	if tenantID == "" || userID == "" {
+		return nil, errors.New("case recall principal is required")
+	}
+	tenantHash, userHash := harness.PrincipalHash(tenantID), harness.PrincipalHash(userID)
+	var candidates []model.ResolvedIncident
+	err := repository.db.WithContext(ctx).
+		Where("tenant_id_hash = ? AND user_id_hash = ? AND status = ? AND index_status = ?", tenantHash, userHash, StatusConfirmed, IndexStatusIndexed).
+		Order("confirmed_at DESC").Limit(caseRecallCandidateLimit).Find(&candidates).Error
+	if err != nil {
+		return nil, err
+	}
+	return rankResolvedIncidents(tenantHash, userHash, query, candidates, limit), nil
+}
+
+func rankResolvedIncidents(tenantHash string, userHash string, query diagnostic.ExtractedInput, candidates []model.ResolvedIncident, limit int) []diagnostic.SimilarIncident {
+	if limit < 1 {
+		return nil
+	}
+	if limit > 3 {
+		limit = 3
+	}
+	result := make([]diagnostic.SimilarIncident, 0, limit)
+	for _, candidate := range candidates {
+		// Defense in depth: even if the database query is changed later, rows
+		// outside the current principal or confirmation boundary stay invisible.
+		if candidate.TenantIDHash != tenantHash || candidate.UserIDHash != userHash || candidate.Status != StatusConfirmed || candidate.IndexStatus != IndexStatusIndexed {
+			continue
+		}
+		var signatures, components []string
+		if json.Unmarshal([]byte(candidate.ErrorSignaturesJSON), &signatures) != nil || json.Unmarshal([]byte(candidate.ComponentsJSON), &components) != nil {
+			continue
+		}
+		matchedSignatures, signatureScore := signalSimilarity(query.ErrorSignatures, signatures)
+		matchedComponents, componentScore := signalSimilarity(query.Components, components)
+		score := 0.80*signatureScore + 0.20*componentScore
+		if len(matchedSignatures) == 0 || score < caseRecallThreshold {
+			continue
+		}
+		result = append(result, diagnostic.SimilarIncident{
+			IncidentID: candidate.ID, Symptom: candidate.Symptom, RootCause: candidate.RootCause, Resolution: candidate.Resolution,
+			MatchedErrorSignatures: matchedSignatures, MatchedComponents: matchedComponents, Score: score, ConfirmedAt: candidate.ConfirmedAt,
+		})
+	}
+	sort.SliceStable(result, func(i, j int) bool {
+		if result[i].Score != result[j].Score {
+			return result[i].Score > result[j].Score
+		}
+		if !result[i].ConfirmedAt.Equal(result[j].ConfirmedAt) {
+			return result[i].ConfirmedAt.After(result[j].ConfirmedAt)
+		}
+		return result[i].IncidentID < result[j].IncidentID
+	})
+	if len(result) > limit {
+		result = result[:limit]
+	}
+	return result
+}
+
+func signalSimilarity(left []string, right []string) ([]string, float64) {
+	leftSet, rightSet := normalizedSet(left), normalizedSet(right)
+	if len(leftSet) == 0 || len(rightSet) == 0 {
+		return nil, 0
+	}
+	intersection := make([]string, 0)
+	for value := range leftSet {
+		if _, exists := rightSet[value]; exists {
+			intersection = append(intersection, value)
+		}
+	}
+	sort.Strings(intersection)
+	unionSize := len(leftSet) + len(rightSet) - len(intersection)
+	return intersection, float64(len(intersection)) / float64(unionSize)
+}
+
+func normalizedSet(values []string) map[string]struct{} {
+	result := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if normalized := strings.ToLower(strings.TrimSpace(value)); normalized != "" {
+			result[normalized] = struct{}{}
+		}
+	}
+	return result
+}
 
 func (repository *GormRepository) Confirm(ctx context.Context, write confirmationWrite) (model.ResolvedIncident, bool, error) {
 	if repository == nil || repository.db == nil {

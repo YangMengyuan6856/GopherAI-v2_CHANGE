@@ -99,7 +99,9 @@ func NewDefaultHandler() *Handler {
 	if err != nil {
 		panic(err)
 	}
-	resolutions, err := incident.NewService(workflow, incident.NewGormRepository(mysql.DB), incident.SystemClock{})
+	incidentRepository := incident.NewGormRepository(mysql.DB)
+	workflow.WithCaseRetriever(incidentRepository).WithCaseRecallObserver(observability.DefaultMetrics())
+	resolutions, err := incident.NewService(workflow, incidentRepository, incident.SystemClock{})
 	if err != nil {
 		panic(err)
 	}
@@ -148,8 +150,9 @@ func (handler *Handler) Resume(context *gin.Context) {
 		handler.writeError(context, err)
 		return
 	}
+	userID := context.GetString("userName")
 	response, err := handler.workflow.Resume(context.Request.Context(), diagnostic.ResumeCommand{
-		RunID: context.Param("run_id"), UserID: context.GetString("userName"), ClientRequestID: request.ClientRequestID,
+		RunID: context.Param("run_id"), TenantID: userID, UserID: userID, ClientRequestID: request.ClientRequestID,
 		ExpectedVersion: request.ExpectedStateVersion, Message: request.Message,
 	})
 	if err != nil {
