@@ -32,12 +32,17 @@
           <input type="checkbox" id="knowledgeMode" v-model="knowledgeRequired" />
           知识库回答
         </label>
-        <button class="upload-btn" @click="triggerFileUpload" :disabled="uploading">📎 上传文档(.md/.txt)</button>
+        <button
+          class="upload-btn"
+          title="支持 Markdown/TXT、JSON/YAML key path 和 Go 顶层符号索引"
+          @click="triggerFileUpload"
+          :disabled="uploading"
+        >📎 上传项目文档</button>
         <button class="search-toggle-btn" @click="toggleKnowledgeSearch">🔎 证据检索</button>
         <input
           ref="fileInput"
           type="file"
-          accept=".md,.txt,text/markdown,text/plain"
+          accept=".md,.txt,.json,.yaml,.yml,.go,text/markdown,text/plain,application/json,application/yaml"
           style="display: none"
           @change="handleFileUpload"
         />
@@ -695,10 +700,10 @@ export default {
       const file = event.target.files[0]
       if (!file) return
 
-      // 前端校验：只允许.md或.txt文件
       const fileName = file.name.toLowerCase()
-      if (!fileName.endsWith('.md') && !fileName.endsWith('.txt')) {
-        ElMessage.error('只允许上传 .md 或 .txt 文件')
+      const allowedExtensions = ['.md', '.txt', '.json', '.yaml', '.yml', '.go']
+      if (!allowedExtensions.some(extension => fileName.endsWith(extension))) {
+        ElMessage.error('支持 .md、.txt、.json、.yaml、.yml 和 .go 文件')
         // 清空文件输入
         if (fileInput.value) {
           fileInput.value.value = ''

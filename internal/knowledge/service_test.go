@@ -163,6 +163,65 @@ func TestAcceptIsIdempotentPerTenantAndContent(t *testing.T) {
 	}
 }
 
+func TestAcceptSupportsStructuredAndGoDocumentFormats(t *testing.T) {
+	tests := []struct {
+		filename       string
+		content        string
+		parserVersion  string
+		chunkerVersion string
+	}{
+		{filename: "config.json", content: "{\"retry\":7}\n", parserVersion: ParserVersionDataV1, chunkerVersion: ChunkerVersionDataV1},
+		{filename: "config.yaml", content: "retry: 7\n", parserVersion: ParserVersionDataV1, chunkerVersion: ChunkerVersionDataV1},
+		{filename: "config.yml", content: "retry: 9\n", parserVersion: ParserVersionDataV1, chunkerVersion: ChunkerVersionDataV1},
+		{filename: "worker.go", content: "package worker\n\nfunc Run() {}\n", parserVersion: ParserVersionGoV1, chunkerVersion: ChunkerVersionGoV1},
+	}
+	for _, test := range tests {
+		t.Run(test.filename, func(t *testing.T) {
+			repository := new(memoryRepository)
+			service, err := NewService(repository, t.TempDir(), DefaultMaxUploadBytes, fixedClock{value: time.Now().UTC()}, new(sequenceIDs))
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := service.Accept(context.Background(), AcceptInput{
+				TenantID: "tenant", UserID: "user", TraceID: "trace", File: multipartFile(t, test.filename, []byte(test.content)),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Document.DisplayName != test.filename || len(repository.versions) != 1 {
+				t.Fatalf("unexpected accepted document: %+v versions=%+v", result, repository.versions)
+			}
+			version := repository.versions[0]
+			if version.ParserVersion != test.parserVersion || version.ChunkerVersion != test.chunkerVersion {
+				t.Fatalf("unexpected parser metadata: %+v", version)
+			}
+		})
+	}
+}
+
+func TestAcceptDoesNotDeduplicateAcrossParserFamilies(t *testing.T) {
+	repository := new(memoryRepository)
+	service, err := NewService(repository, t.TempDir(), DefaultMaxUploadBytes, fixedClock{value: time.Now().UTC()}, new(sequenceIDs))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := []byte("retry: 7\n")
+	plain, err := service.Accept(context.Background(), AcceptInput{TenantID: "tenant", UserID: "user", TraceID: "plain", File: multipartFile(t, "notes.txt", content)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	structured, err := service.Accept(context.Background(), AcceptInput{TenantID: "tenant", UserID: "user", TraceID: "structured", File: multipartFile(t, "config.yaml", content)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain.Duplicate || structured.Duplicate || plain.Document.ID == structured.Document.ID || len(repository.documents) != 2 {
+		t.Fatalf("different parser families must have distinct identities: plain=%+v structured=%+v", plain, structured)
+	}
+	if repository.documents[0].ContentHash == repository.documents[1].ContentHash {
+		t.Fatal("parser-family document fingerprints must differ")
+	}
+}
+
 func TestAcceptRejectsUnsupportedOversizedAndBinaryContent(t *testing.T) {
 	tests := []struct {
 		name     string

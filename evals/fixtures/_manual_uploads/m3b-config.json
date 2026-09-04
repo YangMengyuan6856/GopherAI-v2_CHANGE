@@ -1,0 +1,7 @@
+{
+  "project": "GopherAI",
+  "release": {
+    "probe_code": "Structured-JSON-731",
+    "timeout_seconds": 47
+  }
+}

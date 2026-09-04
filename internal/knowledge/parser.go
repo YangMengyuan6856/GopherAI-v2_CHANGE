@@ -43,6 +43,7 @@ type sourceBlock struct {
 	content     string
 	tokenCount  int
 	code        bool
+	lineAware   bool
 }
 
 func NewStructuredTextChunker(targetTokens int, maxTokens int, overlapTokens int) (*StructuredTextChunker, error) {
@@ -65,10 +66,25 @@ func (chunker *StructuredTextChunker) ParseAndChunk(filename string, content []b
 		return nil, fmt.Errorf("document is not valid UTF-8")
 	}
 	extension := strings.ToLower(filepath.Ext(filename))
-	if extension != ".md" && extension != ".txt" {
+	var (
+		blocks []sourceBlock
+		err    error
+	)
+	switch extension {
+	case ".md", ".txt":
+		blocks = parseTextBlocks(string(content), extension == ".md")
+	case ".json":
+		blocks, err = parseStructuredDataBlocks(content, true)
+	case ".yaml", ".yml":
+		blocks, err = parseStructuredDataBlocks(content, false)
+	case ".go":
+		blocks, err = parseGoSourceBlocks(filename, content)
+	default:
 		return nil, fmt.Errorf("unsupported document extension %q", extension)
 	}
-	blocks := parseTextBlocks(string(content), extension == ".md")
+	if err != nil {
+		return nil, err
+	}
 	if len(blocks) == 0 {
 		return nil, fmt.Errorf("document has no indexable text")
 	}
@@ -181,12 +197,64 @@ func newSourceBlock(section string, lineStart int, lineEnd int, content string, 
 func (chunker *StructuredTextChunker) splitOversizedBlocks(blocks []sourceBlock) []sourceBlock {
 	result := make([]sourceBlock, 0, len(blocks))
 	for _, block := range blocks {
-		if block.code || block.tokenCount <= chunker.maxTokens {
+		if block.tokenCount <= chunker.maxTokens {
+			result = append(result, block)
+			continue
+		}
+		if block.lineAware {
+			result = append(result, splitLineAwareBlock(block, chunker.targetTokens)...)
+			continue
+		}
+		if block.code {
 			result = append(result, block)
 			continue
 		}
 		result = append(result, splitTextBlock(block, chunker.targetTokens)...)
 	}
+	return result
+}
+
+func splitLineAwareBlock(block sourceBlock, targetTokens int) []sourceBlock {
+	lines := strings.Split(block.content, "\n")
+	result := make([]sourceBlock, 0)
+	current := make([]string, 0)
+	currentTokens := 0
+	currentStart := block.lineStart
+	flush := func(lineEnd int) {
+		if len(current) == 0 {
+			return
+		}
+		piece := newSourceBlock(block.sectionPath, currentStart, lineEnd, strings.Join(current, "\n"), block.code)
+		piece.lineAware = true
+		result = append(result, piece)
+		current = current[:0]
+		currentTokens = 0
+	}
+	for index, line := range lines {
+		lineNumber := block.lineStart + index
+		lineTokens := estimateTokens(line)
+		if len(current) > 0 && currentTokens+lineTokens > targetTokens {
+			flush(lineNumber - 1)
+			currentStart = lineNumber
+		}
+		if lineTokens > targetTokens {
+			flush(lineNumber - 1)
+			oversized := newSourceBlock(block.sectionPath, lineNumber, lineNumber, line, false)
+			for _, piece := range splitTextBlock(oversized, targetTokens) {
+				piece.code = block.code
+				piece.lineAware = true
+				result = append(result, piece)
+			}
+			currentStart = lineNumber + 1
+			continue
+		}
+		if len(current) == 0 {
+			currentStart = lineNumber
+		}
+		current = append(current, line)
+		currentTokens += lineTokens
+	}
+	flush(block.lineEnd)
 	return result
 }
 

@@ -127,7 +127,7 @@ func TestUploadReturnsAcceptedContractAndTrace(t *testing.T) {
 
 func TestUploadMapsValidationErrorWithoutLeakingCause(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	application := &fakeApplication{err: contract.NewDomainError("DOCUMENT_TYPE_UNSUPPORTED", contract.ErrorValidation, "仅支持 .md 和 .txt 文档", false, context.Canceled)}
+	application := &fakeApplication{err: contract.NewDomainError("DOCUMENT_TYPE_UNSUPPORTED", contract.ErrorValidation, "仅支持 .md、.txt、.json、.yaml、.yml 和 .go 文档", false, context.Canceled)}
 	metrics := new(fakeMetrics)
 	handler := NewHandler(application, metrics)
 	engine := gin.New()

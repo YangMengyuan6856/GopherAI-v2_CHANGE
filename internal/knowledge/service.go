@@ -34,10 +34,26 @@ const (
 	DocumentIndexTopic     = "gopher.document.index.v1"
 	DocumentIndexEventType = "document.index.requested"
 	ParserVersionV1        = "plain-text-v1"
+	ParserVersionDataV1    = "structured-data-v1"
+	ParserVersionGoV1      = "go-ast-v1"
 	ChunkerVersionV1       = "structure-token-v1"
+	ChunkerVersionDataV1   = "key-path-token-v1"
+	ChunkerVersionGoV1     = "go-symbol-token-v1"
 )
 
-var allowedExtensions = map[string]struct{}{`.md`: {}, `.txt`: {}}
+type documentFormat struct {
+	parserVersion  string
+	chunkerVersion string
+}
+
+var allowedDocumentFormats = map[string]documentFormat{
+	`.md`:   {parserVersion: ParserVersionV1, chunkerVersion: ChunkerVersionV1},
+	`.txt`:  {parserVersion: ParserVersionV1, chunkerVersion: ChunkerVersionV1},
+	`.json`: {parserVersion: ParserVersionDataV1, chunkerVersion: ChunkerVersionDataV1},
+	`.yaml`: {parserVersion: ParserVersionDataV1, chunkerVersion: ChunkerVersionDataV1},
+	`.yml`:  {parserVersion: ParserVersionDataV1, chunkerVersion: ChunkerVersionDataV1},
+	`.go`:   {parserVersion: ParserVersionGoV1, chunkerVersion: ChunkerVersionGoV1},
+}
 
 type Clock interface {
 	Now() time.Time
@@ -127,8 +143,9 @@ func (service *Service) Accept(ctx context.Context, input AcceptInput) (AcceptRe
 	if displayName == "" || displayName == "." {
 		return AcceptResult{}, contract.NewDomainError("DOCUMENT_NAME_INVALID", contract.ErrorValidation, "文档名称无效", false, nil)
 	}
-	if _, allowed := allowedExtensions[extension]; !allowed {
-		return AcceptResult{}, contract.NewDomainError("DOCUMENT_TYPE_UNSUPPORTED", contract.ErrorValidation, "仅支持 .md 和 .txt 文档", false, nil)
+	format, allowed := allowedDocumentFormats[extension]
+	if !allowed {
+		return AcceptResult{}, contract.NewDomainError("DOCUMENT_TYPE_UNSUPPORTED", contract.ErrorValidation, "仅支持 .md、.txt、.json、.yaml、.yml 和 .go 文档", false, nil)
 	}
 	if input.File.Size > service.maxBytes {
 		return AcceptResult{}, contract.NewDomainError("DOCUMENT_TOO_LARGE", contract.ErrorValidation, "文档不能超过 10 MB", false, nil)
@@ -181,10 +198,10 @@ func (service *Service) Accept(ctx context.Context, input AcceptInput) (AcceptRe
 	}
 	sniffSize := min(len(content), 512)
 	detectedMime := strings.Split(http.DetectContentType(content[:sniffSize]), ";")[0]
-	if detectedMime != "text/plain" || !utf8.Valid(content) {
+	if (detectedMime != "text/plain" && detectedMime != "application/json") || !utf8.Valid(content) {
 		return AcceptResult{}, contract.NewDomainError("DOCUMENT_CONTENT_INVALID", contract.ErrorValidation, "文档内容不是有效文本", false, nil)
 	}
-	contentHash := hex.EncodeToString(hash.Sum(nil))
+	contentHash := documentContentHash(format, hex.EncodeToString(hash.Sum(nil)))
 	existingDocument, existingJob, err := service.repository.FindByContentHash(ctx, input.TenantID, contentHash)
 	if err != nil {
 		return AcceptResult{}, dependencyError("DOCUMENT_REPOSITORY_UNAVAILABLE", "文档服务暂时不可用", err)
@@ -213,8 +230,8 @@ func (service *Service) Accept(ctx context.Context, input AcceptInput) (AcceptRe
 	}
 	version := &model.KnowledgeDocumentVersion{
 		ID: versionID, DocumentID: documentID, Version: 1, Status: DocumentStatusUploaded,
-		ContentHash: contentHash, StoragePath: finalPath, ParserVersion: ParserVersionV1,
-		ChunkerVersion: ChunkerVersionV1, CreatedAt: now, UpdatedAt: now,
+		ContentHash: contentHash, StoragePath: finalPath, ParserVersion: format.parserVersion,
+		ChunkerVersion: format.chunkerVersion, CreatedAt: now, UpdatedAt: now,
 	}
 	job := &model.KnowledgeJob{
 		ID: jobID, TenantID: input.TenantID, DocumentID: documentID, Version: 1,
@@ -236,6 +253,18 @@ func (service *Service) Accept(ctx context.Context, input AcceptInput) (AcceptRe
 		return AcceptResult{}, dependencyError("DOCUMENT_REPOSITORY_UNAVAILABLE", "文档服务暂时不可用", err)
 	}
 	return AcceptResult{Document: summarizeDocument(*document), Job: summarizeJob(job)}, nil
+}
+
+func documentContentHash(format documentFormat, rawContentHash string) string {
+	// Preserve the original Markdown/TXT identity so existing uploads remain
+	// idempotent after this release. New parser families domain-separate their
+	// identity because identical bytes parsed as plain text, structured data,
+	// or Go source produce different canonical chunks.
+	if format.parserVersion == ParserVersionV1 && format.chunkerVersion == ChunkerVersionV1 {
+		return rawContentHash
+	}
+	digest := sha256.Sum256([]byte(format.parserVersion + "\x00" + format.chunkerVersion + "\x00" + rawContentHash))
+	return hex.EncodeToString(digest[:])
 }
 
 func (service *Service) List(ctx context.Context, tenantID string) ([]DocumentSummary, error) {

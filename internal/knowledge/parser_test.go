@@ -1,6 +1,8 @@
 package knowledge
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -65,6 +67,71 @@ func TestTextChunkerUsesBoundedFallbackAndIsDeterministic(t *testing.T) {
 	}
 }
 
+func TestStructuredDataChunkerPreservesKeyPathsAndLines(t *testing.T) {
+	chunker, err := NewStructuredTextChunker(30, 40, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jsonContent := []byte("{\n  \"service\": {\n    \"retry\": {\n      \"max_attempts\": 7\n    }\n  }\n}\n")
+	jsonChunks, err := chunker.ParseAndChunk("config.json", jsonContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertStructuredChunk(t, jsonChunks, "service > retry > max_attempts", "service.retry.max_attempts = 7", 4)
+
+	yamlContent := []byte("services:\n  - name: api\n    port: 9090\nfeature:\n  enabled: true\n")
+	yamlChunks, err := chunker.ParseAndChunk("config.yaml", yamlContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertStructuredChunk(t, yamlChunks, "services > [0] > port", "services[0].port = 9090", 3)
+	assertStructuredChunk(t, yamlChunks, "feature > enabled", "feature.enabled = true", 5)
+}
+
+func TestGoChunkerPreservesTopLevelSymbolsAndSplitsLongFunctions(t *testing.T) {
+	chunker, err := NewStructuredTextChunker(12, 16, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := []byte(`package worker
+
+type Service struct{}
+
+func (s *Service) Run(input int) int {
+	value := input
+	value += 1
+	value += 2
+	value += 3
+	value += 4
+	value += 5
+	return value
+}
+`)
+	chunks, err := chunker.ParseAndChunk("worker.go", content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundType := false
+	methodChunks := 0
+	for _, chunk := range chunks {
+		if chunk.TokenCount > 16 {
+			t.Fatalf("Go chunk exceeded the configured limit: %+v", chunk)
+		}
+		if chunk.SectionPath == "package worker > type Service" && strings.Contains(chunk.Content, "type Service") {
+			foundType = true
+		}
+		if chunk.SectionPath == "package worker > method Service.Run" {
+			methodChunks++
+			if chunk.LineStart < 5 || chunk.LineEnd > 13 {
+				t.Fatalf("method line range escaped its declaration: %+v", chunk)
+			}
+		}
+	}
+	if !foundType || methodChunks < 2 {
+		t.Fatalf("expected a type chunk and multiple long-method chunks, type=%t method_chunks=%d chunks=%+v", foundType, methodChunks, chunks)
+	}
+}
+
 func TestChunkerRejectsUnsupportedAndInvalidUTF8(t *testing.T) {
 	chunker := NewDefaultStructuredTextChunker()
 	if _, err := chunker.ParseAndChunk("notes.pdf", []byte("text")); err == nil {
@@ -73,4 +140,51 @@ func TestChunkerRejectsUnsupportedAndInvalidUTF8(t *testing.T) {
 	if _, err := chunker.ParseAndChunk("notes.txt", []byte{0xff, 0xfe}); err == nil {
 		t.Fatal("expected invalid UTF-8 error")
 	}
+	for filename, content := range map[string][]byte{
+		"invalid.json": []byte(`{"missing": }`),
+		"invalid.yaml": []byte("service: [unterminated\n"),
+		"invalid.go":   []byte("package broken\nfunc {\n"),
+	} {
+		if _, err := chunker.ParseAndChunk(filename, content); err == nil {
+			t.Fatalf("expected %s parse error", filename)
+		}
+	}
+}
+
+func TestManualStructuredUploadFixturesRemainIndexable(t *testing.T) {
+	chunker := NewDefaultStructuredTextChunker()
+	for filename, marker := range map[string]string{
+		"m3b-config.json":  "Structured-JSON-731",
+		"m3b-service.yaml": "Structured-YAML-842",
+		"m3b-worker.go":    "Structured-Go-953",
+	} {
+		content, err := os.ReadFile(filepath.Join("..", "..", "evals", "fixtures", "_manual_uploads", filename))
+		if err != nil {
+			t.Fatal(err)
+		}
+		chunks, err := chunker.ParseAndChunk(filename, content)
+		if err != nil {
+			t.Fatalf("parse %s: %v", filename, err)
+		}
+		found := false
+		for _, chunk := range chunks {
+			found = found || strings.Contains(chunk.Content, marker)
+		}
+		if !found {
+			t.Fatalf("fixture %s lost marker %s: %+v", filename, marker, chunks)
+		}
+	}
+}
+
+func assertStructuredChunk(t *testing.T, chunks []ChunkDraft, section string, content string, line int) {
+	t.Helper()
+	for _, chunk := range chunks {
+		if chunk.SectionPath == section && strings.Contains(chunk.Content, content) {
+			if chunk.LineStart != line || chunk.LineEnd < line || len(chunk.ContentHash) != 64 {
+				t.Fatalf("unexpected structured citation metadata: %+v", chunk)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing structured chunk section=%q content=%q in %+v", section, content, chunks)
 }

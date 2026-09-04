@@ -92,6 +92,53 @@ func TestProcessorBuildsCanonicalChunksAndCompletes(t *testing.T) {
 	}
 }
 
+func TestProcessorPersistsStructuredKeyPathMetadata(t *testing.T) {
+	storagePath := filepath.Join(t.TempDir(), "v1.yaml")
+	if err := os.WriteFile(storagePath, []byte("service:\n  retry:\n    max_attempts: 7\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	repository := &processorRepository{work: indexWorkFixture(storagePath)}
+	indexer := new(processorIndexer)
+	processor, err := NewProcessor(repository, NewDefaultStructuredTextChunker(), indexer, "embedding-v1", fixedClock{value: time.Now().UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := processor.Process(context.Background(), indexEnvelope(t)); err != nil {
+		t.Fatal(err)
+	}
+	if len(repository.chunks) != 1 {
+		t.Fatalf("expected one structured chunk, got %+v", repository.chunks)
+	}
+	chunk := repository.chunks[0]
+	if chunk.SectionPath != "service > retry > max_attempts" || chunk.LineStart != 3 || chunk.LineEnd != 3 {
+		t.Fatalf("structured metadata was not persisted: %+v", chunk)
+	}
+	metadata := make(map[string]any)
+	if err := json.Unmarshal([]byte(chunk.MetadataJSON), &metadata); err != nil || metadata["section_path"] != "service > retry > max_attempts" {
+		t.Fatalf("structured metadata JSON is incomplete: %s err=%v", chunk.MetadataJSON, err)
+	}
+}
+
+func TestProcessorMarksInvalidStructuredDocumentAsNonRetryable(t *testing.T) {
+	storagePath := filepath.Join(t.TempDir(), "v1.json")
+	if err := os.WriteFile(storagePath, []byte(`{"retry": }`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	repository := &processorRepository{work: indexWorkFixture(storagePath)}
+	processor, err := NewProcessor(repository, NewDefaultStructuredTextChunker(), new(processorIndexer), "embedding-v1", fixedClock{value: time.Now().UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = processor.Process(context.Background(), indexEnvelope(t))
+	var processingError *ProcessingError
+	if !errors.As(err, &processingError) || processingError.Retryable || processingError.Code != ErrorCodeParseFailed {
+		t.Fatalf("unexpected structured parse failure: %v", err)
+	}
+	if repository.failureCode != ErrorCodeParseFailed || repository.replaceCalls != 0 || repository.completeCalls != 0 {
+		t.Fatalf("invalid syntax must fail before persistence/indexing: %+v", repository)
+	}
+}
+
 func TestProcessorAcknowledgesAlreadyCompletedJobWithoutSideEffects(t *testing.T) {
 	repository := &processorRepository{work: IndexWork{Complete: true}}
 	indexer := new(processorIndexer)

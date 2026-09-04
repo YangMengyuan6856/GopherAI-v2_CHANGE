@@ -1,0 +1,6 @@
+service:
+  name: index-worker
+  probe_code: Structured-YAML-842
+  retry:
+    max_attempts: 6
+    dead_letter_exchange: gopher.jobs.dlx.v1
