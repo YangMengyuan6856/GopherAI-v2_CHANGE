@@ -1356,3 +1356,12 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 30 条候选评测中的授权/安全用例已改为调用真实 HITL Adapter：合法内部写执行 1 次并审计 1 次；只读调用者执行 0 次；外部写执行 0 次。加上 stale-if-error 用例后五类通过率、审计覆盖和确定性重放仍为 `100%`，危险动作率 `0%`，报告 SHA-256 更新为 `86f57a4bb7af8daf98bf5603f8d8bfb26ec70b89ed82faf27f0c289496037421`，人工标签仍是 `pending_user`。
 - Release `20260905070322-cb7fd326710d`，bundle SHA-256 `7869f94dad17f3855ab0f47c91e09e9a72176347ef5e0d609d277d579c844418`，四进程门通过。真实页面新建 Redis NOAUTH 诊断，先预览且不写，勾选明确确认后才写入案例 `dd196702…`，RabbitMQ 异步索引随后变为 indexed。
 - MySQL 工具审计为 `confirm_resolution / human_confirmed_action_v1 / success`，cached/stale 均为 0，Args/User hash 长度 64、Trace ID 长度 36；Prometheus 为 accepted 1、success 1、cache bypass 1。数据库最新案例为 `confirmed/indexed`。这证明“人工确认是能力授权边界”，不是让 Agent 自主执行修复。
+
+## 52. 2026-09-05 候选计划修复边界与重复动作熔断
+
+- 提交 `899aada7` 将 ToolAgent 拆为“候选规划器 + 生产候选执行器 + 统一 Runtime”。未来即使把确定性 Planner 替换为 LLM Planner，候选计划也会在执行边界重新截断为最多 2 个调用；Runtime 仍是精确工具名、Schema、权限、副作用、预算和审计的唯一权威，Planner 不能直连 Adapter。
+- 只有稳定错误 `TOOL_ARGUMENTS_INVALID` 可以触发修复，最多 2 次。修复反馈只包含 call index、attempt、精确 tool name、error code 和 rejected args hash；不包含原始参数、工具输出、凭据或内部错误。修复器不能更换工具名，拼错/未知工具直接 `UNKNOWN_TOOL_REJECTED`，不做相似匹配。每次被 Schema 拒绝的候选仍生成独立 ToolMessage 和脱敏审计。
+- 每个 Agent Run 创建独立 `ActionGuard`，以 `tool name + version + canonical args hash` 作为动作签名。相同 JSON 即使只改变空白也视为同一动作；第二次返回 `no_progress / TOOL_NO_PROGRESS`，真实 Tool 只执行一次，且该拒绝同样进入审计与固定标签指标。它不是分布式锁，也不替代写操作幂等键，只负责阻止单个 Agent 循环无进展烧 Token。
+- 30 条候选评测复用同一生产执行器，加入“错误类型参数 → 两次修复 → success”和“重复动作 → NO_PROGRESS”两条门禁。当前五类通过率、审计覆盖、确定性重放、错参有界修复和重复动作熔断均为 `100%`；危险动作执行率 `0%`、未知工具执行 `0`。报告 SHA-256 为 `a5c2b01f4e13f6506dfbd4a6951d26feeb6904f145ea7a80e4cf258bfdcb21f9`，标签仍待用户人工复核，所以不是正式基线。
+- Release `20260905073107-899aada7ec6e`，bundle SHA-256 `c24303aae45b84dd36b8d1d11171a0b9319516f12d8fd3eb92e5f2d1a54fb384`，Backend/Worker/MCP/Vue 与唯一进程门全部通过。真实页面 compound 计划的 Manifest + 全服务健康两步均 success；线上评测面板显示新增两项 100% 门禁和同一报告 SHA。MySQL 两条新审计均为 `tool_agent_v1/success`，Args/User hash 长度 64、Trace ID 长度 36；Prometheus 对两个工具各记录 accepted/success 1。
+- 从 Windows PowerShell 把 here-string 直接管道送给 `ssh ... bash -s` 时，即使变量中先做 `-replace "`r", ""`，PowerShell 的 native pipeline 仍可能重新以 CRLF 编码文本，令远端 heredoc 终止符变成 `EOS\r`。取证查询主体可能已经成功，但最终退出码会是 1。可靠做法与发布脚本一致：先把 LF 文本编码为 UTF-8 base64，再让远端 `printf %s '<base64>' | base64 -d | bash`；不能因为前半段有输出就忽略失败退出码。
