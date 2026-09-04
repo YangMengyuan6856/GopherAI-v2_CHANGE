@@ -884,3 +884,23 @@ keys are removed. Do not describe this endpoint as irreversible data erasure.
 If irreversible purge is ever required, add a separately authorized retention
 workflow with storage and database backup evidence rather than extending this
 request path.
+
+## 26. M3-B4 Explainable Query/Gap Detector
+
+Release `20260904180325-6d331cf32287` (commit `6d331cf32287`) passed the root
+and nested MCP test suites, three local Linux builds, checksum verification,
+atomic switch, Backend/Worker/MCP health gates, and Vue compile/HTTP. The
+deployed bundle SHA-256 is
+`c9ee88dc83d65972c2ca01d1c67232bedf40f3f7255c1ec0ab662237c53c3638`.
+
+The `query-gap-v1` assessment is deliberately deterministic and recommend-only.
+It inspects bounded query-shape signals (clauses, comparison, cross-document,
+causal, analytical, ambiguity, and length) plus authorized retrieval outcomes
+(top score, source count, hybrid support, and rank margin). It returns stable
+reason codes and explicit rewrite/rerank/deep recommendations. At this release
+it does not execute `rag_deep` or alter production routing; this keeps M3-24
+measurable and makes M3-25/M3-26 activation separately testable and reversible.
+
+Keep the frontend label “当前仅分析” until an actual bounded rewrite/rerank
+implementation is deployed. Showing a recommendation as though it had already
+run would make both user acceptance and later strategy evaluation invalid.
