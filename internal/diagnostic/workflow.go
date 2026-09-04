@@ -239,10 +239,10 @@ func (workflow *Workflow) execute(parent context.Context, detail harness.RunDeta
 		reason := "EVIDENCE_BACKED_HYPOTHESES_READY"
 		summary := fmt.Sprintf("已形成 %d 个待验证假设；结论保持为 hypothesis，未把观察信息升级为已确认根因。", len(result.Hypotheses))
 		terminalReason := "DIAGNOSTIC_HYPOTHESES_READY"
-		if result.ConclusionStatus == ConclusionInsufficient {
+		if result.NeedsUserInput {
 			nextState = harness.StateWaitingUser
 			reason = "CRITICAL_EVIDENCE_MISSING"
-			summary = fmt.Sprintf("现有证据不足，已暂停运行并提出 %d 个补充问题。", len(result.MissingInformation))
+			summary = fmt.Sprintf("诊断仍缺少关键验证信息，已保留现有假设、暂停运行并提出 %d 个补充问题。", len(result.MissingInformation))
 			terminalReason = ""
 		}
 		_, err = workflow.advanceOrCancel(ctx, detail.Run, userID, harness.AdvanceCommand{

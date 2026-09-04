@@ -162,7 +162,7 @@ func (missing MissingInformation) validate() error {
 }
 
 func (hypothesis Hypothesis) validate() error {
-	if err := validateText("hypothesis id", hypothesis.ID, 1, 32); err != nil {
+	if err := validateText("hypothesis id", hypothesis.ID, 1, 64); err != nil {
 		return err
 	}
 	if err := validateText("hypothesis cause", hypothesis.Cause, 1, 500); err != nil {
@@ -214,7 +214,7 @@ func (evidence EvidenceReference) validate() error {
 }
 
 func (step VerificationStep) validate() error {
-	if err := validateText("verification step id", step.ID, 1, 32); err != nil {
+	if err := validateText("verification step id", step.ID, 1, 64); err != nil {
 		return err
 	}
 	if err := validateText("verification instruction", step.Instruction, 1, 500); err != nil {

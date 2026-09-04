@@ -1187,7 +1187,14 @@ MySQL 确认生成 `agent_lifecycle_runs`、`agent_lifecycle_steps`、
 `GOPATH` 保持为缓存位置；正式发布继续使用脚本中的 `GOENV=off`、独立临时 GOPATH
 和本地工具链路径，不能为了通过一次构建去修改用户的全局 Go 配置。
 
-该 release 的 `dirty` 来自根目录中未跟踪的验收截图；打包脚本会收集工作目录，
-导致包体达到约 90 MB。保留截图文件不删除，并把这批确切文件名加入 `.gitignore`，
-避免后续 release 被无关截图标记为 dirty 或重复上传。功能提交本身已在发布前推送，
-Git SHA 可追溯。
+该 release 的 `dirty` 来自根目录中未跟踪的验收截图。保留截图文件不删除，并把这批
+确切文件名加入 `.gitignore`，避免后续 release 被无关截图标记为 dirty 或重复上传。
+干净发布的包体仍约 90 MB，说明主要体积来自三个 Linux 二进制和项目资源，不能把
+截图忽略误写成包体优化结果。功能提交本身已在发布前推送，Git SHA 可追溯。
+
+清理证据文档和忽略规则后，干净 Release 为
+`20260905005217-daf4c05bc04e`（commit `daf4c05bc04e6ec81bfead6b65a3ef664d88da58`），
+bundle SHA-256 为
+`d667e44bdb59a520b823c3ec68752152d634ebff50f3ab191bc46bd5ecb96ea8`。
+该 release 再次通过 Backend/Worker live/ready、MCP 启动、Vue 编译/HTTP 和唯一进程门，
+作为 R1 首次纵向版本的可复现云端检查点。

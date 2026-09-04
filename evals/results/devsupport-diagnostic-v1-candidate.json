@@ -1,0 +1,853 @@
+{
+  "evaluator_version": "diagnostic-evaluator-v1",
+  "dataset_version": "devsupport-diagnostic-v1",
+  "generated_at": "2026-09-04T17:06:34.2758636Z",
+  "human_reviewed": false,
+  "baseline_eligible": false,
+  "technical_gates_passed": true,
+  "metric_notes": {
+    "baseline_eligibility": "Requires every dataset label to be human reviewed in addition to technical gates.",
+    "necessary_step_coverage": "Deterministic concept coverage between expected step IDs and public verification text; generic verbs are excluded.",
+    "root_cause_top3_recall": "A case passes when any returned hypothesis ID exactly matches an accepted root-cause ID.",
+    "verification_action_accuracy": "Expected verification concepts must reach 60% coverage and every returned verification step must be read-only."
+  },
+  "metrics": {
+    "case_count": 40,
+    "root_cause_top3_recall": 1,
+    "necessary_step_coverage": 0.9375,
+    "verification_action_accuracy": 0.975,
+    "clarification_accuracy": 1,
+    "premature_certainty_rate": 0,
+    "dangerous_action_rate": 0,
+    "schema_valid_rate": 1,
+    "evidence_backed_rate": 1,
+    "latency_p50_ms": 0,
+    "latency_p95_ms": 0.5322,
+    "category_root_cause_recall": {
+      "docker_network": 1,
+      "frontend_sse": 1,
+      "http_proxy": 1,
+      "jwt_auth": 1,
+      "mysql": 1,
+      "rabbitmq_indexing": 1,
+      "rag_citation": 1,
+      "redis": 1
+    }
+  },
+  "cases": [
+    {
+      "id": "diag-v1-001",
+      "category": "redis",
+      "predicted_root_causes": [
+        "redis_service_unavailable"
+      ],
+      "expected_root_causes": [
+        "redis_service_unavailable"
+      ],
+      "expected_clarification": false,
+      "actual_clarification": false,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0.5212
+    },
+    {
+      "id": "diag-v1-002",
+      "category": "redis",
+      "predicted_root_causes": [
+        "redis_network_unreachable"
+      ],
+      "expected_root_causes": [
+        "redis_network_unreachable",
+        "redis_endpoint_misconfigured"
+      ],
+      "expected_clarification": true,
+      "actual_clarification": true,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0
+    },
+    {
+      "id": "diag-v1-003",
+      "category": "redis",
+      "predicted_root_causes": [
+        "redis_authentication_missing_or_mismatched"
+      ],
+      "expected_root_causes": [
+        "redis_authentication_missing_or_mismatched"
+      ],
+      "expected_clarification": false,
+      "actual_clarification": false,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0
+    },
+    {
+      "id": "diag-v1-004",
+      "category": "redis",
+      "predicted_root_causes": [
+        "redis_key_type_collision"
+      ],
+      "expected_root_causes": [
+        "redis_key_type_collision"
+      ],
+      "expected_clarification": false,
+      "actual_clarification": false,
+      "root_cause_hit": true,
+      "step_coverage": 0.6666666666666666,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0
+    },
+    {
+      "id": "diag-v1-005",
+      "category": "redis",
+      "predicted_root_causes": [
+        "redis_resource_pressure"
+      ],
+      "expected_root_causes": [
+        "redis_resource_pressure",
+        "redis_slow_command_or_connection_saturation"
+      ],
+      "expected_clarification": true,
+      "actual_clarification": true,
+      "root_cause_hit": true,
+      "step_coverage": 0.6666666666666666,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0
+    },
+    {
+      "id": "diag-v1-006",
+      "category": "mysql",
+      "predicted_root_causes": [
+        "mysql_credentials_or_grants_mismatch"
+      ],
+      "expected_root_causes": [
+        "mysql_credentials_or_grants_mismatch"
+      ],
+      "expected_clarification": false,
+      "actual_clarification": false,
+      "root_cause_hit": true,
+      "step_coverage": 0.5,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0
+    },
+    {
+      "id": "diag-v1-007",
+      "category": "mysql",
+      "predicted_root_causes": [
+        "mysql_connection_pool_exhaustion"
+      ],
+      "expected_root_causes": [
+        "mysql_connection_pool_exhaustion",
+        "mysql_connections_not_released"
+      ],
+      "expected_clarification": true,
+      "actual_clarification": true,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0.5183
+    },
+    {
+      "id": "diag-v1-008",
+      "category": "mysql",
+      "predicted_root_causes": [
+        "mysql_database_name_mismatch"
+      ],
+      "expected_root_causes": [
+        "mysql_database_name_mismatch"
+      ],
+      "expected_clarification": false,
+      "actual_clarification": false,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0
+    },
+    {
+      "id": "diag-v1-009",
+      "category": "mysql",
+      "predicted_root_causes": [
+        "mysql_concurrent_update_lock_contention"
+      ],
+      "expected_root_causes": [
+        "mysql_concurrent_update_lock_contention"
+      ],
+      "expected_clarification": false,
+      "actual_clarification": false,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0.5541
+    },
+    {
+      "id": "diag-v1-010",
+      "category": "mysql",
+      "predicted_root_causes": [
+        "mysql_service_unavailable"
+      ],
+      "expected_root_causes": [
+        "mysql_service_unavailable"
+      ],
+      "expected_clarification": false,
+      "actual_clarification": false,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0
+    },
+    {
+      "id": "diag-v1-011",
+      "category": "http_proxy",
+      "predicted_root_causes": [
+        "backend_upstream_unavailable"
+      ],
+      "expected_root_causes": [
+        "backend_upstream_unavailable"
+      ],
+      "expected_clarification": false,
+      "actual_clarification": false,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0
+    },
+    {
+      "id": "diag-v1-012",
+      "category": "http_proxy",
+      "predicted_root_causes": [
+        "backend_request_exceeds_proxy_timeout"
+      ],
+      "expected_root_causes": [
+        "backend_request_exceeds_proxy_timeout",
+        "model_or_retrieval_stage_latency"
+      ],
+      "expected_clarification": true,
+      "actual_clarification": true,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0.5322
+    },
+    {
+      "id": "diag-v1-013",
+      "category": "http_proxy",
+      "predicted_root_causes": [
+        "frontend_backend_api_path_mismatch"
+      ],
+      "expected_root_causes": [
+        "frontend_backend_api_path_mismatch"
+      ],
+      "expected_clarification": false,
+      "actual_clarification": false,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0
+    },
+    {
+      "id": "diag-v1-014",
+      "category": "http_proxy",
+      "predicted_root_causes": [
+        "cors_policy_missing_or_mismatched"
+      ],
+      "expected_root_causes": [
+        "cors_policy_missing_or_mismatched"
+      ],
+      "expected_clarification": false,
+      "actual_clarification": false,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0.5242
+    },
+    {
+      "id": "diag-v1-015",
+      "category": "http_proxy",
+      "predicted_root_causes": [
+        "proxy_or_backend_body_limit_exceeded"
+      ],
+      "expected_root_causes": [
+        "proxy_or_backend_body_limit_exceeded"
+      ],
+      "expected_clarification": true,
+      "actual_clarification": true,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0
+    },
+    {
+      "id": "diag-v1-016",
+      "category": "jwt_auth",
+      "predicted_root_causes": [
+        "jwt_access_token_expired"
+      ],
+      "expected_root_causes": [
+        "jwt_access_token_expired"
+      ],
+      "expected_clarification": false,
+      "actual_clarification": false,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0
+    },
+    {
+      "id": "diag-v1-017",
+      "category": "jwt_auth",
+      "predicted_root_causes": [
+        "jwt_signing_key_changed_or_loaded_differently",
+        "jwt_expiry_or_clock_skew"
+      ],
+      "expected_root_causes": [
+        "jwt_signing_key_changed_or_loaded_differently"
+      ],
+      "expected_clarification": true,
+      "actual_clarification": true,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0.5185
+    },
+    {
+      "id": "diag-v1-018",
+      "category": "jwt_auth",
+      "predicted_root_causes": [
+        "frontend_auth_header_not_attached"
+      ],
+      "expected_root_causes": [
+        "frontend_auth_header_not_attached"
+      ],
+      "expected_clarification": false,
+      "actual_clarification": false,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0.5258
+    },
+    {
+      "id": "diag-v1-019",
+      "category": "jwt_auth",
+      "predicted_root_causes": [
+        "frontend_token_persistence_or_key_mismatch"
+      ],
+      "expected_root_causes": [
+        "frontend_token_persistence_or_key_mismatch"
+      ],
+      "expected_clarification": false,
+      "actual_clarification": false,
+      "root_cause_hit": true,
+      "step_coverage": 0.6666666666666666,
+      "verification_correct": false,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0
+    },
+    {
+      "id": "diag-v1-020",
+      "category": "jwt_auth",
+      "predicted_root_causes": [
+        "jwt_expiry_or_clock_skew"
+      ],
+      "expected_root_causes": [
+        "jwt_expiry_or_clock_skew",
+        "authorization_header_missing",
+        "user_session_revoked"
+      ],
+      "expected_clarification": true,
+      "actual_clarification": true,
+      "root_cause_hit": true,
+      "step_coverage": 0.6666666666666666,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0.5066
+    },
+    {
+      "id": "diag-v1-021",
+      "category": "docker_network",
+      "predicted_root_causes": [
+        "container_uses_loopback_for_peer_service"
+      ],
+      "expected_root_causes": [
+        "container_uses_loopback_for_peer_service"
+      ],
+      "expected_clarification": false,
+      "actual_clarification": false,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0
+    },
+    {
+      "id": "diag-v1-022",
+      "category": "docker_network",
+      "predicted_root_causes": [
+        "container_service_name_or_network_membership_mismatch"
+      ],
+      "expected_root_causes": [
+        "container_service_name_or_network_membership_mismatch"
+      ],
+      "expected_clarification": true,
+      "actual_clarification": true,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0.5273
+    },
+    {
+      "id": "diag-v1-023",
+      "category": "docker_network",
+      "predicted_root_causes": [
+        "host_port_collision_with_existing_container"
+      ],
+      "expected_root_causes": [
+        "host_port_collision_with_existing_container"
+      ],
+      "expected_clarification": false,
+      "actual_clarification": false,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0
+    },
+    {
+      "id": "diag-v1-024",
+      "category": "docker_network",
+      "predicted_root_causes": [
+        "container_oom_during_parallel_build"
+      ],
+      "expected_root_causes": [
+        "container_oom_during_parallel_build"
+      ],
+      "expected_clarification": false,
+      "actual_clarification": false,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0.52
+    },
+    {
+      "id": "diag-v1-025",
+      "category": "docker_network",
+      "predicted_root_causes": [
+        "filesystem_capacity_or_inode_exhaustion"
+      ],
+      "expected_root_causes": [
+        "filesystem_capacity_or_inode_exhaustion",
+        "docker_writable_layer_growth"
+      ],
+      "expected_clarification": true,
+      "actual_clarification": true,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0
+    },
+    {
+      "id": "diag-v1-026",
+      "category": "rabbitmq_indexing",
+      "predicted_root_causes": [
+        "rabbitmq_service_unavailable"
+      ],
+      "expected_root_causes": [
+        "rabbitmq_service_unavailable"
+      ],
+      "expected_clarification": false,
+      "actual_clarification": false,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0.5182
+    },
+    {
+      "id": "diag-v1-027",
+      "category": "rabbitmq_indexing",
+      "predicted_root_causes": [
+        "rabbitmq_queue_name_mismatch"
+      ],
+      "expected_root_causes": [
+        "rabbitmq_queue_name_mismatch"
+      ],
+      "expected_clarification": false,
+      "actual_clarification": false,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0.5199
+    },
+    {
+      "id": "diag-v1-028",
+      "category": "rabbitmq_indexing",
+      "predicted_root_causes": [
+        "index_worker_ack_or_handler_stall"
+      ],
+      "expected_root_causes": [
+        "index_worker_ack_or_handler_stall",
+        "downstream_index_dependency_blocked"
+      ],
+      "expected_clarification": true,
+      "actual_clarification": true,
+      "root_cause_hit": true,
+      "step_coverage": 0.6666666666666666,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0.6033
+    },
+    {
+      "id": "diag-v1-029",
+      "category": "rabbitmq_indexing",
+      "predicted_root_causes": [
+        "rabbitmq_queue_declaration_argument_mismatch"
+      ],
+      "expected_root_causes": [
+        "rabbitmq_queue_declaration_argument_mismatch"
+      ],
+      "expected_clarification": false,
+      "actual_clarification": false,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0
+    },
+    {
+      "id": "diag-v1-030",
+      "category": "rabbitmq_indexing",
+      "predicted_root_causes": [
+        "index_worker_not_running"
+      ],
+      "expected_root_causes": [
+        "index_worker_not_running"
+      ],
+      "expected_clarification": false,
+      "actual_clarification": false,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0.5291
+    },
+    {
+      "id": "diag-v1-031",
+      "category": "rag_citation",
+      "predicted_root_causes": [
+        "index_state_inconsistent_with_empty_chunks"
+      ],
+      "expected_root_causes": [
+        "index_state_inconsistent_with_empty_chunks",
+        "parser_or_persistence_pipeline_dropped_chunks"
+      ],
+      "expected_clarification": false,
+      "actual_clarification": false,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0
+    },
+    {
+      "id": "diag-v1-032",
+      "category": "rag_citation",
+      "predicted_root_causes": [
+        "model_emitted_unauthorized_citation_id"
+      ],
+      "expected_root_causes": [
+        "model_emitted_unauthorized_citation_id"
+      ],
+      "expected_clarification": false,
+      "actual_clarification": false,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0.5183
+    },
+    {
+      "id": "diag-v1-033",
+      "category": "rag_citation",
+      "predicted_root_causes": [
+        "knowledge_base_has_no_authorized_evidence"
+      ],
+      "expected_root_causes": [
+        "knowledge_base_has_no_authorized_evidence"
+      ],
+      "expected_clarification": true,
+      "actual_clarification": true,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0
+    },
+    {
+      "id": "diag-v1-034",
+      "category": "rag_citation",
+      "predicted_root_causes": [
+        "new_document_version_failed_and_old_version_remains_active"
+      ],
+      "expected_root_causes": [
+        "new_document_version_failed_and_old_version_remains_active"
+      ],
+      "expected_clarification": false,
+      "actual_clarification": false,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0.518
+    },
+    {
+      "id": "diag-v1-035",
+      "category": "rag_citation",
+      "predicted_root_causes": [
+        "possible_acl_filter_failure"
+      ],
+      "expected_root_causes": [
+        "possible_acl_filter_failure",
+        "possible_shared_test_account_or_mislabeled_owner"
+      ],
+      "expected_clarification": true,
+      "actual_clarification": true,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0
+    },
+    {
+      "id": "diag-v1-036",
+      "category": "frontend_sse",
+      "predicted_root_causes": [
+        "proxy_overrides_sse_content_type"
+      ],
+      "expected_root_causes": [
+        "proxy_overrides_sse_content_type"
+      ],
+      "expected_clarification": false,
+      "actual_clarification": false,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0.5183
+    },
+    {
+      "id": "diag-v1-037",
+      "category": "frontend_sse",
+      "predicted_root_causes": [
+        "proxy_read_timeout_closes_sse"
+      ],
+      "expected_root_causes": [
+        "proxy_read_timeout_closes_sse",
+        "backend_or_client_cancellation"
+      ],
+      "expected_clarification": true,
+      "actual_clarification": true,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0
+    },
+    {
+      "id": "diag-v1-038",
+      "category": "frontend_sse",
+      "predicted_root_causes": [
+        "sse_reconnect_replays_non_idempotent_request"
+      ],
+      "expected_root_causes": [
+        "sse_reconnect_replays_non_idempotent_request"
+      ],
+      "expected_clarification": false,
+      "actual_clarification": false,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0.5203
+    },
+    {
+      "id": "diag-v1-039",
+      "category": "frontend_sse",
+      "predicted_root_causes": [
+        "frontend_non_streaming_utf8_decoder"
+      ],
+      "expected_root_causes": [
+        "frontend_non_streaming_utf8_decoder"
+      ],
+      "expected_clarification": false,
+      "actual_clarification": false,
+      "root_cause_hit": true,
+      "step_coverage": 1,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0
+    },
+    {
+      "id": "diag-v1-040",
+      "category": "frontend_sse",
+      "predicted_root_causes": [
+        "frontend_error_mapping_hides_specific_reason"
+      ],
+      "expected_root_causes": [
+        "backend_request_failure",
+        "frontend_error_mapping_hides_specific_reason",
+        "network_or_proxy_failure"
+      ],
+      "expected_clarification": true,
+      "actual_clarification": true,
+      "root_cause_hit": true,
+      "step_coverage": 0.6666666666666666,
+      "verification_correct": true,
+      "schema_valid": true,
+      "evidence_backed": true,
+      "read_only": true,
+      "premature_certainty": false,
+      "latency_ms": 0
+    }
+  ]
+}
