@@ -1,0 +1,228 @@
+package main
+
+import (
+	redisstore "GopherAI/common/redis"
+	"GopherAI/config"
+	knowledgeagent "GopherAI/internal/agent/knowledge"
+	"GopherAI/internal/evaluation"
+	"GopherAI/internal/knowledge"
+	"GopherAI/internal/rag"
+	"GopherAI/model"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	embeddingArk "github.com/cloudwego/eino-ext/components/embedding/ark"
+	modelOpenAI "github.com/cloudwego/eino-ext/components/model/openai"
+	rediscli "github.com/redis/go-redis/v9"
+)
+
+const (
+	evalEnvironment = "eval-rag-core-v1"
+	evalTenantID    = "eval-tenant-v1"
+	evalUserID      = "eval-user-v1"
+	otherTenantID   = "eval-other-tenant-v1"
+)
+
+func main() {
+	log.SetFlags(0)
+	datasetPath := flag.String("dataset", "evals/devsupport-rag-core-v1.jsonl", "versioned RAG JSONL dataset")
+	fixturePath := flag.String("fixture", "evals/fixtures/kb-fixture-v1.json", "isolated RAG fixture")
+	jsonPath := flag.String("out-json", "evals/reports/devsupport-rag-core-latest.json", "machine-readable report path")
+	markdownPath := flag.String("out-md", "evals/reports/devsupport-rag-core-latest.md", "human-readable report path")
+	candidate := flag.String("candidate", "working-tree", "candidate commit or release identifier")
+	flag.Parse()
+
+	if err := run(context.Background(), *datasetPath, *fixturePath, *jsonPath, *markdownPath, *candidate); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run(ctx context.Context, datasetPath string, fixturePath string, jsonPath string, markdownPath string, candidate string) error {
+	cases, fixture, err := loadInputs(datasetPath, fixturePath)
+	if err != nil {
+		return err
+	}
+	configuration := config.GetConfig()
+	apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+	if apiKey == "" {
+		return errors.New("OPENAI_API_KEY is required")
+	}
+	redisstore.Init()
+	if redisstore.Rdb == nil {
+		return errors.New("redis client is unavailable")
+	}
+	if err := redisstore.Rdb.Ping(ctx).Err(); err != nil {
+		return fmt.Errorf("ping redis: %w", err)
+	}
+	if err := dropEvalIndex(ctx); err != nil {
+		return err
+	}
+	defer func() {
+		if cleanupErr := dropEvalIndex(context.Background()); cleanupErr != nil {
+			log.Printf("warning: isolated eval index cleanup failed: %v", cleanupErr)
+		}
+	}()
+
+	timeout := 45 * time.Second
+	retryTimes := 1
+	embedder, err := embeddingArk.NewEmbedder(ctx, &embeddingArk.EmbeddingConfig{
+		BaseURL: configuration.RagBaseUrl, APIKey: apiKey, Model: configuration.RagEmbeddingModel,
+		Timeout: &timeout, RetryTimes: &retryTimes,
+	})
+	if err != nil {
+		return fmt.Errorf("create eval embedder: %w", err)
+	}
+	modelChunks, authorities := fixtureData(fixture)
+	indexer, err := knowledge.NewRedisChunkIndexer(redisstore.Rdb, embedder, evalEnvironment, configuration.RagDimension, knowledge.DefaultEmbeddingBatchSize)
+	if err != nil {
+		return fmt.Errorf("create isolated indexer: %w", err)
+	}
+	if err := indexer.Index(ctx, modelChunks); err != nil {
+		return fmt.Errorf("index isolated fixture: %w", err)
+	}
+	time.Sleep(750 * time.Millisecond)
+
+	retriever, err := rag.NewHybridRetriever(
+		rag.NewRedisSearchBackend(redisstore.Rdb), embedder,
+		evaluation.NewFixtureAuthorityRepository(authorities), evalEnvironment, configuration.RagDimension,
+	)
+	if err != nil {
+		return fmt.Errorf("create eval retriever: %w", err)
+	}
+	chatModel, err := modelOpenAI.NewChatModel(ctx, &modelOpenAI.ChatModelConfig{
+		BaseURL: configuration.RagBaseUrl, APIKey: apiKey, Model: configuration.RagChatModelName,
+	})
+	if err != nil {
+		return fmt.Errorf("create eval chat model: %w", err)
+	}
+	answerer, err := knowledgeagent.NewAgent(retriever, chatModel, rag.DefaultEvidenceGate(), rag.NewCitationBuilder())
+	if err != nil {
+		return fmt.Errorf("create eval knowledge agent: %w", err)
+	}
+
+	report := evaluation.RunRAGCore(ctx, cases, fixture.Version, candidate, evalTenantID, evalUserID, retriever, answerer)
+	if err := writeReports(report, jsonPath, markdownPath); err != nil {
+		return err
+	}
+	encoded, _ := json.Marshal(report.Metrics)
+	log.Printf("rag core evaluation passed=%t metrics=%s", report.Passed, encoded)
+	if !report.Passed {
+		return errors.New("RAG core evaluation did not meet its release targets; reports were written")
+	}
+	return nil
+}
+
+func loadInputs(datasetPath string, fixturePath string) ([]evaluation.RAGCase, evaluation.RAGFixture, error) {
+	datasetFile, err := os.Open(datasetPath)
+	if err != nil {
+		return nil, evaluation.RAGFixture{}, fmt.Errorf("open dataset: %w", err)
+	}
+	defer datasetFile.Close()
+	cases, err := evaluation.LoadRAGCases(datasetFile)
+	if err != nil {
+		return nil, evaluation.RAGFixture{}, err
+	}
+	fixtureFile, err := os.Open(fixturePath)
+	if err != nil {
+		return nil, evaluation.RAGFixture{}, fmt.Errorf("open fixture: %w", err)
+	}
+	defer fixtureFile.Close()
+	fixture, err := evaluation.LoadRAGFixture(fixtureFile)
+	if err != nil {
+		return nil, evaluation.RAGFixture{}, err
+	}
+	if err := evaluation.ValidateRAGCore(cases, fixture); err != nil {
+		return nil, evaluation.RAGFixture{}, err
+	}
+	return cases, fixture, nil
+}
+
+func fixtureData(fixture evaluation.RAGFixture) ([]model.KnowledgeChunk, []rag.ChunkAuthority) {
+	chunks := make([]model.KnowledgeChunk, 0, len(fixture.Chunks)+len(fixture.UnauthorizedChunks))
+	authorities := make([]rag.ChunkAuthority, 0, cap(chunks))
+	appendChunk := func(item evaluation.FixtureChunk, tenantID string, userID string, ordinal int) {
+		documentID := "eval-doc-" + shortHash(item.Document)
+		contentHash := fullHash(item.Content)
+		chunks = append(chunks, model.KnowledgeChunk{
+			ID: item.ID, DocumentID: documentID, DocumentVersion: 1, TenantID: tenantID, UserID: userID,
+			Ordinal: ordinal, SectionPath: item.Section, LineStart: item.LineStart, LineEnd: item.LineEnd,
+			Content: item.Content, TokenCount: len([]rune(item.Content)), ContentHash: contentHash,
+			EmbeddingVersion: config.GetConfig().RagEmbeddingModel, IndexStatus: knowledge.ChunkIndexStatusIndexed,
+		})
+		authorities = append(authorities, rag.ChunkAuthority{
+			ID: item.ID, DocumentID: documentID, DocumentVersion: 1, TenantID: tenantID, UserID: userID,
+			DisplayName: item.Document, SectionPath: item.Section, LineStart: item.LineStart, LineEnd: item.LineEnd,
+			Content: item.Content, ContentHash: contentHash,
+		})
+	}
+	for index, item := range fixture.Chunks {
+		appendChunk(item, evalTenantID, evalUserID, index)
+	}
+	for index, item := range fixture.UnauthorizedChunks {
+		appendChunk(item, otherTenantID, "eval-other-user-v1", index)
+	}
+	return chunks, authorities
+}
+
+func writeReports(report evaluation.RAGReport, jsonPath string, markdownPath string) error {
+	for _, path := range []string{jsonPath, markdownPath} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return fmt.Errorf("create report directory: %w", err)
+		}
+	}
+	jsonFile, err := os.Create(jsonPath)
+	if err != nil {
+		return fmt.Errorf("create JSON report: %w", err)
+	}
+	encoder := json.NewEncoder(jsonFile)
+	encoder.SetIndent("", "  ")
+	encodeErr := encoder.Encode(report)
+	closeErr := jsonFile.Close()
+	if encodeErr != nil {
+		return fmt.Errorf("write JSON report: %w", encodeErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close JSON report: %w", closeErr)
+	}
+	markdownFile, err := os.Create(markdownPath)
+	if err != nil {
+		return fmt.Errorf("create Markdown report: %w", err)
+	}
+	writeErr := evaluation.WriteRAGReportMarkdown(markdownFile, report)
+	closeErr = markdownFile.Close()
+	if writeErr != nil {
+		return fmt.Errorf("write Markdown report: %w", writeErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close Markdown report: %w", closeErr)
+	}
+	return nil
+}
+
+func dropEvalIndex(ctx context.Context) error {
+	indexName := "gopher:" + evalEnvironment + ":v1:kb:chunks:idx"
+	err := redisstore.Rdb.Do(ctx, "FT.DROPINDEX", indexName, "DD").Err()
+	if err == nil || errors.Is(err, rediscli.Nil) || strings.Contains(strings.ToLower(err.Error()), "unknown index") {
+		return nil
+	}
+	return fmt.Errorf("drop isolated eval index %s: %w", indexName, err)
+}
+
+func fullHash(value string) string {
+	digest := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(digest[:])
+}
+
+func shortHash(value string) string {
+	return fullHash(value)[:16]
+}
