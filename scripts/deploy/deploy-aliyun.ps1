@@ -457,18 +457,18 @@ start_release() {
   release_path="$1"
   service mysql start >/dev/null 2>&1 || true
   for attempt in $(seq 1 30); do mysqladmin ping --silent >/dev/null 2>&1 && break; sleep 1; done
-  mysqladmin ping --silent >/dev/null 2>&1
-  wait_tcp rabbitmq 5672 60
-  wait_tcp redis-vector 6379 60
+  mysqladmin ping --silent >/dev/null 2>&1 || return 1
+  wait_tcp rabbitmq 5672 60 || return 1
+  wait_tcp redis-vector 6379 60 || return 1
 
   cd "$release_path"; : > backend.log; nohup ./GopherAI > backend.log 2>&1 & echo "$!" > "$run_path/backend.pid"
   port="$(backend_port)"; [ -n "$port" ] || port=9090
-  wait_backend_health "$port"
+  wait_backend_health "$port" || return 1
 
   if [ -x "$release_path/GopherAI-index-worker" ]; then
     cd "$release_path"; : > index-worker.log; nohup ./GopherAI-index-worker > index-worker.log 2>&1 & echo "$!" > "$run_path/index-worker.pid"
-    wait_http_health "http://127.0.0.1:9091/health/live" 90
-    wait_http_health "http://127.0.0.1:9091/health/ready" 90
+    wait_http_health "http://127.0.0.1:9091/health/live" 90 || return 1
+    wait_http_health "http://127.0.0.1:9091/health/ready" 90 || return 1
   else
     echo "index worker is absent in historical release; skipping worker start"
   fi
@@ -479,8 +479,24 @@ start_release() {
     cd "$release_path/vue-frontend"; : > frontend.log; nohup npm run serve > frontend.log 2>&1 & echo "$!" > "$run_path/frontend.pid"
   fi
 
-  wait_tcp 127.0.0.1 8081 60
-  [ "$skip_frontend" = "true" ] || wait_frontend_ready 8080 180
+  wait_tcp 127.0.0.1 8081 60 || return 1
+  if [ "$skip_frontend" != "true" ]; then
+    wait_frontend_ready 8080 180 || return 1
+  fi
+}
+
+prune_container_release_artifacts() {
+  keep_previous="$backup_path"
+  for candidate in "${project_path}.__previous_"* "${project_path}.__failed_"*; do
+    [ -e "$candidate" ] || continue
+    resolved="$(realpath -m -- "$candidate")"
+    case "$resolved" in /root/GopherAI-.__previous_*|/root/GopherAI-.__failed_*) ;; *) echo "unsafe release artifact path: $resolved" >&2; return 1 ;; esac
+    [ "$resolved" = "$keep_previous" ] && continue
+    rm -rf -- "$resolved"
+  done
+  resolved_bundle_dir="$(realpath -m -- "$(dirname "$bundle_path")")"
+  [ "$resolved_bundle_dir" = "/root/GopherAI_Deploy/bundles" ] || { echo "unsafe container bundle directory: $resolved_bundle_dir" >&2; return 1; }
+  find "$resolved_bundle_dir" -maxdepth 1 -type f ! -name "$(basename "$bundle_path")" -delete
 }
 
 move_runtime_dir() {
@@ -524,7 +540,13 @@ tail -n 30 "$project_path/index-worker.log" 2>/dev/null | sed -E 's#(amqp://)[^@
 echo "[container] MCP log tail"
 tail -n 20 "$project_path/common/mcp/mcp.log" 2>/dev/null || true
 if [ "$skip_frontend" != "true" ]; then echo "[container] frontend log tail"; tail -n 20 "$project_path/vue-frontend/frontend.log" 2>/dev/null || true; fi
+echo "[container] pruning old rollback directories and uploaded bundles"
+prune_container_release_artifacts
 EOS
+
+host_bundle_dir="$(realpath -m -- "$(dirname "$bundle_host_path")")"
+[ "$host_bundle_dir" = "/root/GopherAI_Deploy/bundles" ] || { echo "unsafe host bundle directory: $host_bundle_dir" >&2; exit 1; }
+find "$host_bundle_dir" -maxdepth 1 -type f ! -name "$bundle_name" ! -name "$bundle_name.sha256" ! -name "$bundle_name.manifest.json" -delete
 '@
 
     $remoteScript = $remoteScriptTemplate.

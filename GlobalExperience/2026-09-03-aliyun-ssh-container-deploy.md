@@ -1251,3 +1251,12 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - `264ca322` 上线 R2 第一层：MySQL 权威消息同步写、Redis 最近 20 条/24h 热窗口、最新消息 ID 新鲜度核验、Redis miss/stale/error 时从 MySQL 重建，以及 `context-assembler-v2` Token 预算预览。
 - 浏览器选择历史会话后首次显示 `rebuilt_from_mysql`、8/20 条；显式安全重建后再刷新显示 `hit`。真实新增一问一答后窗口变为 10/20，MySQL 最新消息 ID 为 1832；Redis LLEN 为 10，TTL 为 86237 秒，key 使用用户+会话 SHA-256。
 - 远程取证脚本要特别处理 TOML 空密码。把多个值用 tab 输出后，Bash `read` 的空白 IFS 会折叠空字段，可能把后一个 `db=0` 错当成 Redis 密码并产生无害但误导的 `AUTH failed`。后续应使用非空白分隔符、JSON 或逐字段 base64，不把空字段交给默认 IFS 解析。
+
+## 38. 2026-09-05 案例记忆发布、磁盘耗尽与发布门修复
+
+- 提交 `7246d8b2` 上线“诊断假设 → 只读 Action Proposal → 用户显式确认 → Episodic Memory”第一版。确认操作把 immutable feedback、`confirmed` resolved incident 与 Outbox event 放在同一个 MySQL 事务内；`user + client_request_id` 保证重放只产生一次效果，状态版本阻止陈旧页面确认。解决描述复用诊断脱敏/指令过滤器。
+- Index Worker 新增独立 `gopher.incident.index.v1` 主队列、延迟重试队列和 DLQ，只允许 `confirmed` 案例进入 Redis；候选分析不能建立索引。云端真实确认后只读证据为：feedback `1`、confirmed incident `1`、published incident outbox `1`、Redis case key `1`；案例队列有 `1` 个消费者，ready/retry/DLQ 均为 `0`。
+- Release `20260905024338-7246d8b2dedb` 首次启动时 Backend/MCP/Vue 正常，但 Index Worker 长时间 `503 not_ready`。根因不是新消费者：宿主机 `/dev/vda3` 已为 `40G/100%`，RabbitMQ 的 Mnesia 明确报 `enospc / no space left on device` 后退出。空间主要被宿主机约 `4.7G` 历史 bundle、容器内另一份约 `4.7G` bundle，以及数十个每份约 `116-233M` 的 `GopherAI-.__previous_*` 回滚目录占用。
+- 清理时没有删除 `gopherai2`、RabbitMQ/Redis 容器、镜像、卷、当前 `/root/GopherAI-` 或当前回滚点；仅在 `realpath` 和固定前缀校验后删除旧 bundle 与旧回滚目录，保留当前 bundle 和最近一个 previous。系统盘恢复到约 `63%`、可用约 `15G`，RabbitMQ 重启后 Worker 自动重连，两个主队列各恢复 `1` 个消费者。
+- 发布脚本此前在 `if ! start_release ...` 中调用函数。Bash 在条件上下文里会抑制函数体内 `set -e` 的预期退出，因此 Worker ready 超时后函数继续启动前端，并以最后一个成功命令的状态把失败 release 标为 active。不能依赖函数内隐式 `errexit`；所有健康门必须写成 `critical_check || return 1`。
+- 发布脚本现在为 MySQL、依赖 TCP、Backend live/ready、Worker live/ready、MCP TCP、Vue compile/HTTP 都显式传播失败；成功发布后自动只保留一个回滚目录和本次 bundle，并在删除前验证解析后的绝对路径。发布频繁的专用小盘服务器必须将“有界保留策略”视为发布流程的一部分，而不是事后人工清日志。
