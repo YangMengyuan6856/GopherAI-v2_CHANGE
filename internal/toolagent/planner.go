@@ -50,10 +50,15 @@ func (planner *Planner) Plan(message string) (Plan, error) {
 	}
 
 	wantsManifest := containsAny(normalized, []string{"部署清单", "发布清单", "当前发布", "当前版本", "git sha", "commit", "构建方式", "构建目标", "回滚策略", "分支"})
+	wantsMCPManifest := wantsManifest && containsAny(normalized, []string{"mcp", "协议源", "协议调用"})
 	wantsHealth := containsAny(normalized, []string{"健康", "状态", "是否正常", "ready", "live", "backend", "后端", "worker", "索引服务", "mysql", "redis", "rabbitmq", "依赖"})
 	wantsLogs := containsAny(normalized, []string{"日志", " log", "报错", "错误", "panic", "noauth", "unauthorized", "超时", "timeout", "connection refused", "连接拒绝", "slow sql"})
 	if wantsManifest {
-		plan.Calls = append(plan.Calls, PlannedCall{ToolName: "deployment_manifest_lookup", Arguments: json.RawMessage(`{}`), ReasonCode: "RELEASE_EVIDENCE_REQUIRED", EvidenceRef: "release-manifest:<release_id>"})
+		if wantsMCPManifest {
+			plan.Calls = append(plan.Calls, PlannedCall{ToolName: "mcp_deployment_evidence", Arguments: json.RawMessage(`{}`), ReasonCode: "MCP_RELEASE_EVIDENCE_REQUIRED", EvidenceRef: "mcp:deployment_manifest_source:<release_id>"})
+		} else {
+			plan.Calls = append(plan.Calls, PlannedCall{ToolName: "deployment_manifest_lookup", Arguments: json.RawMessage(`{}`), ReasonCode: "RELEASE_EVIDENCE_REQUIRED", EvidenceRef: "release-manifest:<release_id>"})
+		}
 	}
 	if wantsHealth {
 		service := healthTarget(normalized)

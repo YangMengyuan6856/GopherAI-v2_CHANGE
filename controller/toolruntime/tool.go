@@ -76,6 +76,9 @@ func NewDefaultHandler() *Handler {
 	if err := registry.Register(toolruntime.NewBoundedLogSignatureTool(".")); err != nil {
 		panic(err)
 	}
+	if err := registry.Register(toolruntime.NewMCPDeploymentEvidenceTool("http://127.0.0.1:8081/mcp")); err != nil {
+		panic(err)
+	}
 	runtime, err := toolruntime.NewRuntime(registry, toolruntime.NewGormAuditor(mysql.DB), observability.DefaultMetrics())
 	if err != nil {
 		panic(err)

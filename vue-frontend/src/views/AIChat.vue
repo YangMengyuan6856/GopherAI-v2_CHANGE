@@ -147,6 +147,11 @@
               <button :disabled="invokingTool" @click="invokeGovernedTool(tool.name, { service: 'backend', signature: 'error' })">Backend 错误签名</button>
               <button :disabled="invokingTool" @click="invokeGovernedTool(tool.name, { service: 'index_worker', signature: 'warning' })">Worker 告警签名</button>
             </div>
+            <button
+              v-if="tool.name === 'mcp_deployment_evidence'"
+              :disabled="invokingTool"
+              @click="invokeGovernedTool(tool.name, {})"
+            >查询 MCP 部署证据</button>
           </article>
         </div>
         <div v-else class="tool-runtime-empty">当前没有通过治理注册的工具。</div>

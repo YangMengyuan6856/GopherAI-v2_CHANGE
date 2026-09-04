@@ -18,6 +18,7 @@ func TestPlannerSelectsBoundedRealTools(t *testing.T) {
 		{name: "unsafe", message: "重启后端并删除旧数据库记录", decision: "refuse", tools: []string{}},
 		{name: "backend auth logs", message: "查看后端 NOAUTH 报错日志", decision: "execute", tools: []string{"service_health_snapshot", "bounded_log_signature"}, healthArg: `"service":"backend"`},
 		{name: "worker warning logs", message: "检索 Worker slow sql 日志", decision: "execute", tools: []string{"service_health_snapshot", "bounded_log_signature"}, healthArg: `"service":"index_worker"`},
+		{name: "MCP release", message: "请通过 MCP 协议源查询当前发布清单", decision: "execute", tools: []string{"mcp_deployment_evidence"}},
 	}
 	planner := NewPlanner()
 	for _, testCase := range cases {

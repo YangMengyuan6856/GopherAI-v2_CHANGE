@@ -5,6 +5,7 @@ package toolruntime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -40,6 +41,8 @@ type ToolCallResult struct {
 type MCPClient struct {
 	baseURL string
 }
+
+const mcpTextResultLimit = 32 * 1024
 
 // NewMCPClient creates an MCP protocol client for a server endpoint.
 func NewMCPClient(baseURL string) *MCPClient {
@@ -168,6 +171,50 @@ func (c *MCPClient) ExecuteToolCalls(ctx context.Context, calls []ToolCall) []To
 	}
 
 	return results
+}
+
+// InvokeText executes one protocol call for a governed adapter. It accepts no
+// policy input: authorization, budget and side-effect checks stay in Runtime.
+func (c *MCPClient) InvokeText(ctx context.Context, toolName string, arguments map[string]any) ([]byte, error) {
+	if c == nil || strings.TrimSpace(c.baseURL) == "" {
+		return nil, errors.New("MCP endpoint is unavailable")
+	}
+	sess, err := c.newSession(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer sess.Close()
+	result, err := sess.client.CallTool(ctx, mcp.CallToolRequest{Params: mcp.CallToolParams{Name: toolName, Arguments: arguments}})
+	if err != nil {
+		return nil, fmt.Errorf("MCP call failed: %w", err)
+	}
+	var output strings.Builder
+	for _, content := range result.Content {
+		textContent, ok := content.(mcp.TextContent)
+		if !ok {
+			return nil, errors.New("MCP result contains unsupported non-text content")
+		}
+		if output.Len()+len(textContent.Text) > mcpTextResultLimit {
+			return nil, errors.New("MCP text result exceeds size limit")
+		}
+		output.WriteString(textContent.Text)
+	}
+	text := strings.TrimSpace(output.String())
+	if result.IsError {
+		return nil, fmt.Errorf("MCP source returned an error: %s", boundedMCPError(text))
+	}
+	if text == "" {
+		return nil, errors.New("MCP source returned an empty result")
+	}
+	return []byte(text), nil
+}
+
+func boundedMCPError(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) > 256 {
+		return value[:256]
+	}
+	return value
 }
 
 // FormatToolsForLLM renders a compact tool catalog for prompt injection.

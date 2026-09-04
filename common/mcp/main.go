@@ -12,7 +12,7 @@ import (
 func main() {
 	// 定义命令行标志
 	mode := flag.String("mode", "", "运行模式: server")
-	httpAddr := flag.String("http-addr", ":8081", "HTTP服务器地址")
+	httpAddr := flag.String("http-addr", "127.0.0.1:8081", "仅容器回环可访问的 HTTP 地址")
 	flag.Parse()
 
 	if *mode == "" {

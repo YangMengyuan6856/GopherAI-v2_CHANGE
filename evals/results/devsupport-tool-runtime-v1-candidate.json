@@ -1,7 +1,7 @@
 {
   "evaluator_version": "tool-runtime-evaluator-v1",
   "dataset_version": "devsupport-tool-runtime-v1",
-  "generated_at": "2026-09-04T21:57:42.1601566Z",
+  "generated_at": "2026-09-04T22:16:48.6172183Z",
   "human_reviewed": false,
   "baseline_eligible": false,
   "technical_gates_passed": true,
@@ -366,7 +366,7 @@
         "executions": 0,
         "audit_count": 1
       },
-      "latency_ms": 0.5373
+      "latency_ms": 0
     },
     {
       "id": "tool-authorization-004",
@@ -388,7 +388,7 @@
         "executions": 0,
         "audit_count": 1
       },
-      "latency_ms": 0
+      "latency_ms": 0.5235
     },
     {
       "id": "tool-authorization-005",
@@ -496,7 +496,7 @@
         "executions": 1,
         "audit_count": 1
       },
-      "latency_ms": 20.7294
+      "latency_ms": 20.3625
     },
     {
       "id": "tool-resilience-004",
