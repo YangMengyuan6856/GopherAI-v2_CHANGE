@@ -69,11 +69,16 @@ type CaseRecallObserver interface {
 	RecordCaseRecall(string, time.Duration, int)
 }
 
+type ProfileMemoryCapture interface {
+	Capture(context.Context, string, string, string, ExtractedInput) error
+}
+
 type Workflow struct {
 	lifecycle     Lifecycle
 	agent         Analyzer
 	caseRetriever CaseRetriever
 	caseObserver  CaseRecallObserver
+	profileMemory ProfileMemoryCapture
 	running       sync.Map
 }
 
@@ -96,6 +101,11 @@ func (workflow *Workflow) WithCaseRetriever(retriever CaseRetriever) *Workflow {
 
 func (workflow *Workflow) WithCaseRecallObserver(observer CaseRecallObserver) *Workflow {
 	workflow.caseObserver = observer
+	return workflow
+}
+
+func (workflow *Workflow) WithProfileMemory(capture ProfileMemoryCapture) *Workflow {
+	workflow.profileMemory = capture
 	return workflow
 }
 
@@ -147,6 +157,7 @@ func (workflow *Workflow) Resume(ctx context.Context, command ResumeCommand) (Ru
 		return RunResponse{}, err
 	}
 	workflow.enrichWithCases(ctx, command.TenantID, command.UserID, extracted, &result)
+	workflow.captureProfileMemory(ctx, command.TenantID, command.UserID, detail.Run.RunID, extracted)
 	checkpoint, err := diagnosticCheckpoint(detail.Checkpoint, extracted, &result, "plan_diagnosis")
 	if err != nil {
 		return RunResponse{}, err
@@ -214,6 +225,7 @@ func (workflow *Workflow) execute(parent context.Context, detail harness.RunDeta
 			return RunResponse{}, err
 		}
 		workflow.enrichWithCases(ctx, tenantID, userID, extracted, &result)
+		workflow.captureProfileMemory(ctx, tenantID, userID, detail.Run.RunID, extracted)
 	}
 
 	if detail.Run.State == harness.StateReceived {
@@ -304,6 +316,14 @@ func (workflow *Workflow) execute(parent context.Context, detail harness.RunDeta
 		return RunResponse{}, err
 	}
 	return responseFromDetail(detail, created)
+}
+
+func (workflow *Workflow) captureProfileMemory(ctx context.Context, tenantID string, userID string, runID string, extracted ExtractedInput) {
+	if workflow.profileMemory != nil {
+		// Profile extraction is fail-open for diagnosis. Observed facts enter as
+		// candidates and cannot affect prompts until the user confirms them.
+		_ = workflow.profileMemory.Capture(ctx, tenantID, userID, runID, extracted)
+	}
 }
 
 func (workflow *Workflow) enrichWithCases(ctx context.Context, tenantID string, userID string, extracted ExtractedInput, result *Result) {

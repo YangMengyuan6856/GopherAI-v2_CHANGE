@@ -20,6 +20,22 @@ func TestExtractorFindsStableSignalsAndEnvironment(t *testing.T) {
 	}
 }
 
+func TestExtractorFindsBoundedOSAndCloudProfileFacts(t *testing.T) {
+	result, err := (Extractor{}).Extract("服务运行在阿里云 ECS 的 Ubuntu 22.04，使用 Go 1.24 和 Redis 7.2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, fact := range result.KnownEnvironment {
+		got[fact.Key] = fact.Value
+	}
+	for key, want := range map[string]string{"cloud_provider": "aliyun", "os": "Ubuntu 22.04", "go_version": "1.24", "redis_version": "7.2"} {
+		if got[key] != want {
+			t.Fatalf("expected %s=%s, got %#v", key, want, got)
+		}
+	}
+}
+
 func TestExtractorRedactsCredentialsAndPersonalData(t *testing.T) {
 	input := "password=plain-value authorization:Bearer abcdefghijklmnop\n" +
 		"dsn=mysql://admin:db-pass@mysql:3306/app api_key='key-value'\n" +

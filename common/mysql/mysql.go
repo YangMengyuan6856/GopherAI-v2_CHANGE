@@ -77,6 +77,7 @@ func migration() error {
 		new(model.OutboxEvent),
 		new(model.ResolutionFeedback),
 		new(model.ResolvedIncident),
+		new(model.EnvironmentMemory),
 	)
 }
 

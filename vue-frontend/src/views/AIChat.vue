@@ -36,7 +36,7 @@
           <input type="checkbox" id="diagnosticMode" v-model="diagnosticMode" @change="onDiagnosticModeChanged" />
           故障诊断 Harness
         </label>
-        <button class="memory-toggle-btn" :disabled="!currentSessionId || tempSession" @click="toggleMemoryPreview">🧠 上下文记忆</button>
+        <button class="memory-toggle-btn" :disabled="loadingMemoryPreview" @click="toggleMemoryPreview">🧠 三级记忆</button>
         <button
           class="upload-btn"
           title="支持 Markdown/TXT、JSON/YAML key path 和 Go 顶层符号索引"
@@ -217,17 +217,17 @@
       <section v-if="memoryPreviewOpen" class="memory-workbench">
         <div class="memory-workbench-header">
           <div>
-            <strong>🧠 Context Assembler v2 · 第一层工作记忆</strong>
-            <span>MySQL 是权威消息源；Redis 只保存最近 20 条、TTL 24 小时，可随时重建</span>
+            <strong>🧠 Context Assembler v2 · 三级记忆控制台</strong>
+            <span>Working、用户确认的 Episodic、环境 Profile 都以 MySQL 为权威；Redis 仅作可重建缓存/索引</span>
           </div>
           <div>
             <button :disabled="loadingMemoryPreview" @click="loadMemoryPreview">刷新</button>
-            <button :disabled="loadingMemoryPreview" @click="rebuildWorkingMemory">从 MySQL 安全重建</button>
+            <button :disabled="loadingMemoryPreview || !currentSessionId || tempSession" @click="rebuildWorkingMemory">从 MySQL 安全重建 Working</button>
           </div>
         </div>
-        <div v-if="loadingMemoryPreview" class="memory-loading">正在组装当前会话上下文...</div>
-        <template v-else-if="memoryPreview">
-          <div class="memory-stats">
+        <div v-if="loadingMemoryPreview" class="memory-loading">正在读取当前用户的记忆边界...</div>
+        <template v-else-if="memoryPreview || profileMemories">
+          <div v-if="memoryPreview" class="memory-stats">
             <span :class="['memory-cache-badge', `cache-${memoryPreview.window.cache_status}`]">
               {{ memoryCacheLabel(memoryPreview.window.cache_status) }}
             </span>
@@ -238,9 +238,9 @@
             <span>估算 Token 降幅 {{ metricPercent(memoryPreview.context.token_reduction_ratio) }}</span>
           </div>
           <div class="memory-boundary">
-            Working Memory 已参与上下文组装；Episodic Memory 只接收下方由用户显式确认的已解决案例，未确认假设不会进入召回。环境事实（Profile）尚未开放。
+            Working 已参与聊天上下文；Episodic 只接收用户明确确认的解决案例；Profile 自动提取结果先是候选，只有你确认/更正后才成为可召回环境事实。
           </div>
-          <details open>
+          <details v-if="memoryPreview" open>
             <summary>本次实际纳入模型上下文的项目（{{ memoryPreview.context.included.length }}）</summary>
             <ol class="memory-context-items">
               <li v-for="(item, index) in memoryPreview.context.included" :key="`${item.kind}-${index}`">
@@ -250,6 +250,33 @@
               </li>
             </ol>
           </details>
+          <div v-else class="memory-no-session">当前没有聊天会话，因此只展示跨会话 Profile Memory；选择历史会话后可查看 Working Memory。</div>
+          <section v-if="profileMemories" class="profile-memory-panel">
+            <div class="profile-memory-summary">
+              <strong>Profile Memory · 环境事实</strong>
+              <span>已确认 {{ profileMemories.active_count }} · 待确认 {{ profileMemories.candidate_count }} · 冲突 {{ profileMemories.conflict_count }}</span>
+            </div>
+            <p>候选和冲突事实不会自动进入模型上下文。确认时可直接改值；更正会生成新版本并取代同键旧值。</p>
+            <div v-if="profileMemories.items.length" class="profile-memory-list">
+              <article v-for="item in profileMemories.items" :key="item.id" :class="`profile-${item.status}`">
+                <div class="profile-memory-card-header">
+                  <strong>{{ profileKeyLabel(item.key) }}</strong>
+                  <span>{{ profileStatusLabel(item.status) }} · 置信度 {{ Math.round(item.confidence * 100) }}% · v{{ item.version }}</span>
+                </div>
+                <input v-model="profileDrafts[item.id]" maxlength="256" :aria-label="`${profileKeyLabel(item.key)}的环境记忆值`" />
+                <div class="profile-memory-actions">
+                  <small>来源：{{ profileSourceLabel(item.source_type) }}{{ item.expires_at ? ` · 有效至 ${new Date(item.expires_at).toLocaleDateString()}` : ' · 长期有效' }}</small>
+                  <div>
+                    <button :disabled="profileMemoryBusy === item.id || !profileDrafts[item.id]?.trim()" @click="correctProfileMemory(item)">
+                      {{ item.status === 'active' ? '保存更正' : '确认并启用' }}
+                    </button>
+                    <button class="profile-delete-btn" :disabled="profileMemoryBusy === item.id" @click="deleteProfileMemory(item)">删除</button>
+                  </div>
+                </div>
+              </article>
+            </div>
+            <div v-else class="memory-no-session">尚无环境记忆。故障诊断中明确出现 OS、Go、部署方式、云厂商、Redis/MySQL 版本后会生成待确认候选。</div>
+          </section>
         </template>
       </section>
 
@@ -544,6 +571,9 @@ export default {
     const memoryPreviewOpen = ref(false)
     const loadingMemoryPreview = ref(false)
     const memoryPreview = ref(null)
+    const profileMemories = ref(null)
+    const profileDrafts = ref({})
+    const profileMemoryBusy = ref('')
     const resolutionProposal = ref(null)
     const resolutionText = ref('')
     const resolutionAcknowledged = ref(false)
@@ -905,19 +935,67 @@ export default {
       working_message: '近期原始消息'
     }[kind] || kind)
 
+    const profileKeyLabel = (key) => ({
+      os: '操作系统',
+      go_version: 'Go 版本',
+      deployment_mode: '部署方式',
+      cloud_provider: '云环境',
+      redis_version: 'Redis 版本',
+      mysql_version: 'MySQL 版本'
+    }[key] || key)
+
+    const profileStatusLabel = (status) => ({ active: '已确认', candidate: '待确认', conflicted: '存在冲突' }[status] || status)
+    const profileSourceLabel = (source) => ({ diagnostic_observation: '诊断输入提取', user_corrected: '用户确认/更正' }[source] || source)
+
     const loadMemoryPreview = async () => {
-      if (!currentSessionId.value || tempSession.value) return
       try {
         loadingMemoryPreview.value = true
-        const response = await api.get(`/memory/sessions/${encodeURIComponent(currentSessionId.value)}/context`, {
-          params: { budget_tokens: 1024 }
-        })
-        memoryPreview.value = response.data
+        const profileResponse = await api.get('/memory/profiles')
+        profileMemories.value = profileResponse.data
+        profileDrafts.value = Object.fromEntries((profileResponse.data.items || []).map(item => [item.id, item.value]))
+        if (currentSessionId.value && !tempSession.value) {
+          const response = await api.get(`/memory/sessions/${encodeURIComponent(currentSessionId.value)}/context`, {
+            params: { budget_tokens: 1024 }
+          })
+          memoryPreview.value = response.data
+        } else {
+          memoryPreview.value = null
+        }
       } catch (error) {
         memoryPreviewOpen.value = false
         ElMessage.error(error.response?.data?.message || '上下文记忆暂时不可用')
       } finally {
         loadingMemoryPreview.value = false
+      }
+    }
+
+    const correctProfileMemory = async (item) => {
+      try {
+        profileMemoryBusy.value = item.id
+        await api.patch(`/memory/profiles/${encodeURIComponent(item.id)}`, {
+          value: profileDrafts.value[item.id],
+          expires_in_days: 180
+        })
+        await loadMemoryPreview()
+        ElMessage.success('环境事实已由你确认并启用，旧值不会继续生效')
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || '环境记忆确认失败')
+      } finally {
+        profileMemoryBusy.value = ''
+      }
+    }
+
+    const deleteProfileMemory = async (item) => {
+      if (!window.confirm(`确认删除环境记忆“${profileKeyLabel(item.key)}：${item.value}”吗？`)) return
+      try {
+        profileMemoryBusy.value = item.id
+        await api.delete(`/memory/profiles/${encodeURIComponent(item.id)}`)
+        await loadMemoryPreview()
+        ElMessage.success('环境记忆已从 MySQL 权威记录删除')
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || '环境记忆删除失败')
+      } finally {
+        profileMemoryBusy.value = ''
       }
     }
 
@@ -1603,6 +1681,9 @@ export default {
       memoryPreviewOpen,
       loadingMemoryPreview,
       memoryPreview,
+      profileMemories,
+      profileDrafts,
+      profileMemoryBusy,
       resolutionProposal,
       resolutionText,
       resolutionAcknowledged,
@@ -1624,9 +1705,14 @@ export default {
       metricPercent,
       memoryCacheLabel,
       memoryContextKindLabel,
+      profileKeyLabel,
+      profileStatusLabel,
+      profileSourceLabel,
       toggleMemoryPreview,
       loadMemoryPreview,
       rebuildWorkingMemory,
+      correctProfileMemory,
+      deleteProfileMemory,
       toggleDiagnosticEvaluation,
       previewResolution,
       closeResolutionProposal,
@@ -1895,6 +1981,89 @@ export default {
   margin: 4px 0 0;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.memory-no-session {
+  margin-top: 12px;
+  padding: 10px;
+  border-radius: 8px;
+  color: #607380;
+  background: rgba(255, 255, 255, 0.7);
+  font-size: 13px;
+}
+
+.profile-memory-panel {
+  margin-top: 14px;
+  padding-top: 13px;
+  border-top: 1px solid #b8d9c7;
+}
+
+.profile-memory-summary,
+.profile-memory-card-header,
+.profile-memory-actions,
+.profile-memory-actions > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.profile-memory-summary span,
+.profile-memory-panel > p,
+.profile-memory-actions small {
+  color: #607380;
+  font-size: 12px;
+}
+
+.profile-memory-panel > p {
+  margin: 7px 0 10px;
+}
+
+.profile-memory-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 9px;
+}
+
+.profile-memory-list article {
+  padding: 10px;
+  border: 1px solid #b9d7c9;
+  border-radius: 9px;
+  background: #fff;
+}
+
+.profile-memory-list article.profile-candidate {
+  border-color: #d8bd70;
+  background: #fffdf5;
+}
+
+.profile-memory-list article.profile-conflicted {
+  border-color: #e39a9a;
+  background: #fff7f7;
+}
+
+.profile-memory-card-header span {
+  color: #667783;
+  font-size: 12px;
+}
+
+.profile-memory-list input {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 8px 0;
+  padding: 8px 9px;
+  border: 1px solid #bfd2ca;
+  border-radius: 7px;
+}
+
+.profile-memory-actions button {
+  padding: 6px 9px;
+}
+
+.profile-memory-actions .profile-delete-btn {
+  color: #fff;
+  background: #d45d5d;
 }
 
 .diagnostic-workbench {

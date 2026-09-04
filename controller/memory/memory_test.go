@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	memorydomain "GopherAI/internal/memory"
+	profiledomain "GopherAI/internal/profilememory"
 
 	"github.com/gin-gonic/gin"
 )
@@ -21,6 +22,31 @@ type fakeMemoryService struct {
 	userID  string
 	session string
 	budget  int
+}
+
+type fakeProfileService struct {
+	list      profiledomain.ListResponse
+	corrected profiledomain.PublicMemory
+	err       error
+	userID    string
+	memoryID  string
+	value     string
+	deleted   bool
+}
+
+func (service *fakeProfileService) List(_ context.Context, userID string) (profiledomain.ListResponse, error) {
+	service.userID = userID
+	return service.list, service.err
+}
+
+func (service *fakeProfileService) Correct(_ context.Context, command profiledomain.Correction) (profiledomain.PublicMemory, error) {
+	service.userID, service.memoryID, service.value = command.UserID, command.MemoryID, command.Value
+	return service.corrected, service.err
+}
+
+func (service *fakeProfileService) Delete(_ context.Context, userID string, memoryID string) error {
+	service.userID, service.memoryID, service.deleted = userID, memoryID, true
+	return service.err
 }
 
 func (service *fakeMemoryService) Preview(_ context.Context, userID string, sessionID string, budget int) (memorydomain.Preview, error) {
@@ -88,6 +114,34 @@ func TestDependencyFailureDoesNotLeakInternalError(t *testing.T) {
 	NewHandler(service).Preview(context)
 	if recorder.Code != http.StatusServiceUnavailable || bytes.Contains(recorder.Body.Bytes(), []byte("secret")) {
 		t.Fatalf("internal error leaked: %d %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestProfileMemoryCRUDUsesAuthenticatedPrincipal(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	profiles := &fakeProfileService{list: profiledomain.ListResponse{SchemaVersion: profiledomain.SchemaVersion}, corrected: profiledomain.PublicMemory{ID: "memory-1-v2", Status: profiledomain.StatusActive}}
+	handler := NewHandlerWithProfiles(new(fakeMemoryService), profiles)
+
+	listContext, listRecorder := memoryContext(http.MethodGet, "/api/v1/memory/profiles", "")
+	handler.ListProfiles(listContext)
+	if listRecorder.Code != http.StatusOK || profiles.userID != "alice" {
+		t.Fatalf("profile list principal missing: code=%d service=%+v", listRecorder.Code, profiles)
+	}
+
+	correctContext, correctRecorder := memoryContext(http.MethodPatch, "/api/v1/memory/profiles/memory-1", "")
+	correctContext.Params = gin.Params{{Key: "memory_id", Value: "memory-1"}}
+	correctContext.Request = httptest.NewRequest(http.MethodPatch, "/api/v1/memory/profiles/memory-1", bytes.NewBufferString(`{"value":"Redis 7.4"}`))
+	correctContext.Request.Header.Set("Content-Type", "application/json")
+	handler.CorrectProfile(correctContext)
+	if correctRecorder.Code != http.StatusOK || profiles.userID != "alice" || profiles.memoryID != "memory-1" || profiles.value != "Redis 7.4" {
+		t.Fatalf("profile correction contract failed: code=%d service=%+v body=%s", correctRecorder.Code, profiles, correctRecorder.Body.String())
+	}
+
+	deleteContext, deleteRecorder := memoryContext(http.MethodDelete, "/api/v1/memory/profiles/memory-1-v2", "")
+	deleteContext.Params = gin.Params{{Key: "memory_id", Value: "memory-1-v2"}}
+	handler.DeleteProfile(deleteContext)
+	if deleteRecorder.Code != http.StatusNoContent || !profiles.deleted || profiles.userID != "alice" {
+		t.Fatalf("profile delete contract failed: code=%d service=%+v", deleteRecorder.Code, profiles)
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"GopherAI/internal/harness"
 	"GopherAI/internal/incident"
 	"GopherAI/internal/observability"
+	"GopherAI/internal/profilememory"
 	"GopherAI/middleware/requestid"
 
 	"github.com/gin-gonic/gin"
@@ -100,7 +101,11 @@ func NewDefaultHandler() *Handler {
 		panic(err)
 	}
 	incidentRepository := incident.NewGormRepository(mysql.DB)
-	workflow.WithCaseRetriever(incidentRepository).WithCaseRecallObserver(observability.DefaultMetrics())
+	profileService, err := profilememory.NewService(profilememory.NewGormRepository(mysql.DB), profilememory.SystemClock{})
+	if err != nil {
+		panic(err)
+	}
+	workflow.WithCaseRetriever(incidentRepository).WithCaseRecallObserver(observability.DefaultMetrics()).WithProfileMemory(profileService)
 	resolutions, err := incident.NewService(workflow, incidentRepository, incident.SystemClock{})
 	if err != nil {
 		panic(err)

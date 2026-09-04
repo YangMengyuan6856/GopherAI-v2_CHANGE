@@ -133,6 +133,17 @@ var (
 		{"mysql_version", regexp.MustCompile(`(?i)\bmysql\s*(\d+\.\d+(?:\.\d+)?)\b`)},
 		{"redis_version", regexp.MustCompile(`(?i)\bredis\s*(\d+\.\d+(?:\.\d+)?)\b`)},
 		{"docker_version", regexp.MustCompile(`(?i)\bdocker\s*(\d+\.\d+(?:\.\d+)?)\b`)},
+		{"os", regexp.MustCompile(`(?i)\b((?:ubuntu|centos|debian|alpine)(?:\s+\d+(?:\.\d+)*)?|linux|windows(?:\s+\d+)?)\b`)},
+	}
+
+	cloudProviderPatterns = []struct {
+		value   string
+		pattern *regexp.Regexp
+	}{
+		{"aliyun", regexp.MustCompile(`(?i)阿里云|\baliyun\b|\balibaba cloud\b`)},
+		{"aws", regexp.MustCompile(`(?i)\baws\b|\bamazon web services\b`)},
+		{"azure", regexp.MustCompile(`(?i)\bazure\b`)},
+		{"gcp", regexp.MustCompile(`(?i)\bgcp\b|\bgoogle cloud\b`)},
 	}
 )
 
@@ -250,6 +261,12 @@ func extractEnvironment(value string) []EnvironmentFact {
 	lower := strings.ToLower(value)
 	if strings.Contains(lower, "docker") || strings.Contains(lower, "container") || strings.Contains(value, "容器") {
 		facts = append(facts, EnvironmentFact{Key: "deployment_mode", Value: "container", Source: EvidenceUserObservation, Confidence: 0.7})
+	}
+	for _, item := range cloudProviderPatterns {
+		if item.pattern.MatchString(value) {
+			facts = append(facts, EnvironmentFact{Key: "cloud_provider", Value: item.value, Source: EvidenceUserObservation, Confidence: 0.7})
+			break
+		}
 	}
 	sort.Slice(facts, func(i, j int) bool { return facts[i].Key < facts[j].Key })
 	return facts

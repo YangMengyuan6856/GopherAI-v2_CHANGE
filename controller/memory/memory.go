@@ -7,7 +7,9 @@ import (
 	"strconv"
 	"strings"
 
+	"GopherAI/common/mysql"
 	memorydomain "GopherAI/internal/memory"
+	profiledomain "GopherAI/internal/profilememory"
 	"GopherAI/middleware/requestid"
 
 	"github.com/gin-gonic/gin"
@@ -18,8 +20,20 @@ type MemoryService interface {
 	Rebuild(context.Context, string, string) (memorydomain.WorkingWindow, error)
 }
 
+type ProfileService interface {
+	List(context.Context, string) (profiledomain.ListResponse, error)
+	Correct(context.Context, profiledomain.Correction) (profiledomain.PublicMemory, error)
+	Delete(context.Context, string, string) error
+}
+
 type Handler struct {
-	service MemoryService
+	service  MemoryService
+	profiles ProfileService
+}
+
+type ProfileCorrectionRequest struct {
+	Value         string `json:"value" binding:"required"`
+	ExpiresInDays *int   `json:"expires_in_days,omitempty"`
 }
 
 type ErrorResponse struct {
@@ -32,7 +46,17 @@ type ErrorResponse struct {
 
 func NewHandler(service MemoryService) *Handler { return &Handler{service: service} }
 
-func NewDefaultHandler() *Handler { return NewHandler(memorydomain.NewDefaultService()) }
+func NewHandlerWithProfiles(service MemoryService, profiles ProfileService) *Handler {
+	return &Handler{service: service, profiles: profiles}
+}
+
+func NewDefaultHandler() *Handler {
+	profiles, err := profiledomain.NewService(profiledomain.NewGormRepository(mysql.DB), profiledomain.SystemClock{})
+	if err != nil {
+		panic(err)
+	}
+	return NewHandlerWithProfiles(memorydomain.NewDefaultService(), profiles)
+}
 
 func (handler *Handler) Preview(context *gin.Context) {
 	budget := 0
@@ -65,12 +89,74 @@ func (handler *Handler) Rebuild(context *gin.Context) {
 	})
 }
 
+func (handler *Handler) ListProfiles(context *gin.Context) {
+	if handler.profiles == nil {
+		handler.writeProfileError(context, http.StatusServiceUnavailable, "PROFILE_MEMORY_UNAVAILABLE", "环境记忆暂时不可用", true)
+		return
+	}
+	response, err := handler.profiles.List(context.Request.Context(), context.GetString("userName"))
+	if err != nil {
+		handler.handleProfileError(context, err)
+		return
+	}
+	context.JSON(http.StatusOK, response)
+}
+
+func (handler *Handler) CorrectProfile(context *gin.Context) {
+	if handler.profiles == nil {
+		handler.writeProfileError(context, http.StatusServiceUnavailable, "PROFILE_MEMORY_UNAVAILABLE", "环境记忆暂时不可用", true)
+		return
+	}
+	request := new(ProfileCorrectionRequest)
+	if err := context.ShouldBindJSON(request); err != nil {
+		handler.writeProfileError(context, http.StatusBadRequest, "INVALID_PROFILE_MEMORY", "环境记忆更正参数不合法", false)
+		return
+	}
+	result, err := handler.profiles.Correct(context.Request.Context(), profiledomain.Correction{
+		MemoryID: context.Param("memory_id"), UserID: context.GetString("userName"), Value: request.Value, ExpiresInDays: request.ExpiresInDays,
+	})
+	if err != nil {
+		handler.handleProfileError(context, err)
+		return
+	}
+	context.JSON(http.StatusOK, gin.H{"schema_version": profiledomain.SchemaVersion, "memory": result})
+}
+
+func (handler *Handler) DeleteProfile(context *gin.Context) {
+	if handler.profiles == nil {
+		handler.writeProfileError(context, http.StatusServiceUnavailable, "PROFILE_MEMORY_UNAVAILABLE", "环境记忆暂时不可用", true)
+		return
+	}
+	if err := handler.profiles.Delete(context.Request.Context(), context.GetString("userName"), context.Param("memory_id")); err != nil {
+		handler.handleProfileError(context, err)
+		return
+	}
+	context.Status(http.StatusNoContent)
+	context.Writer.WriteHeaderNow()
+}
+
 func (handler *Handler) handleServiceError(context *gin.Context, err error) {
 	if errors.Is(err, memorydomain.ErrSessionNotFound) {
 		handler.writeError(context, http.StatusNotFound, "MEMORY_SESSION_NOT_FOUND", "未找到该会话", false)
 		return
 	}
 	handler.writeError(context, http.StatusServiceUnavailable, "MEMORY_CONTEXT_UNAVAILABLE", "上下文记忆暂时不可用", true)
+}
+
+func (handler *Handler) handleProfileError(context *gin.Context, err error) {
+	switch {
+	case errors.Is(err, profiledomain.ErrInvalidProfileMemory):
+		handler.writeProfileError(context, http.StatusBadRequest, "INVALID_PROFILE_MEMORY", "环境记忆内容或有效期不合法", false)
+	case errors.Is(err, profiledomain.ErrProfileMemoryNotFound):
+		handler.writeProfileError(context, http.StatusNotFound, "PROFILE_MEMORY_NOT_FOUND", "未找到该环境记忆", false)
+	default:
+		handler.writeProfileError(context, http.StatusServiceUnavailable, "PROFILE_MEMORY_UNAVAILABLE", "环境记忆暂时不可用", true)
+	}
+}
+
+func (handler *Handler) writeProfileError(context *gin.Context, status int, code string, message string, retryable bool) {
+	_, traceID := requestid.IDs(context)
+	context.JSON(status, ErrorResponse{SchemaVersion: profiledomain.SchemaVersion, Code: code, Message: message, Retryable: retryable, TraceID: traceID})
 }
 
 func (handler *Handler) writeError(context *gin.Context, status int, code string, message string, retryable bool) {
