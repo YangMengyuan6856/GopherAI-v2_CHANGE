@@ -1,6 +1,6 @@
 # GopherAI DevSupport evaluations
 
-`devsupport-rag-core-v1.jsonl` is the first 20-case, human-reviewed RAG release slice required by M3-18. It covers exact facts, paraphrases, multi-fact questions, cross-section questions and tenant-isolation decoys.
+`devsupport-rag-core-v1.jsonl` is the first 20-case versioned RAG release slice required by M3-18. It covers exact facts, paraphrases, multi-fact questions, cross-section questions and tenant-isolation decoys. Its labels remain `pending_user` until a human reviews them; technical metrics may run before that, but the report cannot be frozen as an interview or release baseline.
 
 The evaluator uses the production Dense + BM25 + RRF retriever, Evidence Gate, Citation Verifier and KnowledgeAgent, but writes its fixture to the dedicated Redis index `gopher:eval-rag-core-v1:v1:kb:chunks:idx`. It drops that exact index before and after the run, so evaluation documents cannot enter a user's knowledge base.
 

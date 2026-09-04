@@ -107,6 +107,8 @@ type RAGReport struct {
 	FixtureVersion   string          `json:"fixture_version"`
 	CandidateVersion string          `json:"candidate_version"`
 	Runtime          RAGRuntime      `json:"runtime"`
+	HumanReviewed    bool            `json:"human_reviewed"`
+	BaselineEligible bool            `json:"baseline_eligible"`
 	GeneratedAt      time.Time       `json:"generated_at"`
 	CaseCount        int             `json:"case_count"`
 	Metrics          RAGMetrics      `json:"metrics"`
@@ -218,6 +220,13 @@ func RunRAGCoreWithObserver(ctx context.Context, cases []RAGCase, fixtureVersion
 		CandidateVersion: strings.TrimSpace(candidateVersion), GeneratedAt: time.Now().UTC(), CaseCount: len(cases), Targets: targets,
 		Cases: make([]RAGCaseResult, 0, len(cases)),
 	}
+	report.HumanReviewed = true
+	for _, item := range cases {
+		if item.ReviewedBy != "human" {
+			report.HumanReviewed = false
+			break
+		}
+	}
 	if searcher == nil || answerer == nil || len(cases) == 0 {
 		return report
 	}
@@ -286,6 +295,7 @@ func RunRAGCoreWithObserver(ctx context.Context, cases []RAGCase, fixtureVersion
 	report.Passed = report.Metrics.RecallAt5 >= targets.RecallAt5 && report.Metrics.NDCGAt5 >= targets.NDCGAt5 &&
 		report.Metrics.CitationPrecision >= targets.CitationPrecision && report.Metrics.CitationCoverage >= targets.CitationCoverage &&
 		report.Metrics.UnauthorizedRecall == targets.UnauthorizedRecall && errorCases == 0
+	report.BaselineEligible = report.Passed && report.HumanReviewed
 	return report
 }
 
@@ -318,6 +328,8 @@ func WriteRAGReportMarkdown(writer io.Writer, report RAGReport) error {
 - Environment: %s
 - Per-case timeout: %ds
 - External model behavior mutable: %t
+- Human label review complete: %t
+- Eligible to freeze as baseline: %t
 
 | Metric | Actual | Target |
 |---|---:|---:|
@@ -337,6 +349,7 @@ Citation Coverage in this M3 core slice is a conservative evidence-reference pro
 `, status, report.DatasetVersion, report.CaseCount, report.FixtureVersion, report.CandidateVersion, report.GeneratedAt.Format(time.RFC3339),
 		report.Runtime.DatasetSHA256, report.Runtime.FixtureSHA256, report.Runtime.RetrieverVersion, report.Runtime.EmbeddingModel,
 		report.Runtime.ChatModel, report.Runtime.Environment, report.Runtime.CaseTimeoutSeconds, report.Runtime.ExternalModelMutable,
+		report.HumanReviewed, report.BaselineEligible,
 		report.Metrics.RecallAt5, report.Targets.RecallAt5, report.Metrics.NDCGAt5, report.Targets.NDCGAt5, report.Metrics.MRR,
 		report.Metrics.CitationPrecision, report.Targets.CitationPrecision, report.Metrics.CitationCoverage, report.Targets.CitationCoverage,
 		report.Metrics.UnauthorizedRecall, report.Targets.UnauthorizedRecall, report.Metrics.ResolvedAnswerRate, report.Metrics.ErrorRate)
@@ -386,8 +399,8 @@ func validateRAGCase(item RAGCase) error {
 	if strings.TrimSpace(item.ID) == "" || item.Type != "rag" || strings.TrimSpace(item.Question) == "" || strings.TrimSpace(item.Fixture) == "" || len(item.Expected.EvidenceIDs) == 0 {
 		return errors.New("id, rag type, question, fixture and expected evidence are required")
 	}
-	if item.Expected.Intent != "project_qa" || item.DatasetVersion != RAGCoreDatasetVersion || item.ReviewedBy != "human" {
-		return errors.New("core case must be human-reviewed project_qa with the current dataset version")
+	if item.Expected.Intent != "project_qa" || item.DatasetVersion != RAGCoreDatasetVersion || (item.ReviewedBy != "human" && item.ReviewedBy != "pending_user") {
+		return errors.New("core case must be project_qa with the current dataset version and an explicit review state")
 	}
 	return nil
 }
