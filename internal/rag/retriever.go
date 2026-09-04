@@ -84,12 +84,13 @@ type SearchHit struct {
 }
 
 type SearchDiagnostics struct {
-	Version           string   `json:"version"`
-	Mode              string   `json:"mode"`
-	DenseCandidates   int      `json:"dense_candidates"`
-	KeywordCandidates int      `json:"keyword_candidates"`
-	FusedCandidates   int      `json:"fused_candidates"`
-	DegradedReasons   []string `json:"degraded_reasons,omitempty"`
+	Version           string          `json:"version"`
+	Mode              string          `json:"mode"`
+	DenseCandidates   int             `json:"dense_candidates"`
+	KeywordCandidates int             `json:"keyword_candidates"`
+	FusedCandidates   int             `json:"fused_candidates"`
+	DegradedReasons   []string        `json:"degraded_reasons,omitempty"`
+	QueryAssessment   QueryAssessment `json:"query_assessment"`
 }
 
 type SearchOutput struct {
@@ -162,6 +163,7 @@ func (retriever *HybridRetriever) Search(ctx context.Context, input SearchInput)
 
 	fused := reciprocalRankFusion(dense, keyword)
 	if len(fused) == 0 {
+		diagnostics.QueryAssessment = AssessQuery(input.Query, nil, diagnostics)
 		return SearchOutput{Hits: []SearchHit{}, Diagnostics: diagnostics}, nil
 	}
 	chunkIDs := make([]string, 0, len(fused))
@@ -203,6 +205,7 @@ func (retriever *HybridRetriever) Search(ctx context.Context, input SearchInput)
 		}
 	}
 	diagnostics.FusedCandidates = len(hits)
+	diagnostics.QueryAssessment = AssessQuery(input.Query, hits, diagnostics)
 	return SearchOutput{Hits: hits, Diagnostics: diagnostics}, nil
 }
 

@@ -129,6 +129,17 @@
           {{ retrievalModeLabel(knowledgeSearchDiagnostics.mode) }} · Dense {{ knowledgeSearchDiagnostics.dense_candidates }} 条 ·
           BM25 {{ knowledgeSearchDiagnostics.keyword_candidates }} 条 · 融合后 {{ knowledgeSearchDiagnostics.fused_candidates }} 条
         </div>
+        <div v-if="knowledgeSearchDiagnostics && knowledgeSearchDiagnostics.query_assessment" class="query-assessment">
+          <div>
+            <strong>策略判定（当前仅分析）：</strong>
+            {{ knowledgeSearchDiagnostics.query_assessment.deep_recommended ? '建议进入 rag_deep' : '保持 rag_fast' }} ·
+            复杂度 {{ queryComplexityLabel(knowledgeSearchDiagnostics.query_assessment.complexity) }} ·
+            信息缺口 {{ queryGapLabel(knowledgeSearchDiagnostics.query_assessment.gap) }}
+          </div>
+          <div class="query-assessment-reasons">
+            判定依据：{{ knowledgeSearchDiagnostics.query_assessment.reason_codes.map(queryReasonLabel).join('；') }}
+          </div>
+        </div>
         <div v-if="knowledgeSearchResults.length" class="knowledge-search-results">
           <article v-for="(hit, index) in knowledgeSearchResults" :key="hit.evidence.id" class="evidence-card">
             <div class="evidence-title">
@@ -664,6 +675,30 @@ export default {
       return labels[mode] || '检索状态未知'
     }
 
+    const queryComplexityLabel = (complexity) => ({ simple: '简单', complex: '复杂' }[complexity] || complexity)
+
+    const queryGapLabel = (gap) => ({ none: '无', soft: '轻微', hard: '明显' }[gap] || gap)
+
+    const queryReasonLabel = (reason) => {
+      const labels = {
+        multi_part_query: '包含多个子问题',
+        comparison_query: '需要比较或权衡',
+        cross_document_query: '明确要求跨文档',
+        causal_query: '包含因果问题',
+        analytical_query: '需要分析或诊断',
+        long_query: '问题较长',
+        ambiguous_reference: '存在缺少上下文的指代',
+        no_evidence: '没有召回证据',
+        retrieval_degraded: '检索器发生降级',
+        single_retriever_evidence: '证据仅由单路检索支持',
+        low_top_score: '最高证据分数偏低',
+        cross_document_evidence_gap: '跨文档证据覆盖不足',
+        weak_rank_separation: '多个来源排名接近',
+        simple_query_high_confidence: '简单问题且证据置信度足够'
+      }
+      return labels[reason] || reason
+    }
+
     const toggleKnowledgeSearch = () => {
       knowledgeSearchOpen.value = !knowledgeSearchOpen.value
       if (knowledgeSearchOpen.value && !knowledgeQuery.value.trim() && inputMessage.value.trim()) {
@@ -945,6 +980,9 @@ export default {
       documentStatusLabel,
       jobStatusLabel,
       retrievalModeLabel,
+      queryComplexityLabel,
+      queryGapLabel,
+      queryReasonLabel,
       renderMarkdown,
       playTTS,
       createNewSession,
@@ -1154,6 +1192,21 @@ export default {
 
 .knowledge-version-controls .delete-document-btn {
   background: #f56c6c;
+}
+
+.query-assessment {
+  margin: 8px 0 12px;
+  padding: 10px 12px;
+  border-left: 3px solid #409eff;
+  border-radius: 4px;
+  background: #f2f8ff;
+  color: #3f4a5a;
+  font-size: 13px;
+}
+
+.query-assessment-reasons {
+  margin-top: 4px;
+  color: #6b7280;
 }
 
 .version-pending {

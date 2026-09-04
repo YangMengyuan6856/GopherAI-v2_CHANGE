@@ -84,6 +84,9 @@ func TestHybridRetrieverFusesRanksUsesAuthorityAndDeduplicates(t *testing.T) {
 	if output.Diagnostics.Mode != "hybrid" || output.Diagnostics.DenseCandidates != 3 || output.Diagnostics.KeywordCandidates != 3 {
 		t.Fatalf("unexpected diagnostics: %+v", output.Diagnostics)
 	}
+	if output.Diagnostics.QueryAssessment.Version != QueryAssessmentVersion {
+		t.Fatalf("retrieval must attach an explainable query assessment: %+v", output.Diagnostics.QueryAssessment)
+	}
 	if len(output.Hits) != 3 {
 		t.Fatalf("content-hash dedupe must keep three hits, got %+v", output.Hits)
 	}
