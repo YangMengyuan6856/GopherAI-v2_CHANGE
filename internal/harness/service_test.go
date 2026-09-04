@@ -123,6 +123,9 @@ func (repository *memoryRepository) TransitionCAS(_ context.Context, transition 
 	run.Budget.UsedOutputTokens += transition.BudgetDelta.OutputTokens
 	run.Budget.UsedCostMicros += transition.BudgetDelta.CostMicros
 	run.UpdatedAt = transition.At
+	if transition.DeadlineExtension > 0 {
+		run.DeadlineAt = run.DeadlineAt.Add(transition.DeadlineExtension)
+	}
 	transition.Step.StateVersion = run.StateVersion
 	if IsTerminal(run.State) {
 		run.FinishedAt = &transition.At
@@ -264,5 +267,44 @@ func TestRunningRunStopsAtHardBudget(t *testing.T) {
 	stopped, err := service.Advance(context.Background(), AdvanceCommand{RunID: run.RunID, UserID: "alice", ExpectedState: StateRunning, ExpectedVersion: run.StateVersion, NextState: StateSucceeded, StepID: "answer", StepKind: "answer", PublicSummary: "answer", Checkpoint: CheckpointState{Goal: "diagnose"}, BudgetDelta: BudgetDelta{Iterations: 1}})
 	if err != nil || stopped.State != StateBudgetExceeded || stopped.TerminalReason != "EXECUTION_BUDGET_EXCEEDED" {
 		t.Fatalf("hard budget did not stop run: %#v %v", stopped, err)
+	}
+}
+
+func TestWaitingForUserDoesNotConsumeExecutionDeadline(t *testing.T) {
+	service, clock := createTestService(t)
+	run := createRun(t, service, "request-paused-deadline").Run
+	originalDeadline := run.DeadlineAt
+	for _, item := range []struct {
+		from State
+		to   State
+		id   string
+	}{
+		{StateReceived, StateContextReady, "context"},
+		{StateContextReady, StatePlanned, "plan"},
+		{StatePlanned, StateRunning, "run"},
+		{StateRunning, StateWaitingUser, "wait"},
+	} {
+		var err error
+		run, err = service.Advance(context.Background(), AdvanceCommand{RunID: run.RunID, UserID: "alice", ExpectedState: item.from, ExpectedVersion: run.StateVersion, NextState: item.to, StepID: item.id, StepKind: "lifecycle", PublicSummary: item.id, Checkpoint: CheckpointState{Goal: "diagnose"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitStarted := run.UpdatedAt
+	clock.now = clock.now.Add(15 * time.Minute)
+	resumed, err := service.Advance(context.Background(), AdvanceCommand{
+		RunID: run.RunID, UserID: "alice", ExpectedState: StateWaitingUser, ExpectedVersion: run.StateVersion,
+		NextState: StateContextReady, StepID: "resume", StepKind: "context", PublicSummary: "resume",
+		Checkpoint: CheckpointState{Goal: "diagnose"}, CommandID: "resume-after-downtime", CommandKind: "resume",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDeadline := originalDeadline.Add(clock.now.Sub(waitStarted))
+	if !resumed.DeadlineAt.Equal(wantDeadline) {
+		t.Fatalf("paused deadline not extended exactly once: got %s want %s", resumed.DeadlineAt, wantDeadline)
+	}
+	if !resumed.DeadlineAt.After(clock.now) {
+		t.Fatalf("resumed run remained expired: now=%s deadline=%s", clock.now, resumed.DeadlineAt)
 	}
 }

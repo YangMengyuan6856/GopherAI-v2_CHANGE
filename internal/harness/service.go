@@ -226,8 +226,14 @@ func (service *Service) Advance(ctx context.Context, command AdvanceCommand) (Ru
 	}
 	now := service.clock.Now().UTC()
 	finished := now
+	deadlineExtension := time.Duration(0)
+	if run.State == StateWaitingUser && command.NextState == StateContextReady && now.After(run.UpdatedAt) {
+		// Human think time and service downtime while paused are not execution
+		// time. Extend the same durable deadline exactly once with the resume CAS.
+		deadlineExtension = now.Sub(run.UpdatedAt)
+	}
 	step := PublicStep{StepID: command.StepID, Attempt: 1, Kind: command.StepKind, Status: "completed", ReasonCode: command.ReasonCode, PublicSummary: command.PublicSummary, EvidenceRefs: command.EvidenceRefs, ToolCallIDs: command.ToolCallIDs, BudgetDelta: command.BudgetDelta, StartedAt: now, FinishedAt: &finished}
-	current, err := service.repository.TransitionCAS(ctx, Transition{RunID: run.RunID, UserIDHash: run.UserIDHash, ExpectedState: run.State, ExpectedVersion: run.StateVersion, NextState: command.NextState, Step: step, Checkpoint: checkpoint, BudgetDelta: command.BudgetDelta, TerminalReason: command.TerminalReason, ErrorCode: command.ErrorCode, CommandID: command.CommandID, CommandKind: command.CommandKind, At: now})
+	current, err := service.repository.TransitionCAS(ctx, Transition{RunID: run.RunID, UserIDHash: run.UserIDHash, ExpectedState: run.State, ExpectedVersion: run.StateVersion, NextState: command.NextState, Step: step, Checkpoint: checkpoint, BudgetDelta: command.BudgetDelta, TerminalReason: command.TerminalReason, ErrorCode: command.ErrorCode, CommandID: command.CommandID, CommandKind: command.CommandKind, DeadlineExtension: deadlineExtension, At: now})
 	if err == nil {
 		service.observer.RecordRunTransition(run, current)
 	}

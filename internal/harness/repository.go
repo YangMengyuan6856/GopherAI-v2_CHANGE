@@ -16,19 +16,20 @@ import (
 )
 
 type Transition struct {
-	RunID           string
-	UserIDHash      string
-	ExpectedState   State
-	ExpectedVersion int64
-	NextState       State
-	Step            PublicStep
-	Checkpoint      CheckpointState
-	BudgetDelta     BudgetDelta
-	TerminalReason  string
-	ErrorCode       string
-	CommandID       string
-	CommandKind     string
-	At              time.Time
+	RunID             string
+	UserIDHash        string
+	ExpectedState     State
+	ExpectedVersion   int64
+	NextState         State
+	Step              PublicStep
+	Checkpoint        CheckpointState
+	BudgetDelta       BudgetDelta
+	TerminalReason    string
+	ErrorCode         string
+	CommandID         string
+	CommandKind       string
+	DeadlineExtension time.Duration
+	At                time.Time
 }
 
 type Repository interface {
@@ -195,6 +196,9 @@ func (repository *GormRepository) TransitionCAS(ctx context.Context, command Tra
 			"used_input_tokens": budget.UsedInputTokens, "used_output_tokens": budget.UsedOutputTokens, "used_cost_micros": budget.UsedCostMicros,
 			"updated_at": at,
 		}
+		if command.DeadlineExtension > 0 {
+			updates["deadline_at"] = current.DeadlineAt.Add(command.DeadlineExtension)
+		}
 		if IsTerminal(command.NextState) {
 			updates["finished_at"] = at
 		}
@@ -234,6 +238,9 @@ func (repository *GormRepository) TransitionCAS(ctx context.Context, command Tra
 		}
 		nextRun.Budget = budget
 		nextRun.UpdatedAt = at
+		if command.DeadlineExtension > 0 {
+			nextRun.DeadlineAt = current.DeadlineAt.Add(command.DeadlineExtension)
+		}
 		if IsTerminal(command.NextState) {
 			nextRun.FinishedAt = &at
 		}
