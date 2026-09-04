@@ -1,0 +1,1110 @@
+{
+  "schema_version": "1",
+  "dataset_version": "devsupport-intent-v1",
+  "rubric_version": "intent-rubric-v1",
+  "recognizer_version": "intent-pattern-v1",
+  "candidate_version": "8dd517ad3610f97076cc5538a0cc829d6b674e6f",
+  "generated_at": "2026-09-04T11:28:25.1331139Z",
+  "case_count": 150,
+  "human_reviewed": false,
+  "baseline_eligible": false,
+  "matched_count": 67,
+  "correct_matched_count": 67,
+  "conflict_count": 6,
+  "coverage": 0.44666666666666666,
+  "selective_accuracy": 1,
+  "false_short_circuit_rate": 0,
+  "severe_short_circuit_rate": 0,
+  "p95_latency_micros": 1,
+  "pattern_gate_passed": true,
+  "g4_evaluated": false,
+  "label_metrics": {
+    "doc_task": {
+      "support": 25,
+      "matched": 9,
+      "correct": 9,
+      "coverage": 0.36,
+      "selective_recall": 0.36
+    },
+    "follow_up": {
+      "support": 25,
+      "matched": 21,
+      "correct": 21,
+      "coverage": 0.84,
+      "selective_recall": 0.84
+    },
+    "general": {
+      "support": 25,
+      "matched": 8,
+      "correct": 8,
+      "coverage": 0.32,
+      "selective_recall": 0.32
+    },
+    "project_qa": {
+      "support": 25,
+      "matched": 9,
+      "correct": 9,
+      "coverage": 0.36,
+      "selective_recall": 0.36
+    },
+    "tool_task": {
+      "support": 25,
+      "matched": 7,
+      "correct": 7,
+      "coverage": 0.28,
+      "selective_recall": 0.28
+    },
+    "troubleshooting": {
+      "support": 25,
+      "matched": 13,
+      "correct": 13,
+      "coverage": 0.52,
+      "selective_recall": 0.52
+    }
+  },
+  "matched_confusion": {
+    "doc_task": {
+      "doc_task": 9
+    },
+    "follow_up": {
+      "follow_up": 21
+    },
+    "general": {
+      "general": 8
+    },
+    "project_qa": {
+      "project_qa": 9
+    },
+    "tool_task": {
+      "tool_task": 7
+    },
+    "troubleshooting": {
+      "troubleshooting": 13
+    }
+  },
+  "reason_contributions": {
+    "casual_general": 3,
+    "contextual_follow_up": 21,
+    "error_signature": 6,
+    "explicit_document_action": 12,
+    "explicit_governed_tool_request": 4,
+    "explicit_troubleshooting": 8,
+    "follow_up_context_missing": 2,
+    "governed_operation_request": 4,
+    "log_block": 2,
+    "pattern_conflict_requires_fusion": 6,
+    "pattern_no_high_confidence": 77,
+    "project_evidence_request": 12,
+    "quoted_literal_not_action": 5
+  },
+  "failures": [
+    {
+      "id": "intent-v1-002",
+      "expected": "project_qa",
+      "predicted": "project_qa",
+      "confidence": 0.79,
+      "matched": false,
+      "is_compound": true,
+      "reason_codes": [
+        "pattern_conflict_requires_fusion",
+        "project_evidence_request",
+        "follow_up_context_missing"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-003",
+      "expected": "project_qa",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-008",
+      "expected": "project_qa",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-009",
+      "expected": "project_qa",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-010",
+      "expected": "project_qa",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-012",
+      "expected": "project_qa",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-013",
+      "expected": "project_qa",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-014",
+      "expected": "project_qa",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-015",
+      "expected": "project_qa",
+      "predicted": "project_qa",
+      "confidence": 0.79,
+      "matched": false,
+      "is_compound": true,
+      "reason_codes": [
+        "pattern_conflict_requires_fusion",
+        "project_evidence_request",
+        "follow_up_context_missing"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-016",
+      "expected": "project_qa",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-018",
+      "expected": "project_qa",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-019",
+      "expected": "project_qa",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-020",
+      "expected": "project_qa",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-021",
+      "expected": "project_qa",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-022",
+      "expected": "project_qa",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-023",
+      "expected": "project_qa",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-032",
+      "expected": "troubleshooting",
+      "predicted": "troubleshooting",
+      "confidence": 0.79,
+      "matched": false,
+      "is_compound": true,
+      "reason_codes": [
+        "pattern_conflict_requires_fusion",
+        "explicit_troubleshooting",
+        "explicit_document_action"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-033",
+      "expected": "troubleshooting",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-034",
+      "expected": "troubleshooting",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-039",
+      "expected": "troubleshooting",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-040",
+      "expected": "troubleshooting",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-041",
+      "expected": "troubleshooting",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-042",
+      "expected": "troubleshooting",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-043",
+      "expected": "troubleshooting",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-045",
+      "expected": "troubleshooting",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-046",
+      "expected": "troubleshooting",
+      "predicted": "troubleshooting",
+      "confidence": 0.79,
+      "matched": false,
+      "is_compound": true,
+      "reason_codes": [
+        "pattern_conflict_requires_fusion",
+        "explicit_troubleshooting",
+        "explicit_governed_tool_request"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-047",
+      "expected": "troubleshooting",
+      "predicted": "troubleshooting",
+      "confidence": 0.79,
+      "matched": false,
+      "is_compound": true,
+      "reason_codes": [
+        "pattern_conflict_requires_fusion",
+        "error_signature",
+        "explicit_document_action"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-050",
+      "expected": "troubleshooting",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-051",
+      "expected": "doc_task",
+      "predicted": "doc_task",
+      "confidence": 0.79,
+      "matched": false,
+      "is_compound": true,
+      "reason_codes": [
+        "pattern_conflict_requires_fusion",
+        "explicit_document_action",
+        "project_evidence_request"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-052",
+      "expected": "doc_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-056",
+      "expected": "doc_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-057",
+      "expected": "doc_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-059",
+      "expected": "doc_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-060",
+      "expected": "doc_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-061",
+      "expected": "doc_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-062",
+      "expected": "doc_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-063",
+      "expected": "doc_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-068",
+      "expected": "doc_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-069",
+      "expected": "doc_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-070",
+      "expected": "doc_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-071",
+      "expected": "doc_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-072",
+      "expected": "doc_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-073",
+      "expected": "doc_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-075",
+      "expected": "doc_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-077",
+      "expected": "tool_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-078",
+      "expected": "tool_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-079",
+      "expected": "tool_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-080",
+      "expected": "tool_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-081",
+      "expected": "tool_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-082",
+      "expected": "tool_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-083",
+      "expected": "tool_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-085",
+      "expected": "tool_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-086",
+      "expected": "tool_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-087",
+      "expected": "tool_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-088",
+      "expected": "tool_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-089",
+      "expected": "tool_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-095",
+      "expected": "tool_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-096",
+      "expected": "tool_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-097",
+      "expected": "tool_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-098",
+      "expected": "tool_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-099",
+      "expected": "tool_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-100",
+      "expected": "tool_task",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-108",
+      "expected": "follow_up",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-112",
+      "expected": "follow_up",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-114",
+      "expected": "follow_up",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-122",
+      "expected": "follow_up",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-128",
+      "expected": "general",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-130",
+      "expected": "general",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-131",
+      "expected": "general",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-132",
+      "expected": "general",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-133",
+      "expected": "general",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-134",
+      "expected": "general",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-135",
+      "expected": "general",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-136",
+      "expected": "general",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-137",
+      "expected": "general",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-138",
+      "expected": "general",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-139",
+      "expected": "general",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-141",
+      "expected": "general",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-142",
+      "expected": "general",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-147",
+      "expected": "general",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-148",
+      "expected": "general",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-149",
+      "expected": "general",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    },
+    {
+      "id": "intent-v1-150",
+      "expected": "general",
+      "predicted": "general",
+      "confidence": 0.4,
+      "matched": false,
+      "is_compound": false,
+      "reason_codes": [
+        "pattern_no_high_confidence"
+      ],
+      "severe_misroute": false
+    }
+  ]
+}
