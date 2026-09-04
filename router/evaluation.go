@@ -9,6 +9,8 @@ import (
 func RegisterEvaluationRouter(group *gin.RouterGroup) {
 	handler := evaluationcontroller.NewDefaultHandler()
 	memoryHandler := evaluationcontroller.NewDefaultMemoryHandler()
+	contextHandler := evaluationcontroller.NewDefaultContextHandler()
 	group.GET("/diagnostic/latest", handler.LatestDiagnostic)
 	group.GET("/memory/latest", memoryHandler.LatestMemory)
+	group.GET("/context/latest", contextHandler.LatestContext)
 }

@@ -14,6 +14,7 @@ import (
 	"GopherAI/internal/diagnostic"
 	"GopherAI/internal/harness"
 	"GopherAI/internal/incident"
+	memorydomain "GopherAI/internal/memory"
 	"GopherAI/middleware/requestid"
 
 	"github.com/gin-gonic/gin"
@@ -35,6 +36,18 @@ type fakeResolutionService struct {
 	err            error
 	confirmCommand incident.ConfirmCommand
 	previewUser    string
+}
+
+type fakeDiagnosticContext struct {
+	window    memorydomain.WorkingWindow
+	err       error
+	userID    string
+	sessionID string
+}
+
+func (service *fakeDiagnosticContext) Window(_ context.Context, userID string, sessionID string) (memorydomain.WorkingWindow, error) {
+	service.userID, service.sessionID = userID, sessionID
+	return service.window, service.err
 }
 
 func (service *fakeResolutionService) Preview(_ context.Context, userID string, runID string, hypothesisID string) (incident.Proposal, error) {
@@ -178,6 +191,57 @@ func TestGetHidesOwnershipFailureAsNotFound(t *testing.T) {
 	}
 	if !strings.Contains(recorder.Body.String(), `"code":"AGENT_RUN_NOT_FOUND"`) {
 		t.Fatalf("stable not-found code missing: %s", recorder.Body.String())
+	}
+}
+
+func TestContextCompressionUsesOwnedRunAndPublicCheckpointOnly(t *testing.T) {
+	response := testRunResponse()
+	response.Detail.Run.SessionID = "session-1"
+	response.Detail.Checkpoint.Constraints = []string{"read-only"}
+	response.Detail.Checkpoint.ConfirmedFacts = map[string]string{"redis": "7.4"}
+	workflow := &fakeWorkflow{response: response}
+	contextService := &fakeDiagnosticContext{window: memorydomain.WorkingWindow{Messages: []memorydomain.WorkingMessage{
+		{Role: memorydomain.RoleUser, Content: strings.Repeat("old logs ", 200)},
+		{Role: memorydomain.RoleUser, Content: "current question"},
+	}}}
+	gine := gin.New()
+	gine.Use(requestid.Attach(), func(context *gin.Context) { context.Set("userName", "alice"); context.Next() })
+	handler := NewHandlerWithContext(workflow, nil, contextService)
+	gine.GET("/agent-runs/:run_id/context-compression", handler.ContextCompression)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/agent-runs/run-public/context-compression?budget_tokens=512", nil)
+	gine.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if workflow.getRunID != "run-public" || contextService.userID != "alice" || contextService.sessionID != "session-1" {
+		t.Fatalf("ownership context was not propagated: workflow=%s context=%+v", workflow.getRunID, contextService)
+	}
+	body := recorder.Body.String()
+	for _, forbidden := range []string{"must-not-leak", "tenant_id_hash", "user_id_hash", "artifact_type", "artifact"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("private checkpoint data leaked: %s", body)
+		}
+	}
+	var report memorydomain.CompressionReport
+	if err := json.Unmarshal(recorder.Body.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.SchemaVersion != memorydomain.CompressionSchema || report.Retention.Constraints.Rate != 1 || report.Retention.ConfirmedFacts.Rate != 1 {
+		t.Fatalf("unexpected context report: %+v", report)
+	}
+}
+
+func TestContextCompressionRejectsInvalidBudgetBeforeWorkflow(t *testing.T) {
+	workflow := &fakeWorkflow{err: errors.New("must not be called")}
+	gine := gin.New()
+	gine.Use(requestid.Attach(), func(context *gin.Context) { context.Set("userName", "alice"); context.Next() })
+	handler := NewHandlerWithContext(workflow, nil, nil)
+	gine.GET("/agent-runs/:run_id/context-compression", handler.ContextCompression)
+	recorder := httptest.NewRecorder()
+	gine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/agent-runs/run/context-compression?budget_tokens=9", nil))
+	if recorder.Code != http.StatusBadRequest || workflow.getRunID != "" || !strings.Contains(recorder.Body.String(), "INVALID_CONTEXT_BUDGET") {
+		t.Fatalf("invalid budget reached workflow: %d %s", recorder.Code, recorder.Body.String())
 	}
 }
 

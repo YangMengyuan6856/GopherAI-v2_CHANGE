@@ -50,6 +50,7 @@ func (*Assembler) Assemble(input AssembleInput) ContextAssembly {
 	}
 
 	optional := summaryItems(input.Summary)
+	assembly.SummaryAvailable = len(optional)
 	profiles := profileItems(input.ProfileFacts)
 	working := workingItems(input.WorkingMessages, input.CurrentQuestion)
 	for _, item := range append(append(optional, profiles...), working...) {
@@ -65,6 +66,7 @@ func (*Assembler) Assemble(input AssembleInput) ContextAssembly {
 			continue
 		}
 		assembly.add(item)
+		assembly.SummaryIncluded++
 	}
 	for _, item := range profiles {
 		if assembly.EstimatedTokens+item.EstimatedTokens > budget {
@@ -76,13 +78,15 @@ func (*Assembler) Assemble(input AssembleInput) ContextAssembly {
 	}
 
 	selectedWorking := make([]ContextItem, 0, len(working))
+	selectedWorkingTokens := 0
 	for index := len(working) - 1; index >= 0; index-- {
 		item := working[index]
-		if assembly.EstimatedTokens+item.EstimatedTokens > budget {
+		if assembly.EstimatedTokens+selectedWorkingTokens+item.EstimatedTokens > budget {
 			assembly.DroppedByBudget++
 			continue
 		}
 		selectedWorking = append(selectedWorking, item)
+		selectedWorkingTokens += item.EstimatedTokens
 	}
 	for index := len(selectedWorking) - 1; index >= 0; index-- {
 		assembly.add(selectedWorking[index])
@@ -125,7 +129,10 @@ func (assembly *ContextAssembly) add(item ContextItem) {
 }
 
 func summaryItems(summary StructuredSummary) []ContextItem {
-	items := make([]ContextItem, 0, 24)
+	items := make([]ContextItem, 0, 64)
+	if goal := boundedText(summary.Goal, 1000); goal != "" {
+		items = append(items, contextItem(ContextGoal, "", goal, false))
+	}
 	keys := make([]string, 0, len(summary.ConfirmedFacts))
 	for key := range summary.ConfirmedFacts {
 		keys = append(keys, key)
@@ -140,14 +147,17 @@ func summaryItems(summary StructuredSummary) []ContextItem {
 	for _, question := range boundedStrings(summary.OpenQuestions, 16) {
 		items = append(items, contextItem(ContextOpenQuestion, "", question, false))
 	}
+	if next := boundedText(summary.NextAction, 1000); next != "" {
+		items = append(items, contextItem(ContextNextAction, "", next, false))
+	}
+	for _, step := range boundedStrings(summary.CompletedSteps, 32) {
+		items = append(items, contextItem(ContextCompleted, "", step, false))
+	}
+	for _, step := range boundedStrings(summary.FailedSteps, 16) {
+		items = append(items, contextItem(ContextFailed, "", step, false))
+	}
 	for _, evidence := range boundedStrings(summary.EvidenceRefs, 32) {
 		items = append(items, contextItem(ContextEvidence, "", evidence, false))
-	}
-	if goal := boundedText(summary.Goal, 1000); goal != "" {
-		items = append(items, contextItem(ContextSummary, "", "goal: "+goal, false))
-	}
-	if next := boundedText(summary.NextAction, 1000); next != "" {
-		items = append(items, contextItem(ContextSummary, "", "next_action: "+next, false))
 	}
 	return items
 }

@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"GopherAI/common/mysql"
 	"GopherAI/internal/diagnostic"
 	"GopherAI/internal/harness"
 	"GopherAI/internal/incident"
+	memorydomain "GopherAI/internal/memory"
 	"GopherAI/internal/observability"
 	"GopherAI/internal/profilememory"
 	"GopherAI/middleware/requestid"
@@ -22,6 +24,7 @@ const responseSchemaVersion = "agent-run-api-v1"
 type Handler struct {
 	workflow    Workflow
 	resolutions ResolutionService
+	context     DiagnosticContextService
 }
 
 type Workflow interface {
@@ -35,6 +38,10 @@ type ResolutionService interface {
 	Preview(context.Context, string, string, string) (incident.Proposal, error)
 	Confirm(context.Context, incident.ConfirmCommand) (incident.Confirmation, error)
 	Get(context.Context, string, string) (*incident.PublicResolvedIncident, error)
+}
+
+type DiagnosticContextService interface {
+	Window(context.Context, string, string) (memorydomain.WorkingWindow, error)
 }
 
 type StartRequest struct {
@@ -91,6 +98,10 @@ func NewHandlerWithResolutions(workflow Workflow, resolutions ResolutionService)
 	return &Handler{workflow: workflow, resolutions: resolutions}
 }
 
+func NewHandlerWithContext(workflow Workflow, resolutions ResolutionService, contextService DiagnosticContextService) *Handler {
+	return &Handler{workflow: workflow, resolutions: resolutions, context: contextService}
+}
+
 func NewDefaultHandler() *Handler {
 	lifecycle, err := harness.NewObservedService(harness.NewGormRepository(mysql.DB), harness.SystemClock{}, harness.UUIDGenerator{}, observability.DefaultMetrics())
 	if err != nil {
@@ -110,7 +121,7 @@ func NewDefaultHandler() *Handler {
 	if err != nil {
 		panic(err)
 	}
-	return NewHandlerWithResolutions(workflow, resolutions)
+	return NewHandlerWithContext(workflow, resolutions, memorydomain.NewDefaultService())
 }
 
 func (handler *Handler) Start(context *gin.Context) {
@@ -147,6 +158,38 @@ func (handler *Handler) Get(context *gin.Context) {
 		return
 	}
 	context.JSON(http.StatusOK, publicResponse(response))
+}
+
+func (handler *Handler) ContextCompression(context *gin.Context) {
+	budget := memorydomain.DefaultTokenBudget
+	if raw := strings.TrimSpace(context.Query("budget_tokens")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 64 || parsed > memorydomain.MaxTokenBudget {
+			handler.writeStableError(context, http.StatusBadRequest, "INVALID_CONTEXT_BUDGET", "上下文预算必须是 64 到 8192 之间的整数", false)
+			return
+		}
+		budget = parsed
+	}
+	response, err := handler.workflow.Get(context.Request.Context(), context.Param("run_id"), context.GetString("userName"))
+	if err != nil {
+		handler.writeError(context, err)
+		return
+	}
+	working := []memorydomain.WorkingMessage(nil)
+	if response.Detail.Run.SessionID != "" && handler.context != nil {
+		window, windowErr := handler.context.Window(context.Request.Context(), context.GetString("userName"), response.Detail.Run.SessionID)
+		if windowErr != nil {
+			handler.writeStableError(context, http.StatusServiceUnavailable, "CONTEXT_SOURCE_UNAVAILABLE", "会话上下文暂时不可用", true)
+			return
+		}
+		working = window.Messages
+	}
+	report, err := memorydomain.BuildHarnessContextReport(response.Detail, working, budget)
+	if err != nil {
+		handler.writeStableError(context, http.StatusConflict, "CHECKPOINT_CONTEXT_UNAVAILABLE", "该运行尚无可压缩的检查点", false)
+		return
+	}
+	context.JSON(http.StatusOK, report)
 }
 
 func (handler *Handler) Resume(context *gin.Context) {
@@ -279,4 +322,9 @@ func (handler *Handler) writeError(context *gin.Context, err error) {
 		}
 	}
 	context.JSON(status, response)
+}
+
+func (handler *Handler) writeStableError(context *gin.Context, status int, code string, message string, retryable bool) {
+	_, traceID := requestid.IDs(context)
+	context.JSON(status, ErrorResponse{SchemaVersion: responseSchemaVersion, Code: code, Message: message, Retryable: retryable, TraceID: traceID})
 }

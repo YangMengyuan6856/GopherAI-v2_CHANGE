@@ -83,3 +83,27 @@ deterministic replay. This is a deterministic contract suite rather than a real
 database fault-injection or semantic-vector benchmark. All labels are still
 `reviewed_by=pending_user`, so even a passing report has
 `baseline_eligible=false` until a human reviews the dataset.
+
+## Context-compression paired dataset
+
+`devsupport-context-compression-v1.jsonl` contains 12 paired cases, with three
+cases each for `answer`, `clarify`, `refuse`, and `resume`. Every case defines a
+structured checkpoint with goal, constraints, confirmed facts, open questions,
+completed/failed steps, evidence references, and the next legal action. Bounded
+older turns are generated from the case fixture and compared with the same
+production Context Assembler output used by the Diagnostic Run page.
+
+Run it locally with:
+
+```powershell
+go run ./cmd/context-eval
+```
+
+The report is written to
+`evals/results/devsupport-context-compression-v1-candidate.json`. Gates require
+constraint and confirmed-fact retention of at least 95%, open-question
+retention of at least 90%, next-action retention of at least 95%, zero
+over-budget cases, and deterministic replay. Token reduction is reported but
+must be interpreted together with retention. Token counts are a stable local
+estimate rather than provider billing tokens. Labels remain `pending_user`, so
+the report cannot become a formal baseline until human review is complete.

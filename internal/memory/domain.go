@@ -9,6 +9,7 @@ import (
 
 const (
 	SchemaVersion      = "memory-context-v1"
+	CompressionSchema  = "context-compression-v1"
 	DefaultWindowLimit = 20
 	DefaultWindowTTL   = 24 * time.Hour
 	DefaultTokenBudget = 2048
@@ -86,10 +87,13 @@ const (
 	ContextQuestion     ContextKind = "current_question"
 	ContextConstraint   ContextKind = "constraint"
 	ContextRunState     ContextKind = "run_state"
+	ContextGoal         ContextKind = "goal"
 	ContextFact         ContextKind = "confirmed_fact"
 	ContextOpenQuestion ContextKind = "open_question"
+	ContextCompleted    ContextKind = "completed_step"
+	ContextFailed       ContextKind = "failed_step"
 	ContextEvidence     ContextKind = "evidence_ref"
-	ContextSummary      ContextKind = "structured_summary"
+	ContextNextAction   ContextKind = "next_action"
 	ContextProfile      ContextKind = "profile_memory"
 	ContextWorking      ContextKind = "working_message"
 )
@@ -115,6 +119,41 @@ type ContextAssembly struct {
 	WorkingAvailable    int           `json:"working_messages_available"`
 	ProfileIncluded     int           `json:"profile_memories_included"`
 	ProfileAvailable    int           `json:"profile_memories_available"`
+	SummaryIncluded     int           `json:"structured_summary_items_included"`
+	SummaryAvailable    int           `json:"structured_summary_items_available"`
+}
+
+type RetentionMetric struct {
+	Retained int     `json:"retained"`
+	Expected int     `json:"expected"`
+	Rate     float64 `json:"rate"`
+}
+
+type ContextRetention struct {
+	Goal           RetentionMetric `json:"goal"`
+	Constraints    RetentionMetric `json:"constraints"`
+	ConfirmedFacts RetentionMetric `json:"confirmed_facts"`
+	OpenQuestions  RetentionMetric `json:"open_questions"`
+	CompletedSteps RetentionMetric `json:"completed_steps"`
+	FailedSteps    RetentionMetric `json:"failed_steps"`
+	EvidenceRefs   RetentionMetric `json:"evidence_refs"`
+	NextAction     RetentionMetric `json:"next_action"`
+}
+
+type CompressionReport struct {
+	SchemaVersion       string            `json:"schema_version"`
+	RunID               string            `json:"run_id"`
+	RunState            string            `json:"run_state"`
+	StateVersion        int64             `json:"state_version"`
+	HarnessVersion      string            `json:"harness_version"`
+	AssemblerVersion    string            `json:"assembler_version"`
+	StructuredSummary   StructuredSummary `json:"structured_summary"`
+	Context             ContextAssembly   `json:"context"`
+	Retention           ContextRetention  `json:"retention"`
+	SourceTokens        int               `json:"source_tokens"`
+	AssembledTokens     int               `json:"assembled_tokens"`
+	TokenReductionRatio float64           `json:"token_reduction_ratio"`
+	Limitations         []string          `json:"limitations"`
 }
 
 type ProfileRecallSummary struct {

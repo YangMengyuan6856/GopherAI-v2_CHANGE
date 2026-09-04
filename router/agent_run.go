@@ -10,6 +10,7 @@ func RegisterAgentRunRouter(group *gin.RouterGroup) {
 	handler := agentrun.NewDefaultHandler()
 	group.POST("/diagnostics", handler.Start)
 	group.GET("/:run_id", handler.Get)
+	group.GET("/:run_id/context-compression", handler.ContextCompression)
 	group.POST("/:run_id/resume", handler.Resume)
 	group.POST("/:run_id/cancel", handler.Cancel)
 	group.POST("/:run_id/resolution-proposals", handler.PreviewResolution)

@@ -316,6 +316,9 @@
             <span v-if="diagnosticRecovered" class="diagnostic-recovered">已从服务端持久化检查点恢复</span>
           </div>
           <div class="diagnostic-actions">
+            <button v-if="activeDiagnosticRun" type="button" :disabled="loadingContextCompression" @click="toggleContextCompression">
+              {{ contextCompressionOpen ? '收起上下文工程' : '查看上下文工程' }}
+            </button>
             <button type="button" :disabled="loadingDiagnosticEvaluation" @click="toggleDiagnosticEvaluation">
               {{ diagnosticEvaluationOpen ? '收起评测' : '查看评测' }}
             </button>
@@ -360,6 +363,64 @@
                 基线资格 {{ diagnosticEvaluation.baseline_eligible ? '具备' : '不具备' }}
               </small>
             </details>
+          </template>
+        </section>
+        <section v-if="contextCompressionOpen" class="diagnostic-evaluation">
+          <div v-if="loadingContextCompression" class="diagnostic-evaluation-loading">正在从持久化 Checkpoint 重建结构化上下文...</div>
+          <template v-else-if="contextCompression">
+            <div class="diagnostic-evaluation-title">
+              <div>
+                <strong>Context Engineering · 结构化压缩</strong>
+                <span>{{ contextCompression.run_state }} v{{ contextCompression.state_version }} · {{ contextCompression.assembler_version }}</span>
+              </div>
+              <span :class="['evaluation-gate', contextCompression.context.over_budget ? 'failed' : 'passed']">
+                {{ contextCompression.context.over_budget ? '预算超限' : '预算内组装' }}
+              </span>
+            </div>
+            <div class="diagnostic-evaluation-grid">
+              <div><strong>{{ contextCompression.source_tokens }}</strong><span>压缩前估算 Token</span></div>
+              <div><strong>{{ contextCompression.assembled_tokens }}</strong><span>组装后估算 Token</span></div>
+              <div><strong>{{ metricPercent(contextCompression.token_reduction_ratio) }}</strong><span>Token 降幅</span></div>
+              <div><strong>{{ metricPercent(contextCompression.retention.constraints.rate) }}</strong><span>约束保留率</span></div>
+              <div><strong>{{ metricPercent(contextCompression.retention.confirmed_facts.rate) }}</strong><span>确认事实保留率</span></div>
+              <div><strong>{{ metricPercent(contextCompression.retention.open_questions.rate) }}</strong><span>未决问题保留率</span></div>
+            </div>
+            <template v-if="contextEvaluation">
+              <div class="diagnostic-evaluation-title">
+                <div>
+                  <strong>12 条成对压缩候选集</strong>
+                  <span>answer / clarify / refuse / resume 各 3 条</span>
+                </div>
+                <span :class="['evaluation-gate', contextEvaluation.technical_gates_passed ? 'passed' : 'failed']">
+                  {{ contextEvaluation.technical_gates_passed ? '技术门通过' : '技术门未通过' }}
+                </span>
+              </div>
+              <div class="diagnostic-evaluation-grid">
+                <div><strong>{{ metricPercent(contextEvaluation.metrics.constraint_retention) }}</strong><span>约束保留</span></div>
+                <div><strong>{{ metricPercent(contextEvaluation.metrics.confirmed_fact_retention) }}</strong><span>确认事实保留</span></div>
+                <div><strong>{{ metricPercent(contextEvaluation.metrics.open_question_retention) }}</strong><span>未决项保留</span></div>
+                <div><strong>{{ metricPercent(contextEvaluation.metrics.next_action_retention) }}</strong><span>下一动作保留</span></div>
+                <div><strong>{{ metricPercent(contextEvaluation.metrics.average_token_reduction) }}</strong><span>平均 Token 降幅</span></div>
+                <div><strong>{{ contextEvaluation.metrics.over_budget_cases }}</strong><span>预算超限用例</span></div>
+              </div>
+            </template>
+            <details>
+              <summary>查看可校验结构化摘要（不是隐藏思维链）</summary>
+              <div class="context-summary-fields">
+                <p><strong>目标：</strong>{{ contextCompression.structured_summary.goal || '无' }}</p>
+                <p><strong>约束：</strong>{{ (contextCompression.structured_summary.constraints || []).join('；') || '无' }}</p>
+                <p><strong>已确认事实：</strong>{{ formattedFacts(contextCompression.structured_summary.confirmed_facts) }}</p>
+                <p><strong>未决问题：</strong>{{ (contextCompression.structured_summary.open_questions || []).join('；') || '无' }}</p>
+                <p><strong>已完成步骤：</strong>{{ (contextCompression.structured_summary.completed_steps || []).join('；') || '无' }}</p>
+                <p><strong>失败步骤：</strong>{{ (contextCompression.structured_summary.failed_steps || []).join('；') || '无' }}</p>
+                <p><strong>证据引用：</strong>{{ (contextCompression.structured_summary.evidence_refs || []).join('、') || '无' }}</p>
+                <p><strong>下一动作：</strong>{{ contextCompression.structured_summary.next_action || '无' }}</p>
+              </div>
+            </details>
+            <div class="evaluation-candidate-warning">
+              <strong>口径说明：</strong>
+              <span v-for="limitation in contextCompression.limitations" :key="limitation">{{ limitation }}</span>
+            </div>
           </template>
         </section>
         <div v-if="!activeDiagnosticRun" class="diagnostic-empty">
@@ -596,6 +657,10 @@ export default {
     const diagnosticEvaluationOpen = ref(false)
     const loadingDiagnosticEvaluation = ref(false)
     const diagnosticEvaluation = ref(null)
+    const contextCompressionOpen = ref(false)
+    const loadingContextCompression = ref(false)
+    const contextCompression = ref(null)
+    const contextEvaluation = ref(null)
     const memoryPreviewOpen = ref(false)
     const loadingMemoryPreview = ref(false)
     const memoryPreview = ref(null)
@@ -1068,6 +1133,35 @@ export default {
       }
     }
 
+    const toggleContextCompression = async () => {
+      contextCompressionOpen.value = !contextCompressionOpen.value
+      if (!contextCompressionOpen.value || loadingContextCompression.value) return
+      if (!activeDiagnosticRun.value?.run?.run_id) {
+        contextCompressionOpen.value = false
+        return
+      }
+      try {
+        loadingContextCompression.value = true
+        const [contextResponse, evaluationResponse] = await Promise.all([
+          api.get(`/agent-runs/${activeDiagnosticRun.value.run.run_id}/context-compression`, { params: { budget_tokens: 512 } }),
+          api.get('/evaluations/context/latest').catch(() => null)
+        ])
+        contextCompression.value = contextResponse.data
+        contextEvaluation.value = evaluationResponse?.data || null
+      } catch (error) {
+        contextCompressionOpen.value = false
+        ElMessage.error(error.response?.data?.message || '结构化上下文暂时不可用')
+      } finally {
+        loadingContextCompression.value = false
+      }
+    }
+
+    const formattedFacts = (facts) => {
+      const entries = Object.entries(facts || {})
+      if (!entries.length) return '无'
+      return entries.sort(([left], [right]) => left.localeCompare(right)).map(([key, value]) => `${key}=${value}`).join('；')
+    }
+
     const toggleMemoryEvaluation = async () => {
       memoryEvaluationOpen.value = !memoryEvaluationOpen.value
       if (!memoryEvaluationOpen.value || memoryEvaluation.value || loadingMemoryEvaluation.value) return
@@ -1223,6 +1317,9 @@ export default {
 
     const resetDiagnosticRun = () => {
       activeDiagnosticRun.value = null
+      contextCompressionOpen.value = false
+      contextCompression.value = null
+      contextEvaluation.value = null
       confirmedResolution.value = null
       resolutionProposal.value = null
       diagnosticRecovered.value = false
@@ -1725,6 +1822,10 @@ export default {
       diagnosticEvaluationOpen,
       loadingDiagnosticEvaluation,
       diagnosticEvaluation,
+      contextCompressionOpen,
+      loadingContextCompression,
+      contextCompression,
+      contextEvaluation,
       memoryPreviewOpen,
       loadingMemoryPreview,
       memoryPreview,
@@ -1765,6 +1866,8 @@ export default {
       deleteProfileMemory,
       toggleMemoryEvaluation,
       toggleDiagnosticEvaluation,
+      toggleContextCompression,
+      formattedFacts,
       previewResolution,
       closeResolutionProposal,
       confirmResolution,

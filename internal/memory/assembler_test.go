@@ -46,6 +46,22 @@ func TestAssemblerIsDeterministicAndCapsBudget(t *testing.T) {
 	}
 }
 
+func TestAssemblerIncludesEveryStructuredSummaryFieldInStablePriorityOrder(t *testing.T) {
+	result := NewAssembler().Assemble(AssembleInput{CurrentQuestion: "current", BudgetTokens: 1024, Summary: StructuredSummary{
+		Goal: "diagnose", Constraints: []string{"read-only"}, ConfirmedFacts: map[string]string{"redis": "7.4"},
+		OpenQuestions: []string{"host?"}, CompletedSteps: []string{"parsed logs"}, FailedSteps: []string{"health timeout"},
+		EvidenceRefs: []string{"OBS-1"}, NextAction: "ask user",
+	}})
+	for _, kind := range []ContextKind{ContextGoal, ContextConstraint, ContextFact, ContextOpenQuestion, ContextNextAction, ContextCompleted, ContextFailed, ContextEvidence} {
+		if !hasContextKind(result.Included, kind) {
+			t.Fatalf("structured field %s missing: %+v", kind, result.Included)
+		}
+	}
+	if result.SummaryAvailable != 7 || result.SummaryIncluded != 7 {
+		t.Fatalf("unexpected summary attribution: %+v", result)
+	}
+}
+
 func TestAssemblerAdmitsOnlyBoundedConfirmedProfileFacts(t *testing.T) {
 	result := NewAssembler().Assemble(AssembleInput{
 		CurrentQuestion: "Redis 版本是什么", BudgetTokens: 256,
@@ -84,6 +100,20 @@ func TestAssemblerDoesNotDuplicateLatestQuestionAfterAnswerWasPersisted(t *testi
 	}
 	if questionCount != 1 {
 		t.Fatalf("current question was duplicated in preview assembly: %+v", result.Included)
+	}
+}
+
+func TestAssemblerAccountsForCumulativeWorkingMessageBudget(t *testing.T) {
+	messages := make([]WorkingMessage, 0, 12)
+	for index := 0; index < 12; index++ {
+		messages = append(messages, WorkingMessage{Role: RoleAssistant, Content: strings.Repeat("message ", 40)})
+	}
+	result := NewAssembler().Assemble(AssembleInput{CurrentQuestion: "current", WorkingMessages: messages, BudgetTokens: 256})
+	if result.OverBudget || result.EstimatedTokens > result.BudgetTokens {
+		t.Fatalf("cumulative working messages exceeded budget: %+v", result)
+	}
+	if result.WorkingIncluded >= result.WorkingAvailable || result.DroppedByBudget == 0 {
+		t.Fatalf("working messages were not budgeted cumulatively: %+v", result)
 	}
 }
 
