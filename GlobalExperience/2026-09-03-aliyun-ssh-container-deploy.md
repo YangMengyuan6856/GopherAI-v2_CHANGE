@@ -1214,3 +1214,32 @@ Worker、MCP、Vue 编译/HTTP 和四进程唯一性均重新通过。
 脚本现要求 `-SkipFrontend` 必须与显式的 `-AllowFrontendDowntime` 同时使用，否则在
 打包、上传和远程停进程之前直接失败。线上增量验证默认始终执行完整发布；只有明确由
 其他进程管理前端或刻意进行停机演练时，才允许使用这组参数。
+
+## 36. Harness 指标、暂停计时与跨发布恢复演练
+
+提交 `a4c8eacb` 将 Diagnostic Harness 的 durable create、幂等重放、CAS 状态迁移、
+终态/原因、耗时和五类预算利用率接入 Prometheus。所有标签均来自固定枚举，明确不含
+user、run、request、trace 等高基数标识。Release
+`20260905011852-a4c8eacbe654`（bundle SHA-256
+`dba2c860c87600792acc3f00ba5c4c46d031eea3c476e895199353a5d5fccf33`）中，真实
+Redis NOAUTH 诊断产生了 1 次 create、4 次 durable transition、1 次 SUCCEEDED
+terminal、1 次 duration observation 和五类 budget observation。
+
+提交 `baf75e0f` 让页面在 sessionStorage 中只保存当前 Run ID，并在刷新后通过带 JWT 的
+GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到浏览器；提交
+`8005c5b3` 锁定 201/400/404/409、schema version、Trace ID、所有权隐藏和 checkpoint
+私有 Artifact 不外泄等 HTTP 契约。
+
+第一次跨发布演练发现一个真实语义缺陷：Run `0bf88f2f…` 能在后端重启后恢复，但
+`WAITING_USER` 期间仍消耗最初 60 秒 deadline，补充证据后在 v9 被
+`TIME_BUDGET_EXCEEDED` 终止。提交 `aa0afdc7` 将等待用户和服务停机期间的暂停时长，
+与 `WAITING_USER → CONTEXT_READY` 的幂等 CAS 在同一事务中仅扩展一次 deadline。
+不能在客户端重建 deadline，也不能让重放重复增加。
+
+修复后先验证 Run `4d971b14…` 等待超过 60 秒仍可到 SUCCEEDED v9；随后在
+`99be6c6d` 发布前创建 `f732041f…`，通过完整原子发布重启 Backend，再由浏览器恢复
+同一 WAITING_USER v5 并补充 Redis NOAUTH 证据，最终到 SUCCEEDED v9，无超时且无
+重复 Step。最终 Release `20260905014303-99be6c6dbc11`，bundle SHA-256
+`0ef0e4731d96261070ced3613d1a64892391b1e42c6c6a7006e07fa0a3638e9c`，全部运行门
+通过；该版本还提供只返回摘要、不返回逐例内容的可追溯诊断评测看板，并醒目标记 40 条
+标签未人工复核、同集迭代、尚无密封留出集，不能将技术候选包装成正式基线。
