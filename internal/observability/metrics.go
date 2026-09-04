@@ -43,6 +43,13 @@ type Metrics struct {
 	harnessTerminals            *prometheus.CounterVec
 	harnessDuration             *prometheus.HistogramVec
 	harnessBudgetUtilization    *prometheus.HistogramVec
+	toolCalls                   *prometheus.CounterVec
+	toolDuration                *prometheus.HistogramVec
+	toolRetries                 *prometheus.CounterVec
+	toolCircuitState            *prometheus.GaugeVec
+	toolCache                   *prometheus.CounterVec
+	toolValidation              *prometheus.CounterVec
+	toolCancellations           *prometheus.CounterVec
 	gatherer                    prometheus.Gatherer
 }
 
@@ -191,6 +198,35 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 			Help:    "Terminal harness budget utilization ratio by bounded resource and outcome.",
 			Buckets: []float64{0, 0.1, 0.25, 0.5, 0.75, 0.9, 1, 1.1},
 		}, []string{"resource", "state"}),
+		toolCalls: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_tool_calls_total",
+			Help: "Total governed tool calls by bounded tool, strategy and terminal status.",
+		}, []string{"tool", "strategy", "status"}),
+		toolDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "gopherai_tool_duration_seconds",
+			Help:    "Governed tool execution duration in seconds.",
+			Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 15, 30},
+		}, []string{"tool", "strategy"}),
+		toolRetries: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_tool_retries_total",
+			Help: "Total governed tool retries by bounded reason.",
+		}, []string{"tool", "reason"}),
+		toolCircuitState: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "gopherai_tool_circuit_state",
+			Help: "Current governed tool circuit state represented as a one-hot gauge.",
+		}, []string{"tool", "state"}),
+		toolCache: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_tool_cache_total",
+			Help: "Total governed tool cache outcomes.",
+		}, []string{"tool", "result"}),
+		toolValidation: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_tool_validation_total",
+			Help: "Total governed tool registry, schema and authorization validation outcomes.",
+		}, []string{"tool", "result"}),
+		toolCancellations: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_tool_cancellations_total",
+			Help: "Total governed tool cancellations by bounded reason.",
+		}, []string{"tool", "reason"}),
 		gatherer: gatherer,
 	}
 	registerer.MustRegister(
@@ -226,6 +262,13 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 		metrics.harnessTerminals,
 		metrics.harnessDuration,
 		metrics.harnessBudgetUtilization,
+		metrics.toolCalls,
+		metrics.toolDuration,
+		metrics.toolRetries,
+		metrics.toolCircuitState,
+		metrics.toolCache,
+		metrics.toolValidation,
+		metrics.toolCancellations,
 	)
 	for _, status := range []string{"accepted", "duplicate", "rejected", "error"} {
 		metrics.documentUploads.WithLabelValues(status).Add(0)
@@ -256,7 +299,134 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 			}
 		}
 	}
+	for _, tool := range []string{"deployment_manifest_lookup", "service_health_snapshot"} {
+		for _, state := range []string{"closed", "open", "half_open"} {
+			value := 0.0
+			if state == "closed" {
+				value = 1
+			}
+			metrics.toolCircuitState.WithLabelValues(tool, state).Set(value)
+		}
+		for _, result := range []string{"hit", "miss", "bypass", "store_error"} {
+			metrics.toolCache.WithLabelValues(tool, result).Add(0)
+		}
+	}
 	return metrics
+}
+
+func (metrics *Metrics) RecordToolValidation(tool string, result string) {
+	if metrics == nil {
+		return
+	}
+	metrics.toolValidation.WithLabelValues(boundedToolName(tool), boundedToolValidation(result)).Inc()
+}
+
+func (metrics *Metrics) RecordToolCall(tool string, strategy string, status string, duration time.Duration) {
+	if metrics == nil {
+		return
+	}
+	if duration < 0 {
+		duration = 0
+	}
+	tool, strategy, status = boundedToolName(tool), boundedToolStrategy(strategy), boundedToolStatus(status)
+	metrics.toolCalls.WithLabelValues(tool, strategy, status).Inc()
+	metrics.toolDuration.WithLabelValues(tool, strategy).Observe(duration.Seconds())
+}
+
+func (metrics *Metrics) RecordToolCancellation(tool string, reason string) {
+	if metrics == nil {
+		return
+	}
+	switch reason {
+	case "timeout", "request_cancelled":
+	default:
+		reason = "unknown"
+	}
+	metrics.toolCancellations.WithLabelValues(boundedToolName(tool), reason).Inc()
+}
+
+func (metrics *Metrics) RecordToolAuditFailure(tool string) {
+	if metrics == nil {
+		return
+	}
+	metrics.persistFailures.WithLabelValues("tool_audit").Inc()
+}
+
+func (metrics *Metrics) RecordToolRetry(tool string, reason string) {
+	if metrics == nil {
+		return
+	}
+	switch reason {
+	case "timeout", "temporary_error":
+	default:
+		reason = "unknown"
+	}
+	metrics.toolRetries.WithLabelValues(boundedToolName(tool), reason).Inc()
+}
+
+func (metrics *Metrics) RecordToolCache(tool string, result string) {
+	if metrics == nil {
+		return
+	}
+	switch result {
+	case "hit", "miss", "bypass", "store_error":
+	default:
+		result = "bypass"
+	}
+	metrics.toolCache.WithLabelValues(boundedToolName(tool), result).Inc()
+}
+
+func (metrics *Metrics) SetToolCircuitState(tool string, state string) {
+	if metrics == nil {
+		return
+	}
+	tool = boundedToolName(tool)
+	if state != "closed" && state != "open" && state != "half_open" {
+		state = "open"
+	}
+	for _, candidate := range []string{"closed", "open", "half_open"} {
+		value := 0.0
+		if candidate == state {
+			value = 1
+		}
+		metrics.toolCircuitState.WithLabelValues(tool, candidate).Set(value)
+	}
+}
+
+func boundedToolName(value string) string {
+	switch value {
+	case "deployment_manifest_lookup", "service_health_snapshot":
+		return value
+	default:
+		return "unknown"
+	}
+}
+
+func boundedToolStrategy(value string) string {
+	switch value {
+	case "tool_primary", "diagnosis_standard":
+		return value
+	default:
+		return "unknown"
+	}
+}
+
+func boundedToolStatus(value string) string {
+	switch value {
+	case "success", "rejected", "invalid_arguments", "budget_exceeded", "timeout", "cancelled", "error":
+		return value
+	default:
+		return "error"
+	}
+}
+
+func boundedToolValidation(value string) string {
+	switch value {
+	case "accepted", "registry_miss", "invalid_arguments", "intent_denied", "permission_denied", "side_effect_denied", "budget_exceeded":
+		return value
+	default:
+		return "unknown"
+	}
 }
 
 func (metrics *Metrics) RecordProfileRecall(status string, duration time.Duration, count int) {

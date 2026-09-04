@@ -48,6 +48,11 @@ func InitRouter() *gin.Engine {
 		MemoryGroup.Use(requestid.Attach(), jwt.Auth())
 		RegisterMemoryRouter(MemoryGroup)
 	}
+	{
+		ToolGroup := enterRouter.Group("/tools")
+		ToolGroup.Use(requestid.Attach(), jwt.Auth())
+		RegisterToolRuntimeRouter(ToolGroup)
+	}
 
 	{
 		FileGroup := enterRouter.Group("/file")

@@ -1,0 +1,161 @@
+package toolruntime
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"strings"
+	"time"
+)
+
+type Runtime struct {
+	registry *Registry
+	auditor  Auditor
+	observer Observer
+	now      func() time.Time
+}
+
+func NewRuntime(registry *Registry, auditor Auditor, observer Observer) (*Runtime, error) {
+	if registry == nil {
+		return nil, errors.New("tool registry is required")
+	}
+	if auditor == nil {
+		auditor = nopAuditor{}
+	}
+	if observer == nil {
+		observer = nopObserver{}
+	}
+	return &Runtime{registry: registry, auditor: auditor, observer: observer, now: time.Now}, nil
+}
+
+func (runtime *Runtime) Definitions() []Definition { return runtime.registry.Definitions() }
+
+func (runtime *Runtime) Invoke(ctx context.Context, invocation Invocation) ToolMessage {
+	startedAt := runtime.now()
+	message := ToolMessage{CallID: boundedCallID(invocation.CallID), ToolName: invocation.ToolName, Status: StatusRejected}
+	if len(message.CallID) == 0 {
+		message.CallID = "missing-call-id"
+	}
+	tool, found := runtime.registry.Lookup(invocation.ToolName)
+	if !found {
+		message.ArgsHash = hashBytes(invocation.Arguments)
+		message.ErrorCode = ErrorToolNotRegistered
+		runtime.finish(ctx, startedAt, invocation, &message, "registry_miss")
+		return message
+	}
+	definition := tool.Definition()
+	message.ToolVersion = definition.Version
+
+	arguments, canonical, err := validateArguments(definition.InputSchema, invocation.Arguments)
+	if err != nil {
+		message.ArgsHash = hashBytes(invocation.Arguments)
+		message.Status = StatusInvalidArgs
+		message.ErrorCode = ErrorArgumentsInvalid
+		runtime.finish(ctx, startedAt, invocation, &message, "invalid_arguments")
+		return message
+	}
+	message.ArgsHash = hashBytes(canonical)
+	if !contains(definition.AllowedIntents, invocation.Intent) {
+		message.ErrorCode = ErrorIntentDenied
+		runtime.finish(ctx, startedAt, invocation, &message, "intent_denied")
+		return message
+	}
+	if !invocation.Principal.Permissions[definition.RequiredPermission] {
+		message.ErrorCode = ErrorPermissionDenied
+		runtime.finish(ctx, startedAt, invocation, &message, "permission_denied")
+		return message
+	}
+	if !sideEffectAllowed(definition.SideEffect, invocation.AllowedSideEffect) {
+		message.ErrorCode = ErrorSideEffectDenied
+		runtime.finish(ctx, startedAt, invocation, &message, "side_effect_denied")
+		return message
+	}
+	if invocation.Budget.MaxCalls <= 0 || invocation.Budget.UsedCalls >= invocation.Budget.MaxCalls {
+		message.Status = StatusBudgetExceeded
+		message.ErrorCode = ErrorBudgetExceeded
+		runtime.finish(ctx, startedAt, invocation, &message, "budget_exceeded")
+		return message
+	}
+
+	runtime.observer.RecordToolValidation(definition.Name, "accepted")
+	callContext, cancel := context.WithTimeout(ctx, time.Duration(definition.TimeoutMS)*time.Millisecond)
+	defer cancel()
+	output, executeErr := tool.Execute(callContext, arguments)
+	if executeErr != nil {
+		switch {
+		case errors.Is(callContext.Err(), context.DeadlineExceeded), errors.Is(executeErr, context.DeadlineExceeded):
+			message.Status, message.ErrorCode, message.Retryable = StatusTimeout, ErrorTimeout, true
+			runtime.observer.RecordToolCancellation(definition.Name, "timeout")
+		case errors.Is(callContext.Err(), context.Canceled), errors.Is(executeErr, context.Canceled):
+			message.Status, message.ErrorCode = StatusCancelled, ErrorCancelled
+			runtime.observer.RecordToolCancellation(definition.Name, "request_cancelled")
+		default:
+			message.Status, message.ErrorCode, message.Retryable = StatusError, ErrorExecutionFailed, output.Retryable
+		}
+		runtime.finish(ctx, startedAt, invocation, &message, "")
+		return message
+	}
+	encoded, err := json.Marshal(output.Data)
+	if err != nil {
+		message.Status, message.ErrorCode = StatusError, ErrorExecutionFailed
+		runtime.finish(ctx, startedAt, invocation, &message, "")
+		return message
+	}
+	if len(encoded) > definition.MaxResultBytes {
+		message.Status, message.ErrorCode, message.Truncated = StatusError, ErrorResultTooLarge, true
+		message.Data, _ = json.Marshal(map[string]any{"original_bytes": len(encoded), "max_result_bytes": definition.MaxResultBytes})
+		runtime.finish(ctx, startedAt, invocation, &message, "")
+		return message
+	}
+	message.Status = StatusSuccess
+	message.Data = encoded
+	message.EvidenceRefs = append([]string(nil), output.EvidenceRefs...)
+	runtime.finish(ctx, startedAt, invocation, &message, "")
+	return message
+}
+
+func (runtime *Runtime) finish(ctx context.Context, startedAt time.Time, invocation Invocation, message *ToolMessage, validation string) {
+	duration := runtime.now().Sub(startedAt)
+	if duration < 0 {
+		duration = 0
+	}
+	message.LatencyMS = duration.Milliseconds()
+	if validation != "" {
+		runtime.observer.RecordToolValidation(boundedMetricTool(message.ToolName), validation)
+	}
+	runtime.observer.RecordToolCall(boundedMetricTool(message.ToolName), invocation.Strategy, message.Status, duration)
+	// Audit uses a detached, tightly bounded context so a cancelled request still
+	// leaves a sanitized record of the attempted invocation.
+	auditContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 500*time.Millisecond)
+	defer cancel()
+	if err := runtime.auditor.Record(auditContext, invocation, *message); err != nil {
+		runtime.observer.RecordToolAuditFailure(boundedMetricTool(message.ToolName))
+	}
+}
+
+func sideEffectAllowed(required SideEffect, allowed SideEffect) bool {
+	rank := map[SideEffect]int{SideEffectReadOnly: 1, SideEffectInternalWrite: 2, SideEffectExternalWrite: 3}
+	return rank[required] > 0 && rank[required] <= rank[allowed]
+}
+
+func boundedCallID(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) > 128 {
+		return value[:128]
+	}
+	return value
+}
+
+func boundedMetricTool(value string) string {
+	if toolNamePattern.MatchString(value) {
+		return value
+	}
+	return "unknown"
+}
+
+func hashBytes(value []byte) string {
+	digest := sha256.Sum256(value)
+	return hex.EncodeToString(digest[:])
+}

@@ -78,6 +78,7 @@ func migration() error {
 		new(model.ResolutionFeedback),
 		new(model.ResolvedIncident),
 		new(model.EnvironmentMemory),
+		new(model.ToolAudit),
 	)
 }
 

@@ -37,6 +37,7 @@
           故障诊断 Harness
         </label>
         <button class="memory-toggle-btn" :disabled="loadingMemoryPreview" @click="toggleMemoryPreview">🧠 三级记忆</button>
+        <button class="tool-runtime-toggle" :disabled="loadingToolCatalog" @click="toggleToolRuntime">🛡 受治理工具</button>
         <button
           class="upload-btn"
           title="支持 Markdown/TXT、JSON/YAML key path 和 Go 顶层符号索引"
@@ -52,6 +53,49 @@
           @change="handleFileUpload"
         />
       </div>
+
+      <section v-if="toolRuntimeOpen" class="tool-runtime-panel">
+        <div class="tool-runtime-header">
+          <div>
+            <strong>受治理 Tool Runtime</strong>
+            <span>Registry → Schema → 意图/权限/副作用 → 预算/超时 → 审计/指标</span>
+          </div>
+          <span class="tool-runtime-schema">{{ toolCatalog?.schema_version || 'tool-message-v1' }}</span>
+        </div>
+        <div v-if="loadingToolCatalog" class="tool-runtime-empty">正在读取服务端工具注册表...</div>
+        <div v-else-if="toolCatalog?.tools?.length" class="tool-runtime-grid">
+          <article v-for="tool in toolCatalog.tools" :key="`${tool.name}:${tool.version}`" class="tool-runtime-card">
+            <div class="tool-runtime-title">
+              <strong>{{ tool.name }}</strong>
+              <span>v{{ tool.version }}</span>
+            </div>
+            <p>{{ tool.description }}</p>
+            <div class="tool-runtime-tags">
+              <span>{{ tool.side_effect }}</span>
+              <span>{{ tool.timeout_ms }} ms</span>
+              <span>{{ tool.required_permission }}</span>
+              <span>意图：{{ tool.allowed_intents.join(' / ') }}</span>
+            </div>
+            <button
+              v-if="tool.name === 'deployment_manifest_lookup'"
+              :disabled="invokingTool"
+              @click="invokeGovernedTool(tool.name)"
+            >{{ invokingTool ? '执行治理链路中...' : '查询当前部署清单' }}</button>
+          </article>
+        </div>
+        <div v-else class="tool-runtime-empty">当前没有通过治理注册的工具。</div>
+        <article v-if="toolResult" :class="['tool-result', toolResult.status === 'success' ? 'success' : 'failed']">
+          <div class="tool-result-heading">
+            <strong>ToolMessage · {{ toolResult.status }}</strong>
+            <span>{{ toolResult.tool_name }}@{{ toolResult.tool_version || 'unknown' }} · {{ toolResult.latency_ms }} ms</span>
+          </div>
+          <div>Call {{ toolResult.call_id }} · Args SHA-256 {{ (toolResult.args_hash || '').slice(0, 16) }}…</div>
+          <div v-if="toolResult.error_code">稳定错误码：{{ toolResult.error_code }} · 可重试：{{ toolResult.retryable ? '是' : '否' }}</div>
+          <pre v-if="toolResult.data">{{ formatToolData(toolResult.data) }}</pre>
+          <div v-if="toolResult.evidence_refs?.length">证据：{{ toolResult.evidence_refs.join('；') }}</div>
+          <small>缓存 {{ toolResult.cached ? '命中' : '未命中' }} · 截断 {{ toolResult.truncated ? '是' : '否' }} · 原始参数与用户标识不写入审计</small>
+        </article>
+      </section>
 
       <div v-if="knowledgeDocuments.length" class="knowledge-status">
         <span>📚 已接收 {{ knowledgeDocuments.length }} 份文档</span>
@@ -667,6 +711,11 @@ export default {
     const memoryEvaluationOpen = ref(false)
     const loadingMemoryEvaluation = ref(false)
     const memoryEvaluation = ref(null)
+    const toolRuntimeOpen = ref(false)
+    const loadingToolCatalog = ref(false)
+    const toolCatalog = ref(null)
+    const invokingTool = ref(false)
+    const toolResult = ref(null)
     const profileMemories = ref(null)
     const profileDrafts = ref({})
     const profileMemoryBusy = ref('')
@@ -1161,6 +1210,38 @@ export default {
       if (!entries.length) return '无'
       return entries.sort(([left], [right]) => left.localeCompare(right)).map(([key, value]) => `${key}=${value}`).join('；')
     }
+
+    const toggleToolRuntime = async () => {
+      toolRuntimeOpen.value = !toolRuntimeOpen.value
+      if (!toolRuntimeOpen.value || toolCatalog.value || loadingToolCatalog.value) return
+      try {
+        loadingToolCatalog.value = true
+        const response = await api.get('/tools')
+        toolCatalog.value = response.data
+      } catch (error) {
+        toolRuntimeOpen.value = false
+        ElMessage.error(error.response?.data?.message || '工具注册表暂时不可用')
+      } finally {
+        loadingToolCatalog.value = false
+      }
+    }
+
+    const invokeGovernedTool = async (toolName) => {
+      try {
+        invokingTool.value = true
+        toolResult.value = null
+        const response = await api.post('/tools/invoke', { tool_name: toolName, arguments: {}, intent: 'tool_task' })
+        toolResult.value = response.data
+        ElMessage.success('部署清单已通过完整治理链路返回')
+      } catch (error) {
+        toolResult.value = error.response?.data || { status: 'error', error_code: 'TOOL_CONSOLE_REQUEST_FAILED', retryable: true }
+        ElMessage.error(toolResult.value?.message || `工具调用失败：${toolResult.value?.error_code || '未知错误'}`)
+      } finally {
+        invokingTool.value = false
+      }
+    }
+
+    const formatToolData = (data) => JSON.stringify(data, null, 2)
 
     const toggleMemoryEvaluation = async () => {
       memoryEvaluationOpen.value = !memoryEvaluationOpen.value
@@ -1832,6 +1913,11 @@ export default {
       memoryEvaluationOpen,
       loadingMemoryEvaluation,
       memoryEvaluation,
+      toolRuntimeOpen,
+      loadingToolCatalog,
+      toolCatalog,
+      invokingTool,
+      toolResult,
       profileMemories,
       profileDrafts,
       profileMemoryBusy,
@@ -1865,6 +1951,9 @@ export default {
       correctProfileMemory,
       deleteProfileMemory,
       toggleMemoryEvaluation,
+      toggleToolRuntime,
+      invokeGovernedTool,
+      formatToolData,
       toggleDiagnosticEvaluation,
       toggleContextCompression,
       formattedFacts,
@@ -3104,6 +3193,129 @@ export default {
   font-size: 12px;
   font-weight: 700;
   white-space: nowrap;
+}
+
+.tool-runtime-toggle {
+  padding: 8px 12px;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #405a7d 0%, #526da8 100%);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tool-runtime-toggle:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.tool-runtime-panel {
+  margin: 12px 20px 0;
+  padding: 15px;
+  border: 1px solid rgba(64, 90, 125, 0.18);
+  border-radius: 14px;
+  background: linear-gradient(145deg, rgba(246, 249, 255, 0.98), rgba(238, 244, 252, 0.98));
+  box-shadow: 0 8px 24px rgba(45, 67, 99, 0.08);
+}
+
+.tool-runtime-header,
+.tool-runtime-title,
+.tool-result-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tool-runtime-header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.tool-runtime-header span,
+.tool-runtime-card p,
+.tool-result,
+.tool-runtime-empty {
+  color: #60718a;
+  font-size: 12px;
+}
+
+.tool-runtime-schema,
+.tool-runtime-title span {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(64, 90, 125, 0.1);
+  color: #405a7d;
+  font-weight: 700;
+}
+
+.tool-runtime-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.tool-runtime-card,
+.tool-result {
+  padding: 12px;
+  border: 1px solid rgba(64, 90, 125, 0.14);
+  border-radius: 11px;
+  background: #fff;
+}
+
+.tool-runtime-card p {
+  margin: 8px 0;
+  line-height: 1.55;
+}
+
+.tool-runtime-card button {
+  margin-top: 9px;
+  padding: 7px 11px;
+  border: none;
+  border-radius: 8px;
+  background: #405a7d;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.tool-runtime-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.tool-runtime-tags span {
+  padding: 3px 6px;
+  border-radius: 6px;
+  background: #eef3fa;
+  color: #526680;
+  font-size: 11px;
+}
+
+.tool-result {
+  display: grid;
+  gap: 6px;
+  margin-top: 11px;
+}
+
+.tool-result.success { border-left: 4px solid #34a879; }
+.tool-result.failed { border-left: 4px solid #d66b6b; }
+
+.tool-result pre {
+  max-height: 220px;
+  margin: 4px 0;
+  padding: 10px;
+  overflow: auto;
+  border-radius: 8px;
+  background: #172233;
+  color: #d8e8fb;
+  font-size: 11px;
+  white-space: pre-wrap;
 }
 
 .routing-meta {
