@@ -580,3 +580,49 @@ After a Linux cross-build on Windows, running `go test` without clearing
 that Windows reports as “not a valid Win32 application.” Restore the native
 environment before tests. This failure is a command-environment issue, not a
 source-code or test failure.
+
+## 18. M3-A3 Tenant-safe Hybrid Retrieval Release
+
+Release `20260904105609-6b310fe2bc67` contains the hybrid-retrieval feature
+commit `007fb603003da6128946b4bc6aaed60777a6441c`, punctuated-identifier fix
+`e69e0ed433d08b54726932fc93318db9e2414153`, and idle-polling/log fix
+`6b310fe2bc6708360661d15c0ddcfd4888229ca0`.
+
+Verified results:
+
+- Root-module and nested MCP tests passed; backend, index worker, and MCP
+  binaries built for Linux/amd64; all remote health gates and the real Vue
+  compile passed.
+- An authenticated public-browser test of both `GopherAI` and
+  `Blue-Gopher-904` returned Dense 2, BM25 2, and fused 2. Both evidence cards
+  carried `dense+bm25` provenance plus file, version, section, line range, and
+  deterministic RRF score.
+- Both retrieval paths enforce tenant and user TAG filters. Redis is only the
+  retrieval index: every candidate is reloaded from MySQL and checked for
+  indexed status and the same tenant/user ACL before it can be returned.
+- Prometheus exposed a `hybrid/success` retrieval count plus latency and result
+  histograms after the browser request.
+- Search dependencies are initialized lazily. A temporarily unavailable
+  embedding or Redis dependency therefore does not prevent the backend from
+  registering routes or starting its health endpoints.
+
+This release deliberately returns evidence previews only. It does not yet
+ground chat answers, enforce an Evidence Gate, or create verified citations;
+those belong to the next independently testable slice.
+
+### 18.1 Preserve the exact identifier and search its components
+
+The first public test showed that RediSearch tokenization did not match the
+literal identifier `Blue-Gopher-904`, although dense retrieval still found the
+correct chunks. Keyword query construction must preserve an escaped exact
+form and also OR its alphanumeric components (`blue | gopher | 904`). A unit
+test for `err-42` now protects this behavior.
+
+### 18.2 Stop terminal-state polling and initialize release logging early
+
+Document polling is useful only while at least one document is `uploaded` or
+`parsing`. Stop the timer after every document reaches a terminal state and
+restart it after a new upload. Also set Gin release mode before MySQL/GORM is
+initialized; changing it later leaves verbose SQL logging enabled. The final
+release produced no new three-second document-list requests after the initial
+page load settled.
