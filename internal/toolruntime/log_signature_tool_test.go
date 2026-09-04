@@ -12,7 +12,7 @@ func TestBoundedLogSignatureToolReturnsOnlyMatchingRedactedEvidence(t *testing.T
 	root := t.TempDir()
 	contents := strings.Join([]string{
 		"service started normally",
-		"ERROR redis NOAUTH password=super-secret email=alice@example.com",
+		"ERROR redis NOAUTH password=super-secret email=alice@example.com F:/private/work/internal/outbox.go:159",
 		"WARN amqp://guest:guest@rabbitmq:5672 retry after timeout Authorization: Bearer eyJabcdefghijk.abcdefghijk.signature",
 	}, "\n")
 	if err := os.WriteFile(filepath.Join(root, "backend.log"), []byte(contents), 0o600); err != nil {
@@ -28,12 +28,12 @@ func TestBoundedLogSignatureToolReturnsOnlyMatchingRedactedEvidence(t *testing.T
 		t.Fatalf("unexpected snapshot: %+v evidence=%v", snapshot, output.EvidenceRefs)
 	}
 	excerpt := snapshot.Matches[0].Excerpt
-	for _, secret := range []string{"super-secret", "alice@example.com"} {
+	for _, secret := range []string{"super-secret", "alice@example.com", "F:/private/work"} {
 		if strings.Contains(excerpt, secret) {
 			t.Fatalf("secret was not redacted: %s", excerpt)
 		}
 	}
-	if !strings.Contains(excerpt, "[REDACTED]") || !strings.Contains(excerpt, "[REDACTED_EMAIL]") || len(snapshot.Matches[0].LineHash) != 64 {
+	if !strings.Contains(excerpt, "[REDACTED]") || !strings.Contains(excerpt, "[REDACTED_EMAIL]") || !strings.Contains(excerpt, "<source>/outbox.go:159") || len(snapshot.Matches[0].LineHash) != 64 {
 		t.Fatalf("redaction or hash missing: %+v", snapshot.Matches[0])
 	}
 }

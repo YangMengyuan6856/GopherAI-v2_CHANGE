@@ -36,6 +36,7 @@ var (
 	dsnCredential      = regexp.MustCompile(`(?i)\b[a-z0-9._-]+:[^@\s]+@(tcp|unix|\()`)
 	jwtCredential      = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9_-]{4,})?\b`)
 	emailAddress       = regexp.MustCompile(`(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b`)
+	sourceFilePath     = regexp.MustCompile(`(?i)(?:[A-Z]:[\\/]|/)(?:[^\s:\\]+[\\/])+([^\s:\\/]+\.go):(\d+)`)
 )
 
 type BoundedLogSignatureTool struct {
@@ -197,6 +198,7 @@ func sanitizeLogExcerpt(line string) string {
 	line = dsnCredential.ReplaceAllString(line, `***:***@$1`)
 	line = jwtCredential.ReplaceAllString(line, "[REDACTED_JWT]")
 	line = emailAddress.ReplaceAllString(line, "[REDACTED_EMAIL]")
+	line = sourceFilePath.ReplaceAllString(line, `<source>/$1:$2`)
 	line = strings.Map(func(value rune) rune {
 		if value == '\t' || unicode.IsPrint(value) {
 			return value
