@@ -1011,3 +1011,37 @@ code; citations expand to exact evidence and line range; Deep results expose
 extra queries, candidate counts, Token use, Rewrite/Rerank latency, and fallback
 reasons. These UI behaviors still require real signed-in acceptance even though
 the cloud compile and runtime gates passed.
+
+## 31. M4 Intent Shadow and Real Cascade Evaluation
+
+Release `20260904194839-78b0a2d4a335` (commit `78b0a2d4a335`) introduced the
+complete intent cascade as a production Shadow path. The existing fixed and
+explicit routes remain authoritative. Normal JSON and SSE responses expose the
+shadow suggestion separately, and the page labels the two lines as `actual
+route` and `shadow decision (no traffic switch)`. MySQL stores only bounded
+intent diagnostics in `agent_runs`; raw questions and answers remain excluded.
+Prometheus exports bounded decision, stage-call, duration, and disagreement
+metrics. The feature can be disabled with
+`GOPHERAI_FEATURE_INTENT_SHADOW_ENABLED=false`.
+
+The first real 150-case evaluation found a contract failure rather than a model
+classification failure: optional `entities` metadata sometimes contained
+arrays or numbers, so strict `map[string]string` decoding discarded otherwise
+valid intent decisions. The corrected boundary keeps every routing field and
+unknown top-level field strict, but drops or trims invalid optional entity
+values and records `llm_entities_sanitized`. Low-confidence model results remain
+candidate intents with `needs_clarify=true`; they are not permitted to activate
+an Agent. This obeys the `<0.60 => clarify or general` safety requirement while
+retaining calibration evidence.
+
+Candidate commit `2dbaf8184c77589e67fd0a02ea3769b2b8189b70` measured Accuracy
+`0.9533`, Macro-F1 `0.9530`, minimum class Recall `0.8800`, severe misroute
+rate `0.0067`, Prototype and LLM call rates `0.5533`, calibration error
+`0.1925`, and cascade P95 `878ms`. The technical G4 thresholds pass. The
+dataset SHA-256 is
+`6d3d8061feb3bacd7615c55d82c68345f2abd8a2ee72a8d111b5ed89024ae1c2`.
+Because every label is still `pending_user`, the report intentionally remains
+`human_reviewed=false` and `baseline_eligible=false`; do not quote this as a
+human-reviewed resume baseline yet. The initial post-fix runtime release was
+`20260904201438-2dbaf8184c77-dirty`; a clean documentation release must follow
+after committing the generated report.

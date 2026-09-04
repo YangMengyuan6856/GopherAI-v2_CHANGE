@@ -268,6 +268,34 @@ A technical pass on pending labels remains a candidate result only.
 			return err
 		}
 	}
+	if _, err := fmt.Fprint(writer, "\n## Cascade stage contribution\n\n| Final stage | Cases | Correct | Accuracy |\n|---|---:|---:|---:|\n"); err != nil {
+		return err
+	}
+	for _, stage := range []string{"pattern", "prototype", "llm", "degraded_clarification", "unavailable", "unknown"} {
+		metric, exists := report.StageMetrics[stage]
+		if !exists {
+			continue
+		}
+		if _, err := fmt.Fprintf(writer, "| `%s` | %d | %d | %.4f |\n", stage, metric.Count, metric.Correct, metric.Accuracy); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprint(writer, "\n## Confidence calibration\n\n| Bin | Cases | Average confidence | Accuracy |\n|---|---:|---:|---:|\n"); err != nil {
+		return err
+	}
+	for _, bin := range report.ConfidenceBins {
+		if _, err := fmt.Fprintf(writer, "| [%.1f, %.1f%s | %d | %.4f | %.4f |\n", bin.Lower, bin.Upper, map[bool]string{true: "]", false: ")"}[bin.Upper == 1], bin.Count, bin.AverageConfidence, bin.Accuracy); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprintf(writer, "\n## Misclassifications (%d)\n\n| Case | Expected | Predicted | Confidence | Stage | Severe |\n|---|---|---|---:|---|---:|\n", len(report.Failures)); err != nil {
+		return err
+	}
+	for _, failure := range report.Failures {
+		if _, err := fmt.Fprintf(writer, "| `%s` | `%s` | `%s` | %.4f | `%s` | %t |\n", failure.ID, failure.Expected, failure.Predicted, failure.Confidence, failure.FinalStage, failure.SevereMisroute); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
