@@ -1283,3 +1283,10 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - Profile 查询在普通聊天的真实生成前执行；命中时以独立 system context `confirmed_environment.<key>=<value>` 注入，并附加“当前用户明确陈述/项目证据优先”的冲突规则。查询失败按 `unavailable` fail-open，不阻断模型；Prometheus 只使用 `hit/no_match/unavailable` 固定标签并记录耗时和返回条数。
 - Release `20260905035546-48063a54986e`（commit `48063a54`，bundle SHA-256 `c216438f9aa1ad107b4acaab82fb26dfc260784afe809c56c37b7601033fb072`）通过四进程门。真实普通聊天连续询问已确认 Redis 版本，两次均回答 `7.4`；页面显示 `Profile 命中 1 条 · profile-recall-v1` 和实际组装项 `confirmed_environment.redis_version=7.4`。无关问题 `PROFILE-NO-MATCH` 显示“Profile 无相关事实”，上下文没有 Redis 项。
 - 现场指标为 `gopherai_profile_memory_recalls_total{status="hit"}=1`、`no_match=1`、`unavailable=0`，单次命中返回 1 条、耗时约 1.16ms。测试时发现回答持久化后，预览会重复展示最新问句；`48063a54` 改为跳过与当前问题匹配的最新 user 消息，并把页面文案改成“按当前历史和预算重建的上下文预览”，避免把回答后重建结果冒充生成时快照。
+
+## 42. 2026-09-05 记忆安全契约评测候选
+
+- 提交 `24f3b559` 新增 `devsupport-memory-v1` 的 20 条确定性契约集，相关召回、过期/冲突值、删除后不可召回、跨用户/租户隔离和 Context Token 预算五类各 4 条。评测器复用生产 `profilememory.Selector` 与 `memory.Assembler`，避免另写一套只为评测通过的规则。
+- 本地候选报告结果：相关记忆召回 `100%`、过期/错误注入 `0%`、删除后召回 `0`、跨 principal 泄漏 `0`、预算遵守率 `100%`、确定性重放率 `100%`。20 条标签仍为 `pending_user`，因此 `baseline_eligible=false`；该报告只证明确定性选择/隔离/预算契约，不冒充真实 MySQL 故障注入、语义向量召回或长对话回答质量。
+- 页面“三级记忆”面板新增只返回汇总、不返回逐例内容的中文看板，并展示报告 SHA-256、技术门、人工复核状态和三项限制。后端严格校验恰好 20 条、报告元数据和 baseline 资格，提供私有缓存 ETag。
+- Release `20260905041551-24f3b559b235`（commit `24f3b559b235d99334e6590a76fb1c532fbcec4e`，bundle SHA-256 `77af3f5acd18ad2530027395705084a474494206cb63082fc66c7a4c88af6a8f`）通过 Backend/Index Worker live/ready、MCP、Vue 编译/HTTP 和唯一进程门。本地全量 `go test ./...`、`go vet ./...`、前端生产构建以及 profile/evaluation/memory/controller 的 Race 定向测试均通过。
