@@ -457,3 +457,19 @@ dependency, also re-check that the module's `go` and `toolchain` directives
 were not raised unintentionally. The Prometheus client was pinned to v1.23.2
 so the repository remains compatible with its existing Go 1.24 module
 directive while being built by the verified local Go 1.25 toolchain.
+
+### 15.2 User acceptance evidence
+
+The user completed a real streaming chat request after deployment and confirmed
+that the page behavior was normal. Server-side verification showed:
+
+```text
+gopherai_requests_total{intent="legacy",status="success",strategy="legacy_chat"} 1
+gopherai_request_duration_seconds_count{intent="legacy",strategy="legacy_chat"} 1
+gopherai_agent_runs_total{agent="legacy_chat",status="success",strategy="legacy_chat"} 1
+```
+
+The corresponding structured log used trace
+`be825b2e-26b0-4e8f-97fe-2a7178e31c3a`, reported
+`persistence_status=stored`, and contained only the hashed user identifier.
+This closes the M2-B1 user-acceptance gate.
