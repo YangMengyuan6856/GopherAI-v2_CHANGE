@@ -1398,3 +1398,11 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - `fd4bd99c` 上线 `evidence-aware-synthesizer-v1` 内核。合成器不读取 Agent 自由文本过程，只接收通过 Executor 边界校验的结构化 Claim/Evidence；每个 Claim 必须引用同 tenant 的已登记 Evidence，未知引用、同 ID 不同载荷、Claim ID 冲突和冲突元数据不一致都会显式拒绝，不能用一段流畅总结掩盖来源问题。
 - 相同结论会合并 Agent 来源、Evidence 引用并取较高置信度；同一事实键出现不同值时，两条 Claim 都保留为 `conflicted`，返回显式冲突并回退 `diagnosis_standard`，不会静默选边。任一子 Agent 失败时只保留成功兄弟的可验证结论，状态为 `partial`；全部没有可验证结论时为 `insufficient`。
 - Release `20260905100014-fd4bd99cd10b`，bundle SHA-256 `25c94622dfec681ef0ddcdb5f68f46fe2c63ae4eaab565f049f1ffe60f074af3`，Backend/Index Worker/MCP/Vue 和唯一进程门全部通过。该版本仍只有合成内核，不伪造线上 Agent 运行证据；下一纵切 M7-08 才接 KnowledgeAgent 与 DiagnosticAgent 的真实 Shadow 入口。
+
+## 58. 2026-09-05 diagnosis_collaborative 真实 Shadow 与局部降级
+
+- `33710305` 接通真实 `diagnosis_collaborative` Shadow：Planner 达到 70 分门槛后，最多并行运行 KnowledgeAgent 与 DiagnosticAgent；前者只读取当前用户有权访问的项目文档并输出已校验引用，后者复用标准诊断与 confirmed 案例的 advisory 召回。两个 Runner 都禁止递归创建 Agent，入口不创建会话、不写对话记忆、不执行修复，也不改变下方正式聊天结果。
+- 第一次云端 Smoke 用默认 `m3b-config.json` 样例只得到 40 分，取证发现 Planner 只识别“文档/手册”等词，没有识别明确文件名。`1a143b9f` 把 `.json/.yaml/.toml/.md` 和“配置文件”加入确定性知识核对信号，并补“单纯文件问答仍不启动多 Agent”的误触发测试。相同样例随后稳定得到 80/70、两个任务。
+- `b59b522a` 补齐 M7-09 局部降级语义：子 Agent 的 `insufficient` 与执行异常分开记录，Evidence Gate 不通过时保留公开原因、Evidence 数量和 Usage，但不把“证据不足”当作成功 Claim。Synthesizer 只保留成功兄弟的引用结论，输出 `partial` 并显式回退 `diagnosis_standard`；不进行无界重试。
+- 最终 Release `20260905103221-b59b522aa536`，bundle SHA-256 `3e3428cabf9b9457280b34e97e14b838632186b13bec179c1cb4f418b6bd7e61`，四进程门通过。真实文档 + HTTP 502 样例在约 2.5 秒内得到 Knowledge/Diagnostic 两个成功任务、2 个 Claim、4 个合成引用、0 冲突、0 拒绝；不存在文档样例得到 Knowledge `insufficient/no_cross_retriever_support`、Diagnostic success、合成 partial 且只保留 1 条诊断引用。简单 Redis NOAUTH 样例保持 20/70，零子 Agent 执行。
+- Prometheus 对三种关键路径使用固定低基数标签：完整路径为 run `complete=1`、两个 Agent success；局部降级为 run `partial=1`、Knowledge insufficient、Diagnostic success、synthesis partial；简单请求为 `single_agent/not_executed`（进程重启前已验证）。经验：必须把“Planner 认为值得拆”与“每个子任务实际有足够证据”作为两个独立门，不能把零 Claim 的正常返回包装成协作成功。
