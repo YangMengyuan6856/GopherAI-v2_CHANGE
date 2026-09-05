@@ -1454,3 +1454,11 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - RAG、Profile/Episodic Memory 与 Harness 生命周期复用现有业务调用点写入统一 SDD 指标；用户、租户、会话、请求、Trace、Run、Step、Call、文档/案例 ID、Prompt、Query、路径、URL、邮箱和 IP 均不得进入标签。Worker 的 status/error_code 也必须经过固定枚举，未知值统一收敛为 `unknown`。
 - Release `20260905235345-8b23f725121d`，bundle SHA-256 `8bce738c532e23d78a25e2be68aede54f1f7b6af6667b7485b9b289ace28143d`，四进程与所有依赖健康门通过；真实浏览器显示 88 个目录定义、46/46 核心契约及九个指标域。M8-12 recording rules 尚未接线，因此当前仍不能声称检测器来自生产窗口。
 - 从 PowerShell 拼接远程 Bash 且命令中包含 `$()`、`${name}` 或管道时，反斜杠不能可靠阻止 PowerShell 展开。应像部署脚本一样先把完整 Bash 片段 Base64 编码，再通过 SSH 解码执行；否则本地会把远端 `grep` 当成 PowerShell 命令。该失败只发生在只读 Smoke，未改变远程状态。
+
+## 66. 2026-09-06 小内存 ECS 上线真实 Prometheus 与 Recording Rules
+
+- `134fca77` 完成 M8-12：Prometheus 只在容器内 `127.0.0.1:9092` 监听，固定抓取 Backend `:9090/metrics` 与 Index Worker `:9091/metrics`。配置包含 4 个规则组、17 条 recording rules，覆盖请求成功率/P95、RAG 有依据回答率与空召回率、Agent/Tool 成功率和 P95、在线评测、反馈、Webhook 与控制动作；前端通过后端只读聚合 API 展示运行状态，不公开 Prometheus 管理面。
+- 发布链路在停止旧版本前依次执行 `promtool check config`、`promtool check rules` 和 `promtool test rules`，任一步失败都不触碰线上进程。PromQL 测试最初用十进制 `0.8` 做精确相等断言，因浮点累计得到 `0.799999...`；固定 Fixture 改用可精确二进制表示的 `0.5` 后通过。规则单测应锁定语义和边界，避免以脆弱小数相等制造假失败。
+- Ubuntu 包通过独立 bootstrap 一次性安装，`policy-rc.d` 阻止 apt 自动启动系统服务，避免与项目生命周期及端口发生冲突。项目自行管理 PID、日志和 TSDB，启动参数固定 `72h` 与 `128MB` 双保留上限；回滚到不含 Prometheus 配置的旧 Release 时跳过该进程，保持兼容。
+- Release `20260906010721-134fca776d7d`，bundle SHA-256 `5cd350c0b2e74c1b21eaa066cf4357f5b66195e3740345482cac28f639cd1a23`。线上 2/2 targets up、4/4 groups、17/17 rules healthy、失败规则 0；`gopherai:scrape_target_up` 对 Backend/Worker 均为 1。Prometheus RSS 约 43 MiB，ECS 1612 MiB 总内存下仍有约 585 MiB available，TSDB 初始 64 KiB，资源预算可接受。
+- 页面真实读取 Prometheus HTTP API，显示上述状态、规则版本 SHA 和 loopback/保留边界。该纵切只证明抓取与聚合规则正在生产运行，不证明业务窗口已经达到 50 个最少样本，也不意味着检测器已接入生产数据；下一步必须持久化带口径版本的窗口快照，再接 M8-13/M8-14。
