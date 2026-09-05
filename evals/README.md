@@ -48,6 +48,15 @@ Invalid JSON, unknown evidence references, timeouts and model errors are retried
 once and then recorded as `judge_failed`; a failed Judge never contributes a
 neutral or passing score.
 
+`groundedness-citation-scorer-v1` combines that Judge with deterministic
+checks: every public factual claim must carry a valid citation index, every
+citation must close over the supplied tenant-scoped Child evidence, stable
+numeric/config anchors must occur in the cited content, expected facts must be
+covered, and forbidden claims must be absent. Parent context may help the model
+understand a section but is never accepted as the cited evidence identity.
+Judge incompleteness, ACL failure, unknown citations, missing claim coverage or
+forbidden text all fail closed and remain visible as separate reason codes.
+
 ## Diagnostic core dataset
 
 `devsupport-diagnostic-v1.jsonl` contains 40 sanitized, project-specific
