@@ -1392,3 +1392,9 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - `5a9ff8cf` 上线 `bounded-parallel-executor-v1` 内核。Agent 反序完成时结果仍按 Plan index 稳定输出；单任务超时只标记该任务，不取消成功兄弟；父请求取消传播两个子 Context。Go 无法强杀不合作的 goroutine，所以 Runner 合约必须响应 Context，外层总超时仍会按缺失任务返回有界结果。
 - Executor 在 Runner 前再次使用 Diagnostic Extractor 脱敏，防止调用方绕过 Planner 直接把凭据送入 Agent。输出限制 Summary、Claim、Evidence、Follow-up 数量；Evidence tenant 必须与请求一致。超出任务预算时 Claim/Evidence 全部丢弃，实际 Token/工具/迭代/成本 Usage 保留，以免“拒绝输出”反而让成本观测归零。
 - Release `20260905094729-5a9ff8cf5bf1`，bundle SHA-256 `f0bd974998af1f1fb0767d2d37d609fdb3e800146ad8f182880ae90cc5ee8198`，四进程门通过。该 Release 只有执行内核和规划页面信号澄清，没有把测试 Runner 包装成线上多 Agent；真实执行入口必须等 Evidence-aware Synthesizer 与生产 Runner 都通过后再开放 Shadow。
+
+## 57. 2026-09-05 Evidence-aware Synthesizer：只合并可引用结论
+
+- `fd4bd99c` 上线 `evidence-aware-synthesizer-v1` 内核。合成器不读取 Agent 自由文本过程，只接收通过 Executor 边界校验的结构化 Claim/Evidence；每个 Claim 必须引用同 tenant 的已登记 Evidence，未知引用、同 ID 不同载荷、Claim ID 冲突和冲突元数据不一致都会显式拒绝，不能用一段流畅总结掩盖来源问题。
+- 相同结论会合并 Agent 来源、Evidence 引用并取较高置信度；同一事实键出现不同值时，两条 Claim 都保留为 `conflicted`，返回显式冲突并回退 `diagnosis_standard`，不会静默选边。任一子 Agent 失败时只保留成功兄弟的可验证结论，状态为 `partial`；全部没有可验证结论时为 `insufficient`。
+- Release `20260905100014-fd4bd99cd10b`，bundle SHA-256 `25c94622dfec681ef0ddcdb5f68f46fe2c63ae4eaab565f049f1ffe60f074af3`，Backend/Index Worker/MCP/Vue 和唯一进程门全部通过。该版本仍只有合成内核，不伪造线上 Agent 运行证据；下一纵切 M7-08 才接 KnowledgeAgent 与 DiagnosticAgent 的真实 Shadow 入口。
