@@ -41,10 +41,12 @@ type ComplexitySignals struct {
 }
 
 type TaskBudget struct {
-	MaxIterations   int `json:"max_iterations"`
-	MaxToolCalls    int `json:"max_tool_calls"`
-	MaxInputTokens  int `json:"max_input_tokens"`
-	MaxOutputTokens int `json:"max_output_tokens"`
+	MaxIterations   int   `json:"max_iterations"`
+	MaxToolCalls    int   `json:"max_tool_calls"`
+	MaxInputTokens  int   `json:"max_input_tokens"`
+	MaxOutputTokens int   `json:"max_output_tokens"`
+	MaxCostMicros   int64 `json:"max_cost_micros"`
+	TimeoutMS       int64 `json:"timeout_ms"`
 }
 
 type PlannedTask struct {
@@ -262,7 +264,16 @@ func taskBudget(total contract.ExecutionBudgets, divisor int) TaskBudget {
 	return TaskBudget{
 		MaxIterations: total.MaxIterations / divisor, MaxToolCalls: total.MaxToolCalls / divisor,
 		MaxInputTokens: total.MaxInputTokens / divisor, MaxOutputTokens: total.MaxOutputTokens / divisor,
+		MaxCostMicros: total.MaxCostMicros / int64(divisor), TimeoutMS: taskTimeoutMilliseconds(total, divisor),
 	}
+}
+
+func taskTimeoutMilliseconds(total contract.ExecutionBudgets, divisor int) int64 {
+	timeout := total.TotalTimeout.Milliseconds() / int64(divisor)
+	if timeout > 60_000 {
+		return 60_000
+	}
+	return timeout
 }
 
 func publicBudget(budget contract.ExecutionBudgets) PlanBudget {
@@ -282,6 +293,7 @@ func (plan CollaborationPlan) validate() error {
 	}
 	seen := make(map[string]struct{}, len(plan.Tasks))
 	totalIterations, totalToolCalls, totalInputTokens, totalOutputTokens := 0, 0, 0, 0
+	var totalCostMicros int64
 	for index, task := range plan.Tasks {
 		if task.Index != index+1 || strings.TrimSpace(task.TaskID) == "" || task.MaySpawnAgents {
 			return errors.New("planned task boundary is invalid")
@@ -292,16 +304,17 @@ func (plan CollaborationPlan) validate() error {
 		if _, exists := seen[task.TaskID]; exists {
 			return errors.New("planned task id is duplicated")
 		}
-		if task.Budget.MaxIterations < 1 || task.Budget.MaxToolCalls < 1 || task.Budget.MaxInputTokens < 1 || task.Budget.MaxOutputTokens < 1 {
+		if task.Budget.MaxIterations < 1 || task.Budget.MaxToolCalls < 1 || task.Budget.MaxInputTokens < 1 || task.Budget.MaxOutputTokens < 1 || task.Budget.MaxCostMicros < 1 || task.Budget.TimeoutMS < 1 {
 			return errors.New("planned task budget is invalid")
 		}
 		totalIterations += task.Budget.MaxIterations
 		totalToolCalls += task.Budget.MaxToolCalls
 		totalInputTokens += task.Budget.MaxInputTokens
 		totalOutputTokens += task.Budget.MaxOutputTokens
+		totalCostMicros += task.Budget.MaxCostMicros
 		seen[task.TaskID] = struct{}{}
 	}
-	if totalIterations > plan.Budget.MaxIterations || totalToolCalls > plan.Budget.MaxToolCalls || totalInputTokens > plan.Budget.MaxInputTokens || totalOutputTokens > plan.Budget.MaxOutputTokens {
+	if totalIterations > plan.Budget.MaxIterations || totalToolCalls > plan.Budget.MaxToolCalls || totalInputTokens > plan.Budget.MaxInputTokens || totalOutputTokens > plan.Budget.MaxOutputTokens || totalCostMicros > plan.Budget.MaxCostMicros {
 		return errors.New("planned task budgets exceed the total budget")
 	}
 	return nil
