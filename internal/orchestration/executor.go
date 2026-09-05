@@ -44,16 +44,23 @@ type ExecutionInput struct {
 }
 
 type SharedEvidence struct {
-	ID            string  `json:"id"`
-	SourceType    string  `json:"source_type"`
-	Summary       string  `json:"summary"`
-	TenantID      string  `json:"-"`
-	SourceID      string  `json:"source_id,omitempty"`
-	SourceVersion string  `json:"source_version,omitempty"`
-	LineStart     int     `json:"line_start,omitempty"`
-	LineEnd       int     `json:"line_end,omitempty"`
-	ContentHash   string  `json:"content_hash,omitempty"`
-	Score         float64 `json:"score"`
+	ID                string     `json:"id"`
+	SourceType        string     `json:"source_type"`
+	Summary           string     `json:"summary"`
+	TenantID          string     `json:"-"`
+	SourceID          string     `json:"source_id,omitempty"`
+	SourceVersion     string     `json:"source_version,omitempty"`
+	LineStart         int        `json:"line_start,omitempty"`
+	LineEnd           int        `json:"line_end,omitempty"`
+	ContentHash       string     `json:"content_hash,omitempty"`
+	ParentEvidenceID  string     `json:"parent_evidence_id,omitempty"`
+	SourceKind        string     `json:"source_kind,omitempty"`
+	SourceRevision    string     `json:"source_revision,omitempty"`
+	Authority         int        `json:"authority,omitempty"`
+	EffectiveAt       *time.Time `json:"effective_at,omitempty"`
+	ExpiredAt         *time.Time `json:"expired_at,omitempty"`
+	SupersedesVersion int        `json:"supersedes_version,omitempty"`
+	Score             float64    `json:"score"`
 }
 
 type AgentClaim struct {

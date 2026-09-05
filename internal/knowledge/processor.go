@@ -120,9 +120,10 @@ func (processor *Processor) processIndex(ctx context.Context, envelope jobqueue.
 	}
 	chunks := make([]model.KnowledgeChunk, 0, len(drafts))
 	now := processor.clock.Now()
+	sourceVersion := normalizeVersionSource(work.Version, now)
 	for _, draft := range drafts {
 		metadata, _ := json.Marshal(map[string]any{"document_id": work.Document.ID, "version": work.Version.Version, "section_path": draft.SectionPath, "line_start": draft.LineStart, "line_end": draft.LineEnd})
-		chunks = append(chunks, model.KnowledgeChunk{
+		chunk := model.KnowledgeChunk{
 			ID:         deterministicChunkID(work.Document.ID, work.Version.Version, draft),
 			DocumentID: work.Document.ID, DocumentVersion: work.Version.Version,
 			TenantID: work.Document.TenantID, UserID: work.Document.UserID,
@@ -130,7 +131,9 @@ func (processor *Processor) processIndex(ctx context.Context, envelope jobqueue.
 			Content: draft.Content, TokenCount: draft.TokenCount, ContentHash: draft.ContentHash,
 			MetadataJSON: string(metadata), EmbeddingVersion: processor.embeddingVersion,
 			IndexStatus: ChunkIndexStatusPending, CreatedAt: now, UpdatedAt: now,
-		})
+		}
+		applyVersionSourceToChunk(&chunk, sourceVersion)
+		chunks = append(chunks, chunk)
 	}
 	if err := processor.repository.ReplaceChunks(ctx, work.Document.ID, work.Version.Version, chunks); err != nil {
 		return processor.fail(ctx, work, ErrorCodeChunkPersist, true, err)

@@ -47,7 +47,10 @@ func (runner *KnowledgeRunner) Run(ctx context.Context, task PlannedTask, input 
 		evidence = append(evidence, SharedEvidence{
 			ID: item.ID, SourceType: sourceType, Summary: boundedRunes(item.Content, maxEvidenceSummaryRunes),
 			TenantID: item.TenantID, SourceID: item.SourceID, SourceVersion: item.SourceVersion,
-			LineStart: item.LineStart, LineEnd: item.LineEnd, ContentHash: item.ContentHash, Score: item.Score,
+			LineStart: item.LineStart, LineEnd: item.LineEnd, ContentHash: item.ContentHash,
+			ParentEvidenceID: item.ParentEvidenceID, SourceKind: item.SourceKind, SourceRevision: item.SourceRevision,
+			Authority: item.Authority, EffectiveAt: item.EffectiveAt, ExpiredAt: item.ExpiredAt,
+			SupersedesVersion: item.SupersedesVersion, Score: item.Score,
 		})
 	}
 	claims := []AgentClaim{}

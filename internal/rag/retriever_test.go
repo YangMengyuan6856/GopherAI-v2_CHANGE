@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cloudwego/eino/components/embedding"
 	"github.com/redis/go-redis/v9"
@@ -174,6 +175,50 @@ func TestHybridRetrieverDegradesToKeywordWhenEmbeddingFails(t *testing.T) {
 	}
 	if output.Diagnostics.Mode != "bm25_only" || len(output.Hits) != 1 || output.Hits[0].Evidence.Retrieval != "bm25" {
 		t.Fatalf("expected keyword degradation, got %+v", output)
+	}
+}
+
+func TestHybridRetrieverFiltersFutureAndExpiredEvidenceAfterAuthority(t *testing.T) {
+	prefix := "gopher:test:v1:kb:chunk:"
+	backend := &fakeSearchBackend{
+		dense: redis.FTSearchResult{Docs: []redis.Document{
+			{ID: prefix + "future"}, {ID: prefix + "expired"}, {ID: prefix + "legacy"}, {ID: prefix + "current"},
+		}},
+		keyword: redis.FTSearchResult{},
+	}
+	future := time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC)
+	past := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	current := chunk("current", "current", "current evidence")
+	current.EffectiveAt = &past
+	current.ExpiredAt = &future
+	current.SourceKind = "repository"
+	current.SourceRevision = "commit-42"
+	current.Authority = 80
+	futureChunk := chunk("future", "future", "future evidence")
+	futureChunk.EffectiveAt = &future
+	expiredChunk := chunk("expired", "expired", "expired evidence")
+	expiredChunk.ExpiredAt = &past
+	authority := &fakeAuthorityRepository{records: map[string]ChunkAuthority{
+		"future": futureChunk, "expired": expiredChunk,
+		"legacy": chunk("legacy", "legacy", "legacy evidence"), "current": current,
+	}}
+	retriever, err := NewHybridRetriever(backend, &fakeEmbedder{vector: []float64{0.1}}, authority, "test", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	output, err := retriever.Search(context.Background(), SearchInput{TenantID: "tenant-a", UserID: "user-a", Query: "freshness", TopK: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output.Diagnostics.FreshnessFiltered != 2 || len(output.Hits) != 2 {
+		t.Fatalf("expected two stale candidates to be filtered, got %+v", output)
+	}
+	if output.Hits[0].Evidence.ID != "legacy" || output.Hits[1].Evidence.ID != "current" {
+		t.Fatalf("legacy NULL validity and current evidence must remain searchable: %+v", output.Hits)
+	}
+	if output.Hits[1].Evidence.SourceKind != "repository" || output.Hits[1].Evidence.SourceRevision != "commit-42" || output.Hits[1].Evidence.Authority != 80 {
+		t.Fatalf("current evidence lost authoritative source metadata: %+v", output.Hits[1].Evidence)
 	}
 }
 

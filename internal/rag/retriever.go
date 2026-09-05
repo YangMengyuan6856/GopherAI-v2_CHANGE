@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/cloudwego/eino/components/embedding"
@@ -53,17 +54,24 @@ func (backend *RedisSearchBackend) Search(ctx context.Context, index string, que
 }
 
 type ChunkAuthority struct {
-	ID              string
-	DocumentID      string
-	DocumentVersion int
-	TenantID        string
-	UserID          string
-	DisplayName     string
-	SectionPath     string
-	LineStart       int
-	LineEnd         int
-	Content         string
-	ContentHash     string
+	ID                string
+	DocumentID        string
+	DocumentVersion   int
+	TenantID          string
+	UserID            string
+	DisplayName       string
+	SectionPath       string
+	LineStart         int
+	LineEnd           int
+	Content           string
+	ContentHash       string
+	ParentChunkID     string
+	SourceKind        string
+	SourceRevision    string
+	Authority         int
+	EffectiveAt       *time.Time
+	ExpiredAt         *time.Time
+	SupersedesVersion int
 }
 
 type AuthorityRepository interface {
@@ -91,6 +99,7 @@ type SearchDiagnostics struct {
 	KeywordCandidates int                    `json:"keyword_candidates"`
 	FusedCandidates   int                    `json:"fused_candidates"`
 	LexicalCandidates int                    `json:"lexical_candidates"`
+	FreshnessFiltered int                    `json:"freshness_filtered"`
 	DegradedReasons   []string               `json:"degraded_reasons,omitempty"`
 	QueryAssessment   QueryAssessment        `json:"query_assessment"`
 	Deep              *DeepSearchDiagnostics `json:"deep,omitempty"`
@@ -180,9 +189,14 @@ func (retriever *HybridRetriever) Search(ctx context.Context, input SearchInput)
 
 	hits := make([]SearchHit, 0, min(input.TopK, len(fused)))
 	seenHashes := make(map[string]struct{}, len(fused))
+	now := time.Now().UTC()
 	for _, candidate := range fused {
 		chunk, exists := authority[candidate.chunkID]
 		if !exists || chunk.TenantID != input.TenantID || chunk.UserID != input.UserID {
+			continue
+		}
+		if !isCurrentlyEffective(chunk.EffectiveAt, chunk.ExpiredAt, now) {
+			diagnostics.FreshnessFiltered++
 			continue
 		}
 		dedupeKey := chunk.ContentHash
@@ -200,6 +214,8 @@ func (retriever *HybridRetriever) Search(ctx context.Context, input SearchInput)
 				SourceID: chunk.DocumentID, SourceVersion: strconv.Itoa(chunk.DocumentVersion),
 				Title: chunk.DisplayName, Section: chunk.SectionPath, LineStart: chunk.LineStart, LineEnd: chunk.LineEnd,
 				Content: chunk.Content, Score: normalizedRRF(candidate.rrfScore), Retrieval: retrieval, ContentHash: chunk.ContentHash,
+				ParentEvidenceID: chunk.ParentChunkID, SourceKind: chunk.SourceKind, SourceRevision: chunk.SourceRevision,
+				Authority: chunk.Authority, EffectiveAt: chunk.EffectiveAt, ExpiredAt: chunk.ExpiredAt, SupersedesVersion: chunk.SupersedesVersion,
 			},
 			DenseRank: candidate.denseRank, KeywordRank: candidate.keywordRank, RRFScore: candidate.rrfScore,
 		})
@@ -432,6 +448,13 @@ func cjkNGramSet(value string, width int) map[string]struct{} {
 		}
 	}
 	return result
+}
+
+func isCurrentlyEffective(effectiveAt, expiredAt *time.Time, now time.Time) bool {
+	if effectiveAt != nil && effectiveAt.After(now) {
+		return false
+	}
+	return expiredAt == nil || expiredAt.After(now)
 }
 
 func escapeTag(value string) string {

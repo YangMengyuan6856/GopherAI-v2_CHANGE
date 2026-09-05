@@ -246,6 +246,7 @@ func (service *Service) Accept(ctx context.Context, input AcceptInput) (AcceptRe
 		ContentHash: contentHash, StoragePath: finalPath, ParserVersion: format.parserVersion,
 		ChunkerVersion: format.chunkerVersion, CreatedAt: now, UpdatedAt: now,
 	}
+	initializeUploadSource(version, contentHash, now, 0)
 	job := &model.KnowledgeJob{
 		ID: jobID, TenantID: input.TenantID, DocumentID: documentID, Version: 1,
 		JobType: JobTypeDocumentIndex, Status: JobStatusQueued, CreatedAt: now, UpdatedAt: now,
@@ -380,6 +381,7 @@ func (service *Service) AcceptVersion(ctx context.Context, documentID string, in
 		ContentHash: contentHash, StoragePath: finalPath, ParserVersion: format.parserVersion,
 		ChunkerVersion: format.chunkerVersion, CreatedAt: now, UpdatedAt: now,
 	}
+	initializeUploadSource(version, contentHash, now, document.CurrentVersion)
 	job := &model.KnowledgeJob{
 		ID: service.ids.NewID(), JobType: JobTypeDocumentIndex, Status: JobStatusQueued,
 		CreatedAt: now, UpdatedAt: now,
@@ -456,6 +458,7 @@ func (service *Service) Rebuild(ctx context.Context, tenantID string, userID str
 		ParserVersion: format.parserVersion, ChunkerVersion: format.chunkerVersion,
 		CreatedAt: now, UpdatedAt: now,
 	}
+	initializeUploadSource(candidate, contentHash, now, document.CurrentVersion)
 	if candidate.MimeType == "" {
 		candidate.MimeType = document.MimeType
 	}

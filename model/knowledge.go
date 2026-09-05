@@ -19,41 +19,54 @@ type KnowledgeDocument struct {
 }
 
 type KnowledgeDocumentVersion struct {
-	ID               string     `gorm:"primaryKey;type:char(36)" json:"id"`
-	DocumentID       string     `gorm:"uniqueIndex:uk_knowledge_document_version,priority:1;not null;type:char(36)" json:"document_id"`
-	Version          int        `gorm:"uniqueIndex:uk_knowledge_document_version,priority:2;not null" json:"version"`
-	Status           string     `gorm:"index;not null;type:varchar(32)" json:"status"`
-	DisplayName      string     `gorm:"type:varchar(255)" json:"display_name"`
-	MimeType         string     `gorm:"type:varchar(128)" json:"mime_type"`
-	SizeBytes        int64      `gorm:"not null;default:0" json:"size_bytes"`
-	ContentHash      string     `gorm:"not null;type:char(64)" json:"content_hash"`
-	StoragePath      string     `gorm:"not null;type:varchar(512)" json:"-"`
-	ParserVersion    string     `gorm:"type:varchar(64)" json:"parser_version"`
-	ChunkerVersion   string     `gorm:"type:varchar(64)" json:"chunker_version"`
-	EmbeddingVersion string     `gorm:"type:varchar(128)" json:"embedding_version"`
-	IndexedAt        *time.Time `json:"indexed_at,omitempty"`
-	CreatedAt        time.Time  `json:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at"`
+	ID                string     `gorm:"primaryKey;type:char(36)" json:"id"`
+	DocumentID        string     `gorm:"uniqueIndex:uk_knowledge_document_version,priority:1;not null;type:char(36)" json:"document_id"`
+	Version           int        `gorm:"uniqueIndex:uk_knowledge_document_version,priority:2;not null" json:"version"`
+	Status            string     `gorm:"index;not null;type:varchar(32)" json:"status"`
+	DisplayName       string     `gorm:"type:varchar(255)" json:"display_name"`
+	MimeType          string     `gorm:"type:varchar(128)" json:"mime_type"`
+	SizeBytes         int64      `gorm:"not null;default:0" json:"size_bytes"`
+	ContentHash       string     `gorm:"not null;type:char(64)" json:"content_hash"`
+	StoragePath       string     `gorm:"not null;type:varchar(512)" json:"-"`
+	ParserVersion     string     `gorm:"type:varchar(64)" json:"parser_version"`
+	ChunkerVersion    string     `gorm:"type:varchar(64)" json:"chunker_version"`
+	EmbeddingVersion  string     `gorm:"type:varchar(128)" json:"embedding_version"`
+	SourceKind        string     `gorm:"index;type:varchar(32)" json:"source_kind,omitempty"`
+	SourceRevision    string     `gorm:"index;type:varchar(128)" json:"source_revision,omitempty"`
+	Authority         int        `gorm:"index;not null;default:0" json:"authority"`
+	EffectiveAt       *time.Time `gorm:"index" json:"effective_at,omitempty"`
+	ExpiredAt         *time.Time `gorm:"index" json:"expired_at,omitempty"`
+	SupersedesVersion int        `gorm:"not null;default:0" json:"supersedes_version,omitempty"`
+	IndexedAt         *time.Time `json:"indexed_at,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
 }
 
 type KnowledgeChunk struct {
-	ID               string    `gorm:"primaryKey;type:char(36)" json:"id"`
-	DocumentID       string    `gorm:"index;uniqueIndex:uk_knowledge_chunks_identity,priority:1;not null;type:char(36)" json:"document_id"`
-	DocumentVersion  int       `gorm:"uniqueIndex:uk_knowledge_chunks_identity,priority:2;not null" json:"document_version"`
-	TenantID         string    `gorm:"index;not null;type:varchar(64)" json:"tenant_id"`
-	UserID           string    `gorm:"index;not null;type:varchar(64)" json:"user_id"`
-	Ordinal          int       `gorm:"uniqueIndex:uk_knowledge_chunks_identity,priority:3;not null" json:"ordinal"`
-	SectionPath      string    `gorm:"type:varchar(512)" json:"section_path,omitempty"`
-	LineStart        int       `gorm:"not null" json:"line_start"`
-	LineEnd          int       `gorm:"not null" json:"line_end"`
-	Content          string    `gorm:"type:longtext;not null" json:"content"`
-	TokenCount       int       `gorm:"not null" json:"token_count"`
-	ContentHash      string    `gorm:"uniqueIndex:uk_knowledge_chunks_identity,priority:4;not null;type:char(64)" json:"content_hash"`
-	MetadataJSON     string    `gorm:"type:longtext" json:"metadata_json,omitempty"`
-	EmbeddingVersion string    `gorm:"type:varchar(128)" json:"embedding_version,omitempty"`
-	IndexStatus      string    `gorm:"index;not null;type:varchar(32)" json:"index_status"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
+	ID                string     `gorm:"primaryKey;type:char(36)" json:"id"`
+	DocumentID        string     `gorm:"index;uniqueIndex:uk_knowledge_chunks_identity,priority:1;not null;type:char(36)" json:"document_id"`
+	DocumentVersion   int        `gorm:"uniqueIndex:uk_knowledge_chunks_identity,priority:2;not null" json:"document_version"`
+	TenantID          string     `gorm:"index;not null;type:varchar(64)" json:"tenant_id"`
+	UserID            string     `gorm:"index;not null;type:varchar(64)" json:"user_id"`
+	Ordinal           int        `gorm:"uniqueIndex:uk_knowledge_chunks_identity,priority:3;not null" json:"ordinal"`
+	SectionPath       string     `gorm:"type:varchar(512)" json:"section_path,omitempty"`
+	LineStart         int        `gorm:"not null" json:"line_start"`
+	LineEnd           int        `gorm:"not null" json:"line_end"`
+	Content           string     `gorm:"type:longtext;not null" json:"content"`
+	TokenCount        int        `gorm:"not null" json:"token_count"`
+	ContentHash       string     `gorm:"uniqueIndex:uk_knowledge_chunks_identity,priority:4;not null;type:char(64)" json:"content_hash"`
+	MetadataJSON      string     `gorm:"type:longtext" json:"metadata_json,omitempty"`
+	ParentChunkID     string     `gorm:"index;type:char(36)" json:"parent_chunk_id,omitempty"`
+	SourceKind        string     `gorm:"index;type:varchar(32)" json:"source_kind,omitempty"`
+	SourceRevision    string     `gorm:"index;type:varchar(128)" json:"source_revision,omitempty"`
+	Authority         int        `gorm:"index;not null;default:0" json:"authority"`
+	EffectiveAt       *time.Time `gorm:"index" json:"effective_at,omitempty"`
+	ExpiredAt         *time.Time `gorm:"index" json:"expired_at,omitempty"`
+	SupersedesVersion int        `gorm:"not null;default:0" json:"supersedes_version,omitempty"`
+	EmbeddingVersion  string     `gorm:"type:varchar(128)" json:"embedding_version,omitempty"`
+	IndexStatus       string     `gorm:"index;not null;type:varchar(32)" json:"index_status"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
 }
 
 type KnowledgeJob struct {

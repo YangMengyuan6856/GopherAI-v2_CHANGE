@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 )
 
 const (
@@ -22,13 +23,20 @@ const (
 )
 
 type SynthesizedCitation struct {
-	CitationID    string `json:"citation_id"`
-	EvidenceID    string `json:"evidence_id"`
-	SourceType    string `json:"source_type"`
-	SourceID      string `json:"source_id,omitempty"`
-	SourceVersion string `json:"source_version,omitempty"`
-	LineStart     int    `json:"line_start,omitempty"`
-	LineEnd       int    `json:"line_end,omitempty"`
+	CitationID        string     `json:"citation_id"`
+	EvidenceID        string     `json:"evidence_id"`
+	SourceType        string     `json:"source_type"`
+	SourceID          string     `json:"source_id,omitempty"`
+	SourceVersion     string     `json:"source_version,omitempty"`
+	LineStart         int        `json:"line_start,omitempty"`
+	LineEnd           int        `json:"line_end,omitempty"`
+	ParentEvidenceID  string     `json:"parent_evidence_id,omitempty"`
+	SourceKind        string     `json:"source_kind,omitempty"`
+	SourceRevision    string     `json:"source_revision,omitempty"`
+	Authority         int        `json:"authority,omitempty"`
+	EffectiveAt       *time.Time `json:"effective_at,omitempty"`
+	ExpiredAt         *time.Time `json:"expired_at,omitempty"`
+	SupersedesVersion int        `json:"supersedes_version,omitempty"`
 }
 
 type SynthesizedClaim struct {
@@ -181,7 +189,18 @@ func collectEvidence(tasks []TaskExecution, tenantID string) evidenceCollection 
 func sameEvidenceIdentity(left, right SharedEvidence) bool {
 	return left.ID == right.ID && left.SourceType == right.SourceType && left.Summary == right.Summary &&
 		left.TenantID == right.TenantID && left.SourceID == right.SourceID && left.SourceVersion == right.SourceVersion &&
-		left.LineStart == right.LineStart && left.LineEnd == right.LineEnd && left.ContentHash == right.ContentHash
+		left.LineStart == right.LineStart && left.LineEnd == right.LineEnd && left.ContentHash == right.ContentHash &&
+		left.ParentEvidenceID == right.ParentEvidenceID && left.SourceKind == right.SourceKind &&
+		left.SourceRevision == right.SourceRevision && left.Authority == right.Authority &&
+		equalOptionalTime(left.EffectiveAt, right.EffectiveAt) && equalOptionalTime(left.ExpiredAt, right.ExpiredAt) &&
+		left.SupersedesVersion == right.SupersedesVersion
+}
+
+func equalOptionalTime(left, right *time.Time) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return left.Equal(*right)
 }
 
 func collectClaims(tasks []TaskExecution, evidence evidenceCollection) ([]SynthesizedClaim, []RejectedClaim) {
@@ -312,6 +331,9 @@ func buildCitations(claims []SynthesizedClaim, evidence evidenceCollection) ([]S
 		citations = append(citations, SynthesizedCitation{
 			CitationID: citationID, EvidenceID: item.ID, SourceType: item.SourceType,
 			SourceID: item.SourceID, SourceVersion: item.SourceVersion, LineStart: item.LineStart, LineEnd: item.LineEnd,
+			ParentEvidenceID: item.ParentEvidenceID, SourceKind: item.SourceKind, SourceRevision: item.SourceRevision,
+			Authority: item.Authority, EffectiveAt: item.EffectiveAt, ExpiredAt: item.ExpiredAt,
+			SupersedesVersion: item.SupersedesVersion,
 		})
 		items = append(items, item)
 	}

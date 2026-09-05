@@ -82,19 +82,26 @@ type IntentResult struct {
 }
 
 type Evidence struct {
-	ID            string  `json:"id"`
-	Kind          string  `json:"kind"`
-	TenantID      string  `json:"tenant_id"`
-	SourceID      string  `json:"source_id"`
-	SourceVersion string  `json:"source_version"`
-	Title         string  `json:"title"`
-	Section       string  `json:"section,omitempty"`
-	LineStart     int     `json:"line_start,omitempty"`
-	LineEnd       int     `json:"line_end,omitempty"`
-	Content       string  `json:"content,omitempty"`
-	Score         float64 `json:"score"`
-	Retrieval     string  `json:"retrieval"`
-	ContentHash   string  `json:"content_hash"`
+	ID                string     `json:"id"`
+	Kind              string     `json:"kind"`
+	TenantID          string     `json:"tenant_id"`
+	SourceID          string     `json:"source_id"`
+	SourceVersion     string     `json:"source_version"`
+	Title             string     `json:"title"`
+	Section           string     `json:"section,omitempty"`
+	LineStart         int        `json:"line_start,omitempty"`
+	LineEnd           int        `json:"line_end,omitempty"`
+	Content           string     `json:"content,omitempty"`
+	Score             float64    `json:"score"`
+	Retrieval         string     `json:"retrieval"`
+	ContentHash       string     `json:"content_hash"`
+	ParentEvidenceID  string     `json:"parent_evidence_id,omitempty"`
+	SourceKind        string     `json:"source_kind,omitempty"`
+	SourceRevision    string     `json:"source_revision,omitempty"`
+	Authority         int        `json:"authority,omitempty"`
+	EffectiveAt       *time.Time `json:"effective_at,omitempty"`
+	ExpiredAt         *time.Time `json:"expired_at,omitempty"`
+	SupersedesVersion int        `json:"supersedes_version,omitempty"`
 }
 
 type Citation struct {

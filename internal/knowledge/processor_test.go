@@ -116,6 +116,9 @@ func TestProcessorBuildsCanonicalChunksAndCompletes(t *testing.T) {
 		if chunk.ID == "" || chunk.Ordinal != index || chunk.TenantID != "tenant-a" || chunk.DocumentVersion != 1 || chunk.IndexStatus != ChunkIndexStatusPending {
 			t.Fatalf("invalid canonical chunk: %+v", chunk)
 		}
+		if chunk.SourceKind != SourceKindUpload || chunk.Authority != AuthorityLegacy || chunk.EffectiveAt == nil {
+			t.Fatalf("legacy version metadata was not normalized onto chunk: %+v", chunk)
+		}
 		if deterministicChunkID("document-1", 1, ChunkDraft{Ordinal: chunk.Ordinal, ContentHash: chunk.ContentHash}) != chunk.ID {
 			t.Fatalf("chunk ID is not deterministic: %+v", chunk)
 		}

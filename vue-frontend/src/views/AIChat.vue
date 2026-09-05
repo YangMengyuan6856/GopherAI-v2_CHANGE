@@ -251,6 +251,10 @@
                       <strong>{{ citation.citation_id }} · {{ citation.source_type }}</strong>
                       <p>{{ citation.source_id }}<template v-if="citation.source_version"> · v{{ citation.source_version }}</template></p>
                       <p v-if="citation.line_start">L{{ citation.line_start }}-{{ citation.line_end }}</p>
+                      <p v-if="citation.source_kind || citation.source_revision">
+                        {{ sourceKindLabel(citation.source_kind) }}<template v-if="citation.source_revision"> · revision {{ shortRevision(citation.source_revision) }}</template>
+                        <template v-if="citation.authority"> · 权威级 {{ citation.authority }}</template>
+                      </p>
                     </article>
                   </div>
                 </details>
@@ -565,6 +569,11 @@
                 [{{ index + 1 }}] {{ citation.document }} · v{{ citation.version }} ·
                 {{ citation.section || '未命名章节' }} · L{{ citation.line_start }}-{{ citation.line_end }}
               </summary>
+              <div v-if="evidenceForCitation(citation).source_kind || evidenceForCitation(citation).source_revision" class="evidence-source-meta">
+                {{ sourceKindLabel(evidenceForCitation(citation).source_kind) }} ·
+                revision {{ shortRevision(evidenceForCitation(citation).source_revision) }} ·
+                权威级 {{ evidenceForCitation(citation).authority || '兼容旧数据' }}
+              </div>
               <pre>{{ evidenceForCitation(citation).content || '证据内容不可用' }}</pre>
             </details>
           </div>
@@ -572,6 +581,7 @@
         <div v-if="knowledgeSearchDiagnostics" class="knowledge-search-summary">
           {{ retrievalModeLabel(knowledgeSearchDiagnostics.mode) }} · Dense {{ knowledgeSearchDiagnostics.dense_candidates }} 条 ·
           BM25 {{ knowledgeSearchDiagnostics.keyword_candidates }} 条 · 融合后 {{ knowledgeSearchDiagnostics.fused_candidates }} 条
+          <template v-if="knowledgeSearchDiagnostics.freshness_filtered"> · 已过滤过期/未生效 {{ knowledgeSearchDiagnostics.freshness_filtered }} 条</template>
         </div>
         <div v-if="knowledgeSearchDiagnostics && knowledgeSearchDiagnostics.query_assessment" class="query-assessment">
           <div>
@@ -596,6 +606,10 @@
             <div class="evidence-location">
               v{{ hit.evidence.source_version }} · {{ hit.evidence.section || '未命名章节' }} ·
               L{{ hit.evidence.line_start }}-{{ hit.evidence.line_end }}
+            </div>
+            <div v-if="hit.evidence.source_kind || hit.evidence.source_revision" class="evidence-source-meta">
+              {{ sourceKindLabel(hit.evidence.source_kind) }} · revision {{ shortRevision(hit.evidence.source_revision) }} ·
+              权威级 {{ hit.evidence.authority || '兼容旧数据' }}
             </div>
             <pre>{{ hit.evidence.content }}</pre>
           </article>
@@ -2214,6 +2228,18 @@ export default {
       return evidence.find(item => item.id === citation.evidence_id) || {}
     }
 
+    const sourceKindLabel = (kind) => ({
+      upload: '用户上传',
+      repository: '代码仓库',
+      legacy_upload: '历史上传'
+    }[kind] || kind || '历史来源')
+
+    const shortRevision = (revision) => {
+      const value = String(revision || '').trim()
+      if (!value) return '未记录'
+      return value.length > 12 ? value.slice(0, 12) : value
+    }
+
     const loadKnowledgeDocuments = async () => {
       try {
         const response = await api.get('/knowledge/documents')
@@ -2574,7 +2600,9 @@ export default {
       cancelDiagnosticRun,
       resetDiagnosticRun,
       onDiagnosticModeChanged,
-      evidenceForCitation
+      evidenceForCitation,
+      sourceKindLabel,
+      shortRevision
     }
   }
 }
@@ -3695,6 +3723,12 @@ export default {
 
 .evidence-location {
   margin-top: 5px;
+}
+
+.evidence-source-meta {
+  margin-top: 4px;
+  color: #59718c;
+  font-size: 11px;
 }
 
 .evidence-card pre {

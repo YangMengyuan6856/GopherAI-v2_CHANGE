@@ -34,7 +34,8 @@ func TestKnowledgeRunnerOnlyClaimsCitedGroundedAnswer(t *testing.T) {
 			Answer: "发布探针期望 204。", Confidence: .91,
 			Evidence: []contract.Evidence{{
 				ID: "chunk-1", Kind: "document_chunk", TenantID: "alice", SourceID: "doc-1", SourceVersion: "2",
-				Title: "发布手册", LineStart: 4, LineEnd: 8, Content: "probe_code=204", ContentHash: "hash-1", Score: .91,
+				Title: "发布手册", LineStart: 4, LineEnd: 8, Content: "probe_code=204", ContentHash: "hash-1",
+				SourceKind: "upload", SourceRevision: "revision-2", Authority: 50, SupersedesVersion: 1, Score: .91,
 			}},
 			Citations: []contract.Citation{{ID: "C1", EvidenceID: "chunk-1"}},
 			Usage:     contract.ModelUsage{InputTokens: 100, OutputTokens: 20},
@@ -45,6 +46,9 @@ func TestKnowledgeRunnerOnlyClaimsCitedGroundedAnswer(t *testing.T) {
 	output, err := runner.Run(context.Background(), PlannedTask{Agent: KnowledgeAgentRole}, ExecutionInput{TenantID: "alice", UserID: "alice", Message: "核对发布手册"})
 	if err != nil || len(output.Claims) != 1 || len(output.Evidence) != 1 || output.Claims[0].EvidenceRefs[0] != "chunk-1" || output.ToolCalls != 1 {
 		t.Fatalf("grounded knowledge mapping failed: output=%+v err=%v", output, err)
+	}
+	if output.Evidence[0].SourceKind != "upload" || output.Evidence[0].SourceRevision != "revision-2" || output.Evidence[0].Authority != 50 || output.Evidence[0].SupersedesVersion != 1 {
+		t.Fatalf("knowledge evidence lost source lineage: %+v", output.Evidence[0])
 	}
 }
 

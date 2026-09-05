@@ -9,6 +9,7 @@ import (
 	"math"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/cloudwego/eino/components/embedding"
 	"github.com/redis/go-redis/v9"
@@ -86,6 +87,13 @@ func (indexer *RedisChunkIndexer) Index(ctx context.Context, chunks []model.Know
 				"line_end", chunk.LineEnd,
 				"content", chunk.Content,
 				"content_hash", chunk.ContentHash,
+				"parent_chunk_id", chunk.ParentChunkID,
+				"source_kind", chunk.SourceKind,
+				"source_revision", chunk.SourceRevision,
+				"authority", chunk.Authority,
+				"effective_at", unixTimeOrZero(chunk.EffectiveAt),
+				"expired_at", unixTimeOrZero(chunk.ExpiredAt),
+				"supersedes_version", chunk.SupersedesVersion,
 				"vector", float32Bytes(vector),
 			).Err(); err != nil {
 				return fmt.Errorf("write redis chunk %s: %w", chunk.ID, err)
@@ -150,6 +158,13 @@ func (indexer *RedisChunkIndexer) ensureIndex(ctx context.Context) error {
 	}
 	indexer.indexReady = true
 	return nil
+}
+
+func unixTimeOrZero(value *time.Time) int64 {
+	if value == nil {
+		return 0
+	}
+	return value.UTC().Unix()
 }
 
 func float32Bytes(vector []float64) []byte {
