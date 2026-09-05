@@ -17,4 +17,5 @@ func RegisterKnowledgeRouter(group *gin.RouterGroup) {
 	group.POST("/search", handler.Search)
 	group.POST("/answer", handler.Answer)
 	group.POST("/deep-answer", handler.DeepAnswer)
+	group.POST("/parent-answer", handler.ParentAnswer)
 }

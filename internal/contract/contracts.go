@@ -96,6 +96,10 @@ type Evidence struct {
 	Retrieval         string     `json:"retrieval"`
 	ContentHash       string     `json:"content_hash"`
 	ParentEvidenceID  string     `json:"parent_evidence_id,omitempty"`
+	ParentContext     string     `json:"parent_context,omitempty"`
+	ParentSection     string     `json:"parent_section,omitempty"`
+	ParentLineStart   int        `json:"parent_line_start,omitempty"`
+	ParentLineEnd     int        `json:"parent_line_end,omitempty"`
 	SourceKind        string     `json:"source_kind,omitempty"`
 	SourceRevision    string     `json:"source_revision,omitempty"`
 	Authority         int        `json:"authority,omitempty"`
@@ -112,6 +116,24 @@ type Citation struct {
 	Section    string `json:"section,omitempty"`
 	LineStart  int    `json:"line_start,omitempty"`
 	LineEnd    int    `json:"line_end,omitempty"`
+}
+
+type EvidenceConflictValue struct {
+	Value          string     `json:"value"`
+	EvidenceID     string     `json:"evidence_id"`
+	SourceID       string     `json:"source_id"`
+	SourceTitle    string     `json:"source_title,omitempty"`
+	SourceVersion  string     `json:"source_version"`
+	SourceRevision string     `json:"source_revision,omitempty"`
+	Authority      int        `json:"authority,omitempty"`
+	EffectiveAt    *time.Time `json:"effective_at,omitempty"`
+}
+
+type EvidenceConflict struct {
+	ConflictID string                  `json:"conflict_id"`
+	FactKey    string                  `json:"fact_key"`
+	Status     string                  `json:"status"`
+	Values     []EvidenceConflictValue `json:"values"`
 }
 
 type ToolCallResult struct {
@@ -131,17 +153,18 @@ type ModelUsage struct {
 }
 
 type AgentResult struct {
-	SessionID         string           `json:"session_id,omitempty"`
-	Answer            string           `json:"answer"`
-	Citations         []Citation       `json:"citations,omitempty"`
-	Evidence          []Evidence       `json:"evidence,omitempty"`
-	Confidence        float64          `json:"confidence"`
-	Resolved          bool             `json:"resolved"`
-	NeedsUserInput    bool             `json:"needs_user_input"`
-	FollowUpQuestions []string         `json:"follow_up_questions,omitempty"`
-	ToolCalls         []ToolCallResult `json:"tool_calls,omitempty"`
-	Usage             ModelUsage       `json:"usage"`
-	Error             *DomainError     `json:"error,omitempty"`
+	SessionID         string             `json:"session_id,omitempty"`
+	Answer            string             `json:"answer"`
+	Citations         []Citation         `json:"citations,omitempty"`
+	Evidence          []Evidence         `json:"evidence,omitempty"`
+	Conflicts         []EvidenceConflict `json:"conflicts,omitempty"`
+	Confidence        float64            `json:"confidence"`
+	Resolved          bool               `json:"resolved"`
+	NeedsUserInput    bool               `json:"needs_user_input"`
+	FollowUpQuestions []string           `json:"follow_up_questions,omitempty"`
+	ToolCalls         []ToolCallResult   `json:"tool_calls,omitempty"`
+	Usage             ModelUsage         `json:"usage"`
+	Error             *DomainError       `json:"error,omitempty"`
 }
 
 type StrategyDecision struct {

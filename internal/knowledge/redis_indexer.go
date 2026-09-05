@@ -133,6 +133,7 @@ func (indexer *RedisChunkIndexer) IndexIncremental(ctx context.Context, chunks [
 			"content", chunk.Content,
 			"content_hash", chunk.ContentHash,
 			"logical_key", chunk.LogicalKey,
+			"chunk_kind", chunk.ChunkKind,
 			"parent_chunk_id", chunk.ParentChunkID,
 			"source_kind", chunk.SourceKind,
 			"source_revision", chunk.SourceRevision,

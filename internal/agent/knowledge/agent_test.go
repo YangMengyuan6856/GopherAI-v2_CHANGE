@@ -74,6 +74,35 @@ func TestAgentBuildsGroundedPromptAndVerifiedCitation(t *testing.T) {
 	}
 }
 
+func TestParentContextAgentAddsContextButKeepsChildCitationBoundary(t *testing.T) {
+	search := strongEvidence()
+	search.Hits[0].Evidence.ParentEvidenceID = "parent-1"
+	search.Hits[0].Evidence.ParentSection = "Runtime"
+	search.Hits[0].Evidence.ParentLineStart = 1
+	search.Hits[0].Evidence.ParentLineEnd = 20
+	search.Hits[0].Evidence.ParentContext = "Runtime 章节还描述了部署和连接池背景。"
+	parentModel := &fakeModel{response: &schema.Message{Content: `{"answer":"默认重试次数为 7。[E1]","citations":["E1"]}`}}
+	parentAgent, err := NewParentContextAgent(&fakeRetriever{output: search}, parentModel, rag.DefaultEvidenceGate(), rag.NewCitationBuilder())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parentAgent.Answer(context.Background(), Input{TenantID: "tenant-a", UserID: "user-a", Question: "默认重试几次？"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(parentModel.input[0].Content, "引用仍指向 Child 行号") || !strings.Contains(parentModel.input[1].Content, "<parent_context") || !strings.Contains(parentModel.input[1].Content, "默认重试次数为 7") {
+		t.Fatalf("parent prompt lost its exact-child safety boundary: %+v", parentModel.input)
+	}
+
+	fastModel := &fakeModel{response: &schema.Message{Content: `{"answer":"默认重试次数为 7。[E1]","citations":["E1"]}`}}
+	fastAgent, _ := NewAgent(&fakeRetriever{output: search}, fastModel, rag.DefaultEvidenceGate(), rag.NewCitationBuilder())
+	if _, err := fastAgent.Answer(context.Background(), Input{TenantID: "tenant-a", UserID: "user-a", Question: "默认重试几次？"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(fastModel.input[1].Content, "<parent_context") {
+		t.Fatal("rag_fast must not silently consume the parent-context candidate")
+	}
+}
+
 func TestAgentDoesNotCallModelWhenEvidenceGateRejects(t *testing.T) {
 	search := strongEvidence()
 	search.Hits[0].Evidence.Retrieval = "dense"
@@ -89,6 +118,31 @@ func TestAgentDoesNotCallModelWhenEvidenceGateRejects(t *testing.T) {
 	}
 	if output.Answer.Status != AnswerStatusGateRejected || output.Answer.ModelAttempts != 0 {
 		t.Fatalf("gate rejection diagnostics were not stable: %+v", output.Answer)
+	}
+}
+
+func TestAgentReturnsStructuredConflictWithoutCallingModel(t *testing.T) {
+	search := strongEvidence()
+	search.Conflicts = []contract.EvidenceConflict{{
+		ConflictID: "conflict-1", FactKey: "release > timeout_seconds", Status: rag.EvidenceConflictStatusReview,
+		Values: []contract.EvidenceConflictValue{
+			{Value: "47", EvidenceID: "e1", SourceID: "json", SourceRevision: "rev-a", Authority: 50},
+			{Value: "60", EvidenceID: "e2", SourceID: "yaml", SourceRevision: "rev-b", Authority: 80},
+		},
+	}}
+	chatModel := new(fakeModel)
+	agent, _ := NewAgent(&fakeRetriever{output: search}, chatModel, rag.DefaultEvidenceGate(), rag.NewCitationBuilder())
+	output, err := agent.Answer(context.Background(), Input{TenantID: "tenant-a", UserID: "user-a", Question: "超时时间是多少？"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chatModel.calls != 0 || output.Result.Resolved || !output.Result.NeedsUserInput || len(output.Result.Conflicts) != 1 {
+		t.Fatalf("conflict must stop model generation and remain structured: output=%+v calls=%d", output, chatModel.calls)
+	}
+	for _, expected := range []string{"47", "60", "不会", "revision"} {
+		if !strings.Contains(output.Result.Answer, expected) {
+			t.Fatalf("conflict answer did not preserve %q: %s", expected, output.Result.Answer)
+		}
 	}
 }
 

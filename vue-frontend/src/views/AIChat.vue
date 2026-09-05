@@ -541,6 +541,13 @@
           >
             {{ answeringKnowledge && answeringKnowledgeMode === 'deep' ? '深度检索与回答中...' : '深度分析回答' }}
           </button>
+          <button
+            class="parent-answer-btn"
+            :disabled="!knowledgeQuery.trim() || answeringKnowledge"
+            @click="answerKnowledge('parent')"
+          >
+            {{ answeringKnowledge && answeringKnowledgeMode === 'parent' ? '父子检索回答中...' : '父子上下文回答' }}
+          </button>
         </div>
         <section v-if="knowledgeAnswer" :class="['knowledge-answer', { insufficient: !knowledgeAnswer.result.resolved }]">
           <div class="knowledge-answer-header">
@@ -548,6 +555,18 @@
             <span>{{ knowledgeAnswer.agent }} · {{ knowledgeAnswer.strategy }} · {{ knowledgeAnswer.evidence_gate.reason_code }}</span>
           </div>
           <div class="knowledge-answer-text">{{ knowledgeAnswer.result.answer }}</div>
+          <div v-if="knowledgeAnswer.result.conflicts && knowledgeAnswer.result.conflicts.length" class="knowledge-conflicts">
+            <strong>⚠ 当前有效来源存在冲突，系统已停止生成并等待你确认</strong>
+            <article v-for="conflict in knowledgeAnswer.result.conflicts" :key="conflict.conflict_id">
+              <div>{{ conflict.fact_key }}</div>
+              <ul>
+                <li v-for="value in conflict.values" :key="`${conflict.conflict_id}-${value.evidence_id}`">
+                  <strong>{{ value.value }}</strong> · {{ value.source_title || value.source_id }} · v{{ value.source_version }} ·
+                  revision {{ shortRevision(value.source_revision) }} · 权威级 {{ value.authority || '兼容旧数据' }}
+                </li>
+              </ul>
+            </article>
+          </div>
           <div v-if="knowledgeAnswer.diagnostics && knowledgeAnswer.diagnostics.deep" class="deep-diagnostics">
             <strong>深度策略：</strong>{{ deepOutcomeLabel(knowledgeAnswer.diagnostics.deep) }} ·
             追加检索 {{ knowledgeAnswer.diagnostics.deep.additional_searches }} 次 ·
@@ -570,6 +589,14 @@
               </ol>
             </details>
           </div>
+          <div v-if="knowledgeAnswer.diagnostics && knowledgeAnswer.diagnostics.parent" class="deep-diagnostics parent-context-diagnostics">
+            <strong>父子策略：</strong>先用 Child 精确召回，再补充 Parent 对象/函数/章节上下文 ·
+            候选 {{ knowledgeAnswer.diagnostics.parent.candidates_before }} → {{ knowledgeAnswer.diagnostics.parent.candidates_after }} 条 ·
+            Parent 上下文 {{ knowledgeAnswer.diagnostics.parent.parent_context_hits }} 条 ·
+            同 Parent 限流 {{ knowledgeAnswer.diagnostics.parent.filtered_by_parent }} 条 ·
+            同文档限流 {{ knowledgeAnswer.diagnostics.parent.filtered_by_document }} 条 ·
+            引用仍固定指向 Child
+          </div>
           <div v-if="knowledgeAnswer.result.follow_up_questions && knowledgeAnswer.result.follow_up_questions.length" class="knowledge-follow-up">
             <strong>需要补充：</strong>{{ knowledgeAnswer.result.follow_up_questions.join('；') }}
           </div>
@@ -585,6 +612,11 @@
                 权威级 {{ evidenceForCitation(citation).authority || '兼容旧数据' }}
               </div>
               <pre>{{ evidenceForCitation(citation).content || '证据内容不可用' }}</pre>
+              <div v-if="knowledgeAnswer.strategy === 'rag_parent_context' && evidenceForCitation(citation).parent_context" class="parent-context-evidence">
+                <strong>Parent 上下文（只辅助理解，引用仍为上方 Child 行号）</strong>
+                <span>{{ evidenceForCitation(citation).parent_section || '文档范围' }} · L{{ evidenceForCitation(citation).parent_line_start }}-{{ evidenceForCitation(citation).parent_line_end }}</span>
+                <pre>{{ evidenceForCitation(citation).parent_context }}</pre>
+              </div>
             </details>
           </div>
         </section>
@@ -592,6 +624,17 @@
           {{ retrievalModeLabel(knowledgeSearchDiagnostics.mode) }} · Dense {{ knowledgeSearchDiagnostics.dense_candidates }} 条 ·
           BM25 {{ knowledgeSearchDiagnostics.keyword_candidates }} 条 · 融合后 {{ knowledgeSearchDiagnostics.fused_candidates }} 条
           <template v-if="knowledgeSearchDiagnostics.freshness_filtered"> · 已过滤过期/未生效 {{ knowledgeSearchDiagnostics.freshness_filtered }} 条</template>
+        </div>
+        <div v-if="knowledgeSearchConflicts.length" class="knowledge-conflicts">
+          <strong>⚠ 检索结果中有 {{ knowledgeSearchConflicts.length }} 个当前有效来源冲突</strong>
+          <article v-for="conflict in knowledgeSearchConflicts" :key="conflict.conflict_id">
+            <div>{{ conflict.fact_key }}</div>
+            <ul>
+              <li v-for="value in conflict.values" :key="`${conflict.conflict_id}-${value.evidence_id}`">
+                <strong>{{ value.value }}</strong> · {{ value.source_title || value.source_id }} · revision {{ shortRevision(value.source_revision) }}
+              </li>
+            </ul>
+          </article>
         </div>
         <div v-if="knowledgeSearchDiagnostics && knowledgeSearchDiagnostics.query_assessment" class="query-assessment">
           <div>
@@ -1062,6 +1105,7 @@ export default {
     const searchingKnowledge = ref(false)
     const knowledgeSearchResults = ref([])
     const knowledgeSearchDiagnostics = ref(null)
+    const knowledgeSearchConflicts = ref([])
     const answeringKnowledge = ref(false)
     const answeringKnowledgeMode = ref('')
     const knowledgeAnswer = ref(null)
@@ -2197,10 +2241,12 @@ export default {
       knowledgeAnswer.value = null
       knowledgeSearchResults.value = []
       knowledgeSearchDiagnostics.value = null
+      knowledgeSearchConflicts.value = []
       try {
         const response = await api.post('/knowledge/search', { query, top_k: 5 })
         knowledgeSearchResults.value = response.data?.hits || []
         knowledgeSearchDiagnostics.value = response.data?.diagnostics || null
+        knowledgeSearchConflicts.value = response.data?.conflicts || []
       } catch (error) {
         console.error('Knowledge search error:', error)
         ElMessage.error(error.response?.data?.message || '知识检索暂时不可用')
@@ -2209,14 +2255,14 @@ export default {
       }
     }
 
-    const answerKnowledge = async (deep = false) => {
+    const answerKnowledge = async (mode = false) => {
       const question = knowledgeQuery.value.trim()
       if (!question || answeringKnowledge.value) return
       answeringKnowledge.value = true
-      answeringKnowledgeMode.value = deep ? 'deep' : 'fast'
+      answeringKnowledgeMode.value = mode === 'parent' ? 'parent' : (mode ? 'deep' : 'fast')
       knowledgeAnswer.value = null
       try {
-        const endpoint = deep ? '/knowledge/deep-answer' : '/knowledge/answer'
+        const endpoint = mode === 'parent' ? '/knowledge/parent-answer' : (mode ? '/knowledge/deep-answer' : '/knowledge/answer')
         const response = await api.post(endpoint, { question, top_k: 5 })
         knowledgeAnswer.value = response.data || null
         if (knowledgeAnswer.value?.result?.resolved) {
@@ -2478,6 +2524,7 @@ export default {
       searchingKnowledge,
       knowledgeSearchResults,
       knowledgeSearchDiagnostics,
+      knowledgeSearchConflicts,
       answeringKnowledge,
       answeringKnowledgeMode,
       knowledgeAnswer,
@@ -3586,11 +3633,13 @@ export default {
 
 .knowledge-search-form {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
 .knowledge-search-form input {
   flex: 1;
+  flex-basis: 320px;
   min-width: 0;
   padding: 10px 13px;
   border: 1px solid #c9d7e8;
@@ -3753,6 +3802,33 @@ export default {
   margin-top: 4px;
   color: #59718c;
   font-size: 11px;
+}
+
+.parent-context-evidence {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 8px;
+  border-left: 3px solid #8b7cf6;
+  background: #f7f5ff;
+  color: #4c4a73;
+  font-size: 11px;
+}
+
+.knowledge-conflicts {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid #e6a23c;
+  border-radius: 9px;
+  background: #fff8e8;
+  color: #7a4d00;
+}
+
+.knowledge-conflicts article,
+.knowledge-conflicts ul {
+  margin: 0;
 }
 
 .evidence-card pre {

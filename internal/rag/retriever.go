@@ -66,6 +66,10 @@ type ChunkAuthority struct {
 	Content           string
 	ContentHash       string
 	ParentChunkID     string
+	ParentContext     string
+	ParentSection     string
+	ParentLineStart   int
+	ParentLineEnd     int
 	SourceKind        string
 	SourceRevision    string
 	Authority         int
@@ -93,21 +97,25 @@ type SearchHit struct {
 }
 
 type SearchDiagnostics struct {
-	Version           string                 `json:"version"`
-	Mode              string                 `json:"mode"`
-	DenseCandidates   int                    `json:"dense_candidates"`
-	KeywordCandidates int                    `json:"keyword_candidates"`
-	FusedCandidates   int                    `json:"fused_candidates"`
-	LexicalCandidates int                    `json:"lexical_candidates"`
-	FreshnessFiltered int                    `json:"freshness_filtered"`
-	DegradedReasons   []string               `json:"degraded_reasons,omitempty"`
-	QueryAssessment   QueryAssessment        `json:"query_assessment"`
-	Deep              *DeepSearchDiagnostics `json:"deep,omitempty"`
+	Version           string                    `json:"version"`
+	Mode              string                    `json:"mode"`
+	DenseCandidates   int                       `json:"dense_candidates"`
+	KeywordCandidates int                       `json:"keyword_candidates"`
+	FusedCandidates   int                       `json:"fused_candidates"`
+	LexicalCandidates int                       `json:"lexical_candidates"`
+	FreshnessFiltered int                       `json:"freshness_filtered"`
+	ConflictVersion   string                    `json:"conflict_version,omitempty"`
+	ValidConflicts    int                       `json:"valid_conflicts"`
+	DegradedReasons   []string                  `json:"degraded_reasons,omitempty"`
+	QueryAssessment   QueryAssessment           `json:"query_assessment"`
+	Deep              *DeepSearchDiagnostics    `json:"deep,omitempty"`
+	Parent            *ParentContextDiagnostics `json:"parent,omitempty"`
 }
 
 type SearchOutput struct {
-	Hits        []SearchHit       `json:"hits"`
-	Diagnostics SearchDiagnostics `json:"diagnostics"`
+	Hits        []SearchHit                 `json:"hits"`
+	Diagnostics SearchDiagnostics           `json:"diagnostics"`
+	Conflicts   []contract.EvidenceConflict `json:"conflicts,omitempty"`
 }
 
 type HybridRetriever struct {
@@ -158,7 +166,8 @@ func (retriever *HybridRetriever) Search(ctx context.Context, input SearchInput)
 	dense, denseErr := retriever.dense(ctx, input)
 	keyword, keywordErr := retriever.keyword(ctx, input)
 	diagnostics := SearchDiagnostics{
-		Version: RetrievalVersion, DenseCandidates: len(dense), KeywordCandidates: len(keyword),
+		Version: RetrievalVersion, ConflictVersion: EvidenceConflictVersion,
+		DenseCandidates: len(dense), KeywordCandidates: len(keyword),
 	}
 	switch {
 	case denseErr == nil && keywordErr == nil:
@@ -215,6 +224,8 @@ func (retriever *HybridRetriever) Search(ctx context.Context, input SearchInput)
 				Title: chunk.DisplayName, Section: chunk.SectionPath, LineStart: chunk.LineStart, LineEnd: chunk.LineEnd,
 				Content: chunk.Content, Score: normalizedRRF(candidate.rrfScore), Retrieval: retrieval, ContentHash: chunk.ContentHash,
 				ParentEvidenceID: chunk.ParentChunkID, SourceKind: chunk.SourceKind, SourceRevision: chunk.SourceRevision,
+				ParentContext: chunk.ParentContext, ParentSection: chunk.ParentSection,
+				ParentLineStart: chunk.ParentLineStart, ParentLineEnd: chunk.ParentLineEnd,
 				Authority: chunk.Authority, EffectiveAt: chunk.EffectiveAt, ExpiredAt: chunk.ExpiredAt, SupersedesVersion: chunk.SupersedesVersion,
 			},
 			DenseRank: candidate.denseRank, KeywordRank: candidate.keywordRank, RRFScore: candidate.rrfScore,
@@ -230,7 +241,9 @@ func (retriever *HybridRetriever) Search(ctx context.Context, input SearchInput)
 		}
 	}
 	diagnostics.QueryAssessment = AssessQuery(input.Query, hits, diagnostics)
-	return SearchOutput{Hits: hits, Diagnostics: diagnostics}, nil
+	conflicts := DetectEvidenceConflicts(hits)
+	diagnostics.ValidConflicts = len(conflicts)
+	return SearchOutput{Hits: hits, Diagnostics: diagnostics, Conflicts: conflicts}, nil
 }
 
 func (retriever *HybridRetriever) dense(ctx context.Context, input SearchInput) ([]rankedCandidate, error) {

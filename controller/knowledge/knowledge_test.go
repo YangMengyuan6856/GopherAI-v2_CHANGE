@@ -423,6 +423,40 @@ func TestDeepAnswerReturnsIndependentStrategyAndEnhancementDiagnostics(t *testin
 	}
 }
 
+func TestParentAnswerReturnsIndependentStrategyAndChildCitationDiagnostics(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	answer := &fakeAnswerApplication{output: knowledgeagent.Output{
+		Result: contract.AgentResult{Answer: "配置属于发布章节 [1]", Resolved: true},
+		Gate:   ragapp.EvidenceGateResult{Accepted: true, ReasonCode: ragapp.GateReasonSufficient},
+		Diagnostics: ragapp.SearchDiagnostics{Mode: "hybrid", Parent: &ragapp.ParentContextDiagnostics{
+			Version: ragapp.ParentContextStrategyVersion, CandidatesBefore: 8, CandidatesAfter: 4,
+			ParentContextHits: 4, ChildCitationOnly: true,
+		}},
+	}}
+	handler := NewHandler(new(fakeApplication), new(fakeMetrics))
+	handler.parentAnswer = answer
+	engine := gin.New()
+	engine.POST("/parent-answer", requestid.Attach(), func(context *gin.Context) {
+		context.Set("userName", "user-a")
+		context.Next()
+	}, handler.ParentAnswer)
+
+	request := httptest.NewRequest(http.MethodPost, "/parent-answer", bytes.NewBufferString(`{"question":"这个配置属于哪个发布章节？"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	payload := new(answerResponse)
+	if err := json.Unmarshal(response.Body.Bytes(), payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Strategy != ragapp.ParentContextStrategyName || payload.StrategyVersion != ragapp.ParentContextStrategyVersion || payload.Diagnostics.Parent == nil || !payload.Diagnostics.Parent.ChildCitationOnly {
+		t.Fatalf("parent-context strategy contract was lost: %+v", payload)
+	}
+}
+
 func uploadRequest(t *testing.T, filename string, content []byte) *http.Request {
 	return uploadRequestFor(t, http.MethodPost, "/documents", filename, content)
 }

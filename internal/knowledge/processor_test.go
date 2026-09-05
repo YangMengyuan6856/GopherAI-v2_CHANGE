@@ -121,12 +121,15 @@ func TestProcessorBuildsCanonicalChunksAndCompletes(t *testing.T) {
 	if err := processor.Process(context.Background(), indexEnvelope(t)); err != nil {
 		t.Fatal(err)
 	}
-	if repository.replaceCalls != 1 || repository.completeCalls != 1 || len(repository.chunks) == 0 || len(indexer.chunks) != len(repository.chunks) {
+	if repository.replaceCalls != 1 || repository.completeCalls != 1 || len(repository.chunks) <= len(indexer.chunks) || len(indexer.chunks) == 0 {
 		t.Fatalf("unexpected processing calls: replace=%d complete=%d chunks=%d indexed=%d", repository.replaceCalls, repository.completeCalls, len(repository.chunks), len(indexer.chunks))
 	}
-	for index, chunk := range repository.chunks {
+	for index, chunk := range indexer.chunks {
 		if chunk.ID == "" || chunk.Ordinal != index || chunk.TenantID != "tenant-a" || chunk.DocumentVersion != 1 || chunk.IndexStatus != ChunkIndexStatusPending {
 			t.Fatalf("invalid canonical chunk: %+v", chunk)
+		}
+		if chunk.ChunkKind != ChunkKindChild || chunk.ParentChunkID == "" {
+			t.Fatalf("searchable child must retain a bounded parent link: %+v", chunk)
 		}
 		if chunk.SourceKind != SourceKindUpload || chunk.Authority != AuthorityLegacy || chunk.EffectiveAt == nil {
 			t.Fatalf("legacy version metadata was not normalized onto chunk: %+v", chunk)
@@ -151,10 +154,10 @@ func TestProcessorPersistsStructuredKeyPathMetadata(t *testing.T) {
 	if err := processor.Process(context.Background(), indexEnvelope(t)); err != nil {
 		t.Fatal(err)
 	}
-	if len(repository.chunks) != 1 {
-		t.Fatalf("expected one structured chunk, got %+v", repository.chunks)
+	if len(repository.chunks) != 2 || len(indexer.chunks) != 1 {
+		t.Fatalf("expected one searchable child and one stored parent, got persisted=%+v indexed=%+v", repository.chunks, indexer.chunks)
 	}
-	chunk := repository.chunks[0]
+	chunk := indexer.chunks[0]
 	if chunk.SectionPath != "service > retry" || chunk.LineStart != 3 || chunk.LineEnd != 3 {
 		t.Fatalf("structured metadata was not persisted: %+v", chunk)
 	}

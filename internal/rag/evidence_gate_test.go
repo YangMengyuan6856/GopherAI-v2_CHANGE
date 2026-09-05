@@ -48,3 +48,15 @@ func TestEvidenceGateRejectsEmptyAndLowScoreEvidence(t *testing.T) {
 		t.Fatalf("expected low-confidence rejection, got %+v", low)
 	}
 }
+
+func TestEvidenceGateRejectsEffectiveSourceConflictBeforeGeneration(t *testing.T) {
+	output := SearchOutput{
+		Hits:        []SearchHit{{Evidence: contract.Evidence{ID: "e1", Score: .98, Retrieval: "dense+bm25"}}},
+		Diagnostics: SearchDiagnostics{DenseCandidates: 1, KeywordCandidates: 1},
+		Conflicts:   []contract.EvidenceConflict{{ConflictID: "conflict-1", FactKey: "release > timeout_seconds"}},
+	}
+	result := DefaultEvidenceGate().Evaluate(output)
+	if result.Accepted || result.ReasonCode != GateReasonEvidenceConflict || result.ConflictCount != 1 || len(result.FollowUpQuestions) != 1 {
+		t.Fatalf("effective conflicts must stop generation: %+v", result)
+	}
+}

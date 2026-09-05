@@ -128,7 +128,7 @@ func (repository *GormRepository) ClaimIndexJob(ctx context.Context, tenantID st
 			return err
 		}
 		if work.Document.Status == DocumentStatusIndexed && work.Document.CurrentVersion > 0 && work.Document.CurrentVersion != version {
-			if err := transaction.Where("document_id = ? AND document_version = ? AND index_status = ?", documentID, work.Document.CurrentVersion, ChunkIndexStatusIndexed).
+			if err := transaction.Where("document_id = ? AND document_version = ? AND index_status = ? AND (chunk_kind = ? OR chunk_kind = '' OR chunk_kind IS NULL)", documentID, work.Document.CurrentVersion, ChunkIndexStatusIndexed, ChunkKindChild).
 				Order("ordinal ASC").Find(&work.PreviousChunks).Error; err != nil {
 				return err
 			}
@@ -180,7 +180,12 @@ func (repository *GormRepository) CompleteIndex(ctx context.Context, work IndexW
 		}
 		if err := transaction.Model(&model.KnowledgeChunk{}).
 			Where("document_id = ? AND document_version = ?", work.Document.ID, work.Version.Version).
-			Updates(map[string]any{"index_status": ChunkIndexStatusIndexed, "embedding_version": embeddingVersion}).Error; err != nil {
+			Update("index_status", ChunkIndexStatusIndexed).Error; err != nil {
+			return err
+		}
+		if err := transaction.Model(&model.KnowledgeChunk{}).
+			Where("document_id = ? AND document_version = ? AND (chunk_kind = ? OR chunk_kind = '' OR chunk_kind IS NULL)", work.Document.ID, work.Version.Version, ChunkKindChild).
+			Update("embedding_version", embeddingVersion).Error; err != nil {
 			return err
 		}
 		if err := transaction.Model(&model.KnowledgeDocumentVersion{}).

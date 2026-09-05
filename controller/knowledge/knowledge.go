@@ -59,17 +59,19 @@ type RAGStrategyMetrics interface {
 }
 
 type Handler struct {
-	application         Application
-	search              SearchApplication
-	searchInitError     error
-	answer              AnswerApplication
-	answerInitError     error
-	deepAnswer          AnswerApplication
-	deepAnswerInitError error
-	uploadMetrics       UploadMetrics
-	retrievalMetrics    RetrievalMetrics
-	answerMetrics       AnswerMetrics
-	ragStrategyMetrics  RAGStrategyMetrics
+	application           Application
+	search                SearchApplication
+	searchInitError       error
+	answer                AnswerApplication
+	answerInitError       error
+	deepAnswer            AnswerApplication
+	deepAnswerInitError   error
+	parentAnswer          AnswerApplication
+	parentAnswerInitError error
+	uploadMetrics         UploadMetrics
+	retrievalMetrics      RetrievalMetrics
+	answerMetrics         AnswerMetrics
+	ragStrategyMetrics    RAGStrategyMetrics
 }
 
 type uploadResponse struct {
@@ -108,12 +110,13 @@ type searchRequest struct {
 }
 
 type searchResponse struct {
-	SchemaVersion string                   `json:"schema_version"`
-	TraceID       string                   `json:"trace_id"`
-	RequestID     string                   `json:"request_id"`
-	Query         string                   `json:"query"`
-	Hits          []ragapp.SearchHit       `json:"hits"`
-	Diagnostics   ragapp.SearchDiagnostics `json:"diagnostics"`
+	SchemaVersion string                      `json:"schema_version"`
+	TraceID       string                      `json:"trace_id"`
+	RequestID     string                      `json:"request_id"`
+	Query         string                      `json:"query"`
+	Hits          []ragapp.SearchHit          `json:"hits"`
+	Diagnostics   ragapp.SearchDiagnostics    `json:"diagnostics"`
+	Conflicts     []contract.EvidenceConflict `json:"conflicts,omitempty"`
 }
 
 type answerRequest struct {
@@ -148,6 +151,7 @@ func NewDefaultHandler() *Handler {
 	handler.search = new(lazyDefaultSearchApplication)
 	handler.answer = new(lazyDefaultAnswerApplication)
 	handler.deepAnswer = new(lazyDefaultDeepAnswerApplication)
+	handler.parentAnswer = new(lazyDefaultParentAnswerApplication)
 	return handler
 }
 
@@ -157,6 +161,10 @@ func (handler *Handler) Answer(context *gin.Context) {
 
 func (handler *Handler) DeepAnswer(context *gin.Context) {
 	handler.answerWith(context, handler.deepAnswer, handler.deepAnswerInitError, ragapp.DeepStrategyName, ragapp.DeepStrategyVersion)
+}
+
+func (handler *Handler) ParentAnswer(context *gin.Context) {
+	handler.answerWith(context, handler.parentAnswer, handler.parentAnswerInitError, ragapp.ParentContextStrategyName, ragapp.ParentContextStrategyVersion)
 }
 
 func (handler *Handler) answerWith(ginContext *gin.Context, application AnswerApplication, initializationError error, strategy string, strategyVersion string) {
@@ -409,7 +417,7 @@ func (handler *Handler) Search(context *gin.Context) {
 	context.Header(requestid.TraceIDHeader, traceID)
 	context.JSON(http.StatusOK, searchResponse{
 		SchemaVersion: contract.SchemaVersion, TraceID: traceID, RequestID: requestID, Query: request.Query,
-		Hits: output.Hits, Diagnostics: output.Diagnostics,
+		Hits: output.Hits, Diagnostics: output.Diagnostics, Conflicts: output.Conflicts,
 	})
 }
 
@@ -521,6 +529,22 @@ func newDefaultDeepAnswerApplication() (AnswerApplication, error) {
 	return knowledgeagent.NewAgent(deepRetriever, chatModel, ragapp.DefaultEvidenceGate(), ragapp.NewCitationBuilder())
 }
 
+func newDefaultParentAnswerApplication() (AnswerApplication, error) {
+	base, err := newDefaultSearchApplication()
+	if err != nil {
+		return nil, err
+	}
+	parentRetriever, err := ragapp.NewParentContextRetriever(base)
+	if err != nil {
+		return nil, err
+	}
+	chatModel, err := newDefaultKnowledgeChatModel()
+	if err != nil {
+		return nil, err
+	}
+	return knowledgeagent.NewParentContextAgent(parentRetriever, chatModel, ragapp.DefaultEvidenceGate(), ragapp.NewCitationBuilder())
+}
+
 func newDefaultKnowledgeChatModel() (knowledgeagent.ChatModel, error) {
 	configuration := config.GetConfig()
 	apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
@@ -554,6 +578,12 @@ type lazyDefaultDeepAnswerApplication struct {
 	err         error
 }
 
+type lazyDefaultParentAnswerApplication struct {
+	once        sync.Once
+	application AnswerApplication
+	err         error
+}
+
 func (application *lazyDefaultAnswerApplication) Answer(ctx context.Context, input knowledgeagent.Input) (knowledgeagent.Output, error) {
 	application.once.Do(func() {
 		application.application, application.err = newDefaultAnswerApplication()
@@ -567,6 +597,16 @@ func (application *lazyDefaultAnswerApplication) Answer(ctx context.Context, inp
 func (application *lazyDefaultDeepAnswerApplication) Answer(ctx context.Context, input knowledgeagent.Input) (knowledgeagent.Output, error) {
 	application.once.Do(func() {
 		application.application, application.err = newDefaultDeepAnswerApplication()
+	})
+	if application.err != nil {
+		return knowledgeagent.Output{}, application.err
+	}
+	return application.application.Answer(ctx, input)
+}
+
+func (application *lazyDefaultParentAnswerApplication) Answer(ctx context.Context, input knowledgeagent.Input) (knowledgeagent.Output, error) {
+	application.once.Do(func() {
+		application.application, application.err = newDefaultParentAnswerApplication()
 	})
 	if application.err != nil {
 		return knowledgeagent.Output{}, application.err

@@ -140,8 +140,12 @@ func (processor *Processor) processIndex(ctx context.Context, envelope jobqueue.
 		chunks = append(chunks, chunk)
 	}
 	assignLogicalChunkKeys(work.Version.ParserVersion, chunks)
+	parents := attachParentChunks(work.Document, sourceVersion, chunks, now)
 	revisionStats := analyzeRevision(work.PreviousChunks, chunks, work.Version.ParserVersion)
-	if err := processor.repository.ReplaceChunks(ctx, work.Document.ID, work.Version.Version, chunks); err != nil {
+	persistedChunks := make([]model.KnowledgeChunk, 0, len(chunks)+len(parents))
+	persistedChunks = append(persistedChunks, chunks...)
+	persistedChunks = append(persistedChunks, parents...)
+	if err := processor.repository.ReplaceChunks(ctx, work.Document.ID, work.Version.Version, persistedChunks); err != nil {
 		return processor.fail(ctx, work, ErrorCodeChunkPersist, true, err)
 	}
 	vectorStats := VectorIndexStats{EmbeddedChunks: len(chunks)}

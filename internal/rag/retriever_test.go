@@ -222,6 +222,62 @@ func TestHybridRetrieverFiltersFutureAndExpiredEvidenceAfterAuthority(t *testing
 	}
 }
 
+func TestHybridRetrieverNeverTreatsExpiredEvidenceAsCurrentConflict(t *testing.T) {
+	prefix := "gopher:test:v1:kb:chunk:"
+	backend := &fakeSearchBackend{
+		dense:   redis.FTSearchResult{Docs: []redis.Document{{ID: prefix + "current"}, {ID: prefix + "expired"}}},
+		keyword: redis.FTSearchResult{Docs: []redis.Document{{ID: prefix + "current"}, {ID: prefix + "expired"}}},
+	}
+	past := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	current := chunk("current", "hash-current", "timeout_seconds: 47")
+	current.SectionPath = "release"
+	current.DocumentID = "doc-current"
+	current.SourceRevision = "rev-current"
+	expired := chunk("expired", "hash-expired", "timeout_seconds: 60")
+	expired.SectionPath = "release"
+	expired.DocumentID = "doc-expired"
+	expired.SourceRevision = "rev-expired"
+	expired.ExpiredAt = &past
+	retriever, err := NewHybridRetriever(backend, &fakeEmbedder{vector: []float64{0.1}}, &fakeAuthorityRepository{records: map[string]ChunkAuthority{
+		"current": current, "expired": expired,
+	}}, "test", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := retriever.Search(context.Background(), SearchInput{TenantID: "tenant-a", UserID: "user-a", Query: "timeout_seconds", TopK: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output.Diagnostics.FreshnessFiltered != 1 || output.Diagnostics.ValidConflicts != 0 || len(output.Conflicts) != 0 || len(output.Hits) != 1 {
+		t.Fatalf("expired evidence became a current conflict: %+v", output)
+	}
+}
+
+func TestHybridRetrieverReturnsStructuredConflictForTwoCurrentSources(t *testing.T) {
+	prefix := "gopher:test:v1:kb:chunk:"
+	backend := &fakeSearchBackend{
+		dense:   redis.FTSearchResult{Docs: []redis.Document{{ID: prefix + "json"}, {ID: prefix + "yaml"}}},
+		keyword: redis.FTSearchResult{Docs: []redis.Document{{ID: prefix + "json"}, {ID: prefix + "yaml"}}},
+	}
+	jsonChunk := chunk("json", "hash-json", `"timeout_seconds": 47,`)
+	jsonChunk.SectionPath, jsonChunk.DocumentID, jsonChunk.SourceRevision = "release", "doc-json", "rev-json"
+	yamlChunk := chunk("yaml", "hash-yaml", "timeout_seconds: 60")
+	yamlChunk.SectionPath, yamlChunk.DocumentID, yamlChunk.SourceRevision = "release", "doc-yaml", "rev-yaml"
+	retriever, err := NewHybridRetriever(backend, &fakeEmbedder{vector: []float64{0.1}}, &fakeAuthorityRepository{records: map[string]ChunkAuthority{
+		"json": jsonChunk, "yaml": yamlChunk,
+	}}, "test", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := retriever.Search(context.Background(), SearchInput{TenantID: "tenant-a", UserID: "user-a", Query: "timeout_seconds", TopK: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output.Diagnostics.ValidConflicts != 1 || len(output.Conflicts) != 1 || output.Conflicts[0].FactKey != "release > timeout_seconds" {
+		t.Fatalf("valid source conflict was hidden: %+v", output)
+	}
+}
+
 func TestHybridRetrieverFailsOnlyWhenBothRetrieversFail(t *testing.T) {
 	backend := &fakeSearchBackend{keywordErr: errors.New("redis unavailable")}
 	retriever, err := NewHybridRetriever(backend, &fakeEmbedder{err: errors.New("embedding unavailable")}, &fakeAuthorityRepository{}, "test", 1)

@@ -98,6 +98,9 @@ func (retriever *DeepRetriever) Search(ctx context.Context, input SearchInput) (
 		baseline.Diagnostics.Deep = diagnostics
 		baseline.Hits = limitHits(baseline.Hits, finalTopK)
 		baseline.Diagnostics.FusedCandidates = len(baseline.Hits)
+		baseline.Conflicts = DetectEvidenceConflicts(baseline.Hits)
+		baseline.Diagnostics.ConflictVersion = EvidenceConflictVersion
+		baseline.Diagnostics.ValidConflicts = len(baseline.Conflicts)
 		return baseline, nil
 	}
 	diagnostics.Activated = true
@@ -147,7 +150,10 @@ func (retriever *DeepRetriever) Search(ctx context.Context, input SearchInput) (
 	diagnostics.CandidatesAfter = len(ranked)
 	combinedDiagnostics.FusedCandidates = len(ranked)
 	combinedDiagnostics.Deep = diagnostics
-	return SearchOutput{Hits: ranked, Diagnostics: combinedDiagnostics}, nil
+	conflicts := DetectEvidenceConflicts(ranked)
+	combinedDiagnostics.ConflictVersion = EvidenceConflictVersion
+	combinedDiagnostics.ValidConflicts = len(conflicts)
+	return SearchOutput{Hits: ranked, Diagnostics: combinedDiagnostics, Conflicts: conflicts}, nil
 }
 
 func additionalQueries(queries []string) []string {

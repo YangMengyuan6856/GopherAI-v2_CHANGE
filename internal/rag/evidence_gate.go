@@ -11,6 +11,7 @@ const (
 	GateReasonNoHybridSupport   = "no_cross_retriever_support"
 	GateReasonLowConfidence     = "low_top_score"
 	GateReasonDenseLexical      = "sufficient_dense_lexical"
+	GateReasonEvidenceConflict  = "effective_evidence_conflict"
 	DefaultMinimumEvidenceScore = 0.80
 )
 
@@ -20,6 +21,7 @@ type EvidenceGateResult struct {
 	TopScore             float64  `json:"top_score"`
 	HybridEvidenceCount  int      `json:"hybrid_evidence_count"`
 	LexicalEvidenceCount int      `json:"lexical_evidence_count"`
+	ConflictCount        int      `json:"conflict_count"`
 	FollowUpQuestions    []string `json:"follow_up_questions,omitempty"`
 }
 
@@ -47,6 +49,12 @@ func (gate *EvidenceGate) Evaluate(output SearchOutput) EvidenceGateResult {
 		if strings.EqualFold(hit.Evidence.Retrieval, "dense+bm25") {
 			result.HybridEvidenceCount++
 		}
+	}
+	result.ConflictCount = len(output.Conflicts)
+	if result.ConflictCount > 0 {
+		result.ReasonCode = GateReasonEvidenceConflict
+		result.FollowUpQuestions = []string{"多个当前有效来源对同一配置给出了不同值，请确认本次应采用的来源或 revision。"}
+		return result
 	}
 	if len(output.Hits) == 0 {
 		result.ReasonCode = GateReasonNoEvidence

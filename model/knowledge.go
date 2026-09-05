@@ -73,6 +73,7 @@ type KnowledgeChunk struct {
 	ContentHash            string     `gorm:"uniqueIndex:uk_knowledge_chunks_identity,priority:4;not null;type:char(64)" json:"content_hash"`
 	MetadataJSON           string     `gorm:"type:longtext" json:"metadata_json,omitempty"`
 	LogicalKey             string     `gorm:"index;type:char(64)" json:"logical_key,omitempty"`
+	ChunkKind              string     `gorm:"index;not null;default:'child';type:varchar(16)" json:"chunk_kind"`
 	ParentChunkID          string     `gorm:"index;type:char(36)" json:"parent_chunk_id,omitempty"`
 	SourceKind             string     `gorm:"index;type:varchar(32)" json:"source_kind,omitempty"`
 	SourceRevision         string     `gorm:"index;type:varchar(128)" json:"source_revision,omitempty"`
