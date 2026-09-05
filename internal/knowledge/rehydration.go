@@ -16,6 +16,7 @@ type ActiveIndexedChunkRepository interface {
 
 type ProjectionChunkIndexer interface {
 	PresentChunkCount(ctx context.Context, chunks []model.KnowledgeChunk) (int, error)
+	PruneStaleChunks(ctx context.Context, chunks []model.KnowledgeChunk) (int, error)
 	IndexIncremental(ctx context.Context, chunks []model.KnowledgeChunk) (VectorIndexStats, error)
 }
 
@@ -25,6 +26,7 @@ type ProjectionRehydrationResult struct {
 	PresentBefore  int    `json:"present_before"`
 	PresentAfter   int    `json:"present_after"`
 	Rebuilt        bool   `json:"rebuilt"`
+	PrunedChunks   int    `json:"pruned_chunks"`
 	EmbeddedChunks int    `json:"embedded_chunks"`
 	ReusedVectors  int    `json:"reused_vectors"`
 }
@@ -46,6 +48,11 @@ func RehydrateActiveProjection(ctx context.Context, repository ActiveIndexedChun
 	if err := validateRehydrationChunks(chunks); err != nil {
 		return result, err
 	}
+	pruned, err := indexer.PruneStaleChunks(ctx, chunks)
+	if err != nil {
+		return result, fmt.Errorf("prune stale redis projection: %w", err)
+	}
+	result.PrunedChunks = pruned
 	if len(chunks) == 0 {
 		return result, nil
 	}

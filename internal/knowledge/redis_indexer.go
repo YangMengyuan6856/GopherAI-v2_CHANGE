@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +26,8 @@ const DefaultEmbeddingBatchSize = 10
 const embeddingCacheTTLSeconds = 7 * 24 * 60 * 60
 
 const redisExistenceBatchSize = 500
+
+const redisProjectionScanBatchSize = 500
 
 var safeEnvironment = regexp.MustCompile(`[^a-zA-Z0-9_-]+`)
 
@@ -176,6 +179,124 @@ func (indexer *RedisChunkIndexer) PresentChunkCount(ctx context.Context, chunks 
 		present += int(count)
 	}
 	return present, nil
+}
+
+// PruneStaleChunks removes vector-search hashes that no longer belong to the
+// authoritative active document versions. It is intended for the worker's
+// startup reconciliation, before queue consumption begins, so old versions
+// cannot occupy the bounded KNN candidate window and hide current evidence.
+func (indexer *RedisChunkIndexer) PruneStaleChunks(ctx context.Context, chunks []model.KnowledgeChunk) (int, error) {
+	if indexer == nil || indexer.client == nil {
+		return 0, errors.New("redis chunk indexer is required")
+	}
+	activeKeys := make(map[string]struct{}, len(chunks))
+	for _, chunk := range chunks {
+		if strings.TrimSpace(chunk.ID) == "" {
+			return 0, errors.New("chunk id is required for projection reconciliation")
+		}
+		activeKeys[indexer.keyPrefix+chunk.ID] = struct{}{}
+	}
+
+	staleIDs := make([]string, 0)
+	seenStale := make(map[string]struct{})
+	var cursor uint64
+	seenCursors := make(map[uint64]struct{})
+	for {
+		page, err := indexer.client.Do(ctx, "SCAN", cursor, "MATCH", indexer.keyPrefix+"*", "COUNT", redisProjectionScanBatchSize).Result()
+		if err != nil {
+			return 0, fmt.Errorf("scan redis chunk projection: %w", err)
+		}
+		nextCursor, keys, err := parseRedisScanPage(page)
+		if err != nil {
+			return 0, err
+		}
+		for _, key := range keys {
+			if _, active := activeKeys[key]; active {
+				continue
+			}
+			chunkID := strings.TrimPrefix(key, indexer.keyPrefix)
+			if chunkID == "" || chunkID == key {
+				continue
+			}
+			if _, duplicate := seenStale[chunkID]; duplicate {
+				continue
+			}
+			seenStale[chunkID] = struct{}{}
+			staleIDs = append(staleIDs, chunkID)
+		}
+		if nextCursor == 0 {
+			break
+		}
+		if _, repeated := seenCursors[nextCursor]; repeated {
+			return 0, errors.New("redis projection scan repeated a cursor")
+		}
+		seenCursors[nextCursor] = struct{}{}
+		cursor = nextCursor
+	}
+	if err := indexer.Delete(ctx, staleIDs); err != nil {
+		return 0, fmt.Errorf("prune stale redis chunks: %w", err)
+	}
+	return len(staleIDs), nil
+}
+
+func parseRedisScanPage(value any) (uint64, []string, error) {
+	page, ok := value.([]interface{})
+	if !ok || len(page) != 2 {
+		return 0, nil, fmt.Errorf("invalid redis projection scan page %T", value)
+	}
+	cursor, err := redisScanCursor(page[0])
+	if err != nil {
+		return 0, nil, err
+	}
+	keys, err := redisScanKeys(page[1])
+	if err != nil {
+		return 0, nil, err
+	}
+	return cursor, keys, nil
+}
+
+func redisScanCursor(value any) (uint64, error) {
+	switch typed := value.(type) {
+	case uint64:
+		return typed, nil
+	case int64:
+		if typed >= 0 {
+			return uint64(typed), nil
+		}
+	case string:
+		cursor, err := strconv.ParseUint(typed, 10, 64)
+		if err == nil {
+			return cursor, nil
+		}
+	case []byte:
+		cursor, err := strconv.ParseUint(string(typed), 10, 64)
+		if err == nil {
+			return cursor, nil
+		}
+	}
+	return 0, fmt.Errorf("invalid redis projection scan cursor %T", value)
+}
+
+func redisScanKeys(value any) ([]string, error) {
+	switch typed := value.(type) {
+	case []string:
+		return append([]string(nil), typed...), nil
+	case []interface{}:
+		keys := make([]string, 0, len(typed))
+		for _, item := range typed {
+			switch key := item.(type) {
+			case string:
+				keys = append(keys, key)
+			case []byte:
+				keys = append(keys, string(key))
+			default:
+				return nil, fmt.Errorf("invalid redis projection key %T", item)
+			}
+		}
+		return keys, nil
+	default:
+		return nil, fmt.Errorf("invalid redis projection key list %T", value)
+	}
 }
 
 func (indexer *RedisChunkIndexer) cachedVector(ctx context.Context, chunk model.KnowledgeChunk) ([]byte, bool) {

@@ -22,6 +22,9 @@ type rehydrationIndexer struct {
 	indexCall int
 	stats     VectorIndexStats
 	indexErr  error
+	pruneCall int
+	pruned    int
+	pruneErr  error
 }
 
 func (indexer *rehydrationIndexer) PresentChunkCount(context.Context, []model.KnowledgeChunk) (int, error) {
@@ -33,6 +36,11 @@ func (indexer *rehydrationIndexer) PresentChunkCount(context.Context, []model.Kn
 	return value, nil
 }
 
+func (indexer *rehydrationIndexer) PruneStaleChunks(context.Context, []model.KnowledgeChunk) (int, error) {
+	indexer.pruneCall++
+	return indexer.pruned, indexer.pruneErr
+}
+
 func (indexer *rehydrationIndexer) IndexIncremental(context.Context, []model.KnowledgeChunk) (VectorIndexStats, error) {
 	indexer.indexCall++
 	return indexer.stats, indexer.indexErr
@@ -40,13 +48,21 @@ func (indexer *rehydrationIndexer) IndexIncremental(context.Context, []model.Kno
 
 func TestRehydrateActiveProjectionSkipsCompleteProjection(t *testing.T) {
 	chunks := rehydrationChunks()
-	indexer := &rehydrationIndexer{counts: []int{len(chunks)}}
+	indexer := &rehydrationIndexer{counts: []int{len(chunks)}, pruned: 3}
 	result, err := RehydrateActiveProjection(context.Background(), rehydrationRepository{chunks: chunks}, indexer)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Rebuilt || result.PresentAfter != len(chunks) || indexer.indexCall != 0 {
+	if result.Rebuilt || result.PrunedChunks != 3 || result.PresentAfter != len(chunks) || indexer.indexCall != 0 || indexer.pruneCall != 1 {
 		t.Fatalf("unexpected complete projection result: %+v calls=%d", result, indexer.indexCall)
+	}
+}
+
+func TestRehydrateActiveProjectionFailsClosedWhenPruningFails(t *testing.T) {
+	indexer := &rehydrationIndexer{pruneErr: errors.New("scan failed")}
+	result, err := RehydrateActiveProjection(context.Background(), rehydrationRepository{chunks: rehydrationChunks()}, indexer)
+	if err == nil || result.PresentBefore != 0 || indexer.indexCall != 0 {
+		t.Fatalf("expected pruning failure before projection verification: result=%+v err=%v", result, err)
 	}
 }
 

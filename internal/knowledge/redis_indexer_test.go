@@ -20,6 +20,12 @@ type fakeRedisExecutor struct {
 	calls       []redisCommandCall
 	values      map[string][]byte
 	hashVectors map[string][]byte
+	scanPages   map[uint64]redisScanFixture
+}
+
+type redisScanFixture struct {
+	next uint64
+	keys []string
 }
 
 func (executor *fakeRedisExecutor) Do(ctx context.Context, args ...any) *redis.Cmd {
@@ -30,6 +36,15 @@ func (executor *fakeRedisExecutor) Do(ctx context.Context, args ...any) *redis.C
 		return command
 	}
 	switch args[0] {
+	case "SCAN":
+		cursor := args[1].(uint64)
+		page := executor.scanPages[cursor]
+		keys := make([]interface{}, 0, len(page.keys))
+		for _, key := range page.keys {
+			keys = append(keys, key)
+		}
+		command.SetVal([]interface{}{fmt.Sprintf("%d", page.next), keys})
+		return command
 	case "EXISTS":
 		var count int64
 		for _, rawKey := range args[1:] {
@@ -67,6 +82,10 @@ func (executor *fakeRedisExecutor) Do(ctx context.Context, args ...any) *redis.C
 				executor.hashVectors[args[1].(string)] = append([]byte(nil), args[index+1].([]byte)...)
 				break
 			}
+		}
+	case "DEL":
+		for _, rawKey := range args[1:] {
+			delete(executor.hashVectors, rawKey.(string))
 		}
 	}
 	command.SetVal("OK")
@@ -260,6 +279,36 @@ func TestRedisChunkIndexerCountsPresentAuthoritativeKeys(t *testing.T) {
 	}
 	if present != 2 || countCommand(client.calls, "EXISTS") != 1 {
 		t.Fatalf("present=%d calls=%+v", present, client.calls)
+	}
+}
+
+func TestRedisChunkIndexerPrunesOnlyStaleNamespacedChunksAcrossScanPages(t *testing.T) {
+	prefix := "gopher:test:v1:kb:chunk:"
+	client := &fakeRedisExecutor{
+		hashVectors: map[string][]byte{
+			prefix + "active-1": {1}, prefix + "active-2": {1}, prefix + "stale-1": {1}, prefix + "stale-2": {1},
+		},
+		scanPages: map[uint64]redisScanFixture{
+			0:  {next: 17, keys: []string{prefix + "active-1", prefix + "stale-1"}},
+			17: {next: 0, keys: []string{prefix + "active-2", prefix + "stale-2"}},
+		},
+	}
+	indexer, err := NewRedisChunkIndexer(client, new(fakeEmbedder), "test", 2, DefaultEmbeddingBatchSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	removed, err := indexer.PruneStaleChunks(context.Background(), []model.KnowledgeChunk{{ID: "active-1"}, {ID: "active-2"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 2 || countCommand(client.calls, "SCAN") != 2 || countCommand(client.calls, "DEL") != 1 {
+		t.Fatalf("unexpected reconciliation result: removed=%d calls=%+v", removed, client.calls)
+	}
+	if _, exists := client.hashVectors[prefix+"stale-1"]; exists {
+		t.Fatal("stale chunk remained in redis projection")
+	}
+	if _, exists := client.hashVectors[prefix+"active-1"]; !exists {
+		t.Fatal("authoritative chunk was deleted")
 	}
 }
 
