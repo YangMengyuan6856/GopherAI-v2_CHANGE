@@ -44,3 +44,20 @@ func TestAnomalySimulationRejectsUnknownAndExtraFields(t *testing.T) {
 		}
 	}
 }
+
+func TestAnomalySimulationExposesLowPopulationAsUndecided(t *testing.T) {
+	handler := NewAnomalyHandler()
+	router := gin.New()
+	router.POST("/simulate", handler.Simulate)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/simulate", strings.NewReader(`{"scenario":"low_sample"}`))
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected simulation, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	for _, expected := range []string{`"decision_status":"insufficient_data"`, `"population":12`, `"minimum_population":50`, `"status":"suppressed"`, `"action":"none"`, `"applied":false`} {
+		if !strings.Contains(recorder.Body.String(), expected) {
+			t.Fatalf("low-population response missing %s: %s", expected, recorder.Body.String())
+		}
+	}
+}

@@ -73,6 +73,7 @@ type AnomalyAnalysis struct {
 	DetectorVersion string                `json:"detector_version"`
 	Policy          DetectionPolicy       `json:"policy"`
 	PointCount      int                   `json:"point_count"`
+	DecisionStatus  string                `json:"decision_status"`
 	Fixed           FixedThresholdSignal  `json:"fixed_threshold"`
 	ZScore          ZScoreSignal          `json:"z_score"`
 	Anomalous       bool                  `json:"anomalous"`
@@ -91,13 +92,14 @@ func AnalyzeMetricWindow(policy DetectionPolicy, observations []MetricObservatio
 	sort.SliceStable(ordered, func(left, right int) bool { return ordered[left].ObservedAt.Before(ordered[right].ObservedAt) })
 	latest := ordered[len(ordered)-1]
 	analysis := AnomalyAnalysis{
-		DetectorVersion: AnomalyDetectorVersion, Policy: policy, PointCount: len(ordered),
+		DetectorVersion: AnomalyDetectorVersion, Policy: policy, PointCount: len(ordered), DecisionStatus: "healthy",
 		Fixed:          FixedThresholdSignal{Status: "healthy", ReasonCode: "within_fixed_threshold", Observed: latest.Value, Population: latest.Population},
 		ZScore:         ZScoreSignal{Status: "insufficient_window", ReasonCode: "minimum_window_not_met", CurrentExcluded: true},
 		Recommendation: AnomalyRecommendation{Mode: "recommend_only", Action: "none", Applied: false, ReasonCode: "no_anomaly"},
 		Guardrails:     []string{"不会写入 active policy", "不会自动切流", "不会执行修复工具", "建议必须经过离线评测与人工审核"},
 	}
 	if latest.Population < policy.MinimumPopulation {
+		analysis.DecisionStatus = "insufficient_data"
 		analysis.Fixed.Status, analysis.Fixed.ReasonCode = "suppressed", "minimum_population_not_met"
 		analysis.ZScore.Status, analysis.ZScore.ReasonCode = "suppressed", "minimum_population_not_met"
 		analysis.Recommendation.ReasonCode = "insufficient_population"
@@ -110,6 +112,7 @@ func AnalyzeMetricWindow(policy DetectionPolicy, observations []MetricObservatio
 	tail := ordered[len(ordered)-tailCount:]
 	for _, point := range tail {
 		if point.Population < policy.MinimumPopulation {
+			analysis.DecisionStatus = "insufficient_data"
 			analysis.Fixed.Status, analysis.Fixed.ReasonCode = "suppressed", "minimum_population_not_met"
 			analysis.ZScore.Status, analysis.ZScore.ReasonCode = "suppressed", "minimum_population_not_met"
 			analysis.Recommendation.ReasonCode = "insufficient_population"
@@ -166,6 +169,7 @@ func AnalyzeMetricWindow(policy DetectionPolicy, observations []MetricObservatio
 	}
 	analysis.Anomalous = analysis.Fixed.Anomalous || analysis.ZScore.Anomalous
 	if analysis.Anomalous {
+		analysis.DecisionStatus = "anomalous"
 		analysis.Recommendation = AnomalyRecommendation{
 			Mode: "recommend_only", Action: "reduce_candidate_weight", WeightDeltaBasis: -1000, Applied: false,
 			ReasonCode: "bounded_anomaly_detected", IncidentKey: anomalyIncidentKey(policy),

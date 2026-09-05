@@ -516,19 +516,20 @@
                 </button>
               </div>
               <div v-if="loadingAnomaly" class="strategy-control-empty">正在以“基线窗口不含当前点”的规则计算...</div>
-              <article v-else-if="anomalyResult" :class="['anomaly-result', anomalyResult.analysis.anomalous ? 'anomaly-detected' : 'anomaly-healthy']">
+              <article v-else-if="anomalyResult" :class="['anomaly-result', anomalyDecisionClass(anomalyResult.analysis)]">
                 <div class="evaluation-run-heading">
                   <div>
                     <strong>{{ anomalyMetricLabel(anomalyResult.analysis.policy.metric) }} · {{ anomalyResult.analysis.policy.strategy }}</strong>
                     <span>{{ anomalyResult.simulation ? '验收模拟' : '生产观测' }} · {{ anomalyResult.source }}</span>
                   </div>
-                  <span>{{ anomalyResult.analysis.anomalous ? '检测到退化' : '未触发异常' }}</span>
+                  <span>{{ anomalyDecisionLabel(anomalyResult.analysis.decision_status) }}</span>
                 </div>
                 <div class="diagnostic-evaluation-grid">
-                  <div><strong>{{ anomalyResult.analysis.fixed_threshold.status }}</strong><span>固定阈值 · 连续 {{ anomalyResult.analysis.fixed_threshold.breach_count }} 点</span></div>
-                  <div><strong>{{ anomalyResult.analysis.z_score.status }}</strong><span>Z-score · 连续 {{ anomalyResult.analysis.z_score.breach_count }} 点</span></div>
-                  <div><strong>{{ anomalyResult.analysis.z_score.zero_variance ? '∞' : Number(anomalyResult.analysis.z_score.adverse_z_score).toFixed(2) }}</strong><span>不利方向 Z 值 · 阈值 {{ anomalyResult.analysis.policy.z_score_threshold }}</span></div>
-                  <div><strong>{{ anomalyResult.analysis.z_score.baseline_points }}</strong><span>基线点 · 当前点已排除 {{ anomalyResult.analysis.z_score.current_excluded ? '是' : '否' }}</span></div>
+                  <div><strong>{{ anomalySignalStatusLabel(anomalyResult.analysis.fixed_threshold.status) }}</strong><span>固定阈值 · {{ anomalyResult.analysis.decision_status === 'insufficient_data' ? '未参与判定' : `连续 ${anomalyResult.analysis.fixed_threshold.breach_count} 点` }}</span></div>
+                  <div><strong>{{ anomalySignalStatusLabel(anomalyResult.analysis.z_score.status) }}</strong><span>Z-score · {{ anomalyResult.analysis.decision_status === 'insufficient_data' ? '未参与判定' : `连续 ${anomalyResult.analysis.z_score.breach_count} 点` }}</span></div>
+                  <div><strong>{{ anomalyResult.analysis.decision_status === 'insufficient_data' ? '未计算' : (anomalyResult.analysis.z_score.zero_variance ? '∞' : Number(anomalyResult.analysis.z_score.adverse_z_score).toFixed(2)) }}</strong><span>不利方向 Z 值 · 阈值 {{ anomalyResult.analysis.policy.z_score_threshold }}</span></div>
+                  <div v-if="anomalyResult.analysis.decision_status === 'insufficient_data'"><strong>{{ anomalyResult.analysis.fixed_threshold.population }} / {{ anomalyResult.analysis.policy.minimum_population }}</strong><span>当前样本 / 最低门槛 · 尚差 {{ Math.max(0, anomalyResult.analysis.policy.minimum_population - anomalyResult.analysis.fixed_threshold.population) }}</span></div>
+                  <div v-else><strong>{{ anomalyResult.analysis.z_score.baseline_points }}</strong><span>基线点 · 当前点已排除 {{ anomalyResult.analysis.z_score.current_excluded ? '是' : '否' }}</span></div>
                 </div>
                 <div class="anomaly-reason-line">原因码：{{ anomalyResult.analysis.fixed_threshold.reason_code }} · {{ anomalyResult.analysis.z_score.reason_code }}</div>
                 <div class="evaluation-candidate-warning">
@@ -2529,6 +2530,18 @@ export default {
       none: '不产生策略建议', reduce_candidate_weight: '建议候选策略降权（未执行）'
     }[action] || action)
 
+    const anomalyDecisionLabel = (status) => ({
+      anomalous: '检测到退化', healthy: '窗口健康', insufficient_data: '数据不足 · 暂不判定'
+    }[status] || '状态未知')
+
+    const anomalyDecisionClass = (analysis) => ({
+      anomalous: 'anomaly-detected', healthy: 'anomaly-healthy', insufficient_data: 'anomaly-insufficient'
+    }[analysis?.decision_status] || 'anomaly-insufficient')
+
+    const anomalySignalStatusLabel = (status) => ({
+      suppressed: '已抑制', healthy: '健康', anomalous: '异常', warning: '告警', critical: '严重', insufficient_window: '窗口不足'
+    }[status] || status)
+
     const simulateAnomaly = async (scenario) => {
       if (loadingAnomaly.value) return
       try {
@@ -2942,6 +2955,9 @@ export default {
       evaluationFailureLabel,
       anomalyMetricLabel,
       anomalyRecommendationLabel,
+      anomalyDecisionLabel,
+      anomalyDecisionClass,
+      anomalySignalStatusLabel,
       simulateAnomaly,
       cancelDiagnosticRun,
       resetDiagnosticRun,
@@ -4744,6 +4760,11 @@ export default {
 .anomaly-result.anomaly-healthy {
   border: 1px solid rgba(52, 168, 121, 0.28);
   background: #f0fbf6;
+}
+
+.anomaly-result.anomaly-insufficient {
+  border: 1px solid rgba(85, 116, 173, 0.3);
+  background: #f3f6fb;
 }
 
 @media (max-width: 760px) {

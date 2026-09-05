@@ -28,7 +28,7 @@ func TestAnomalyDetectorSuppressesLowPopulation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Anomalous || result.Fixed.Status != "suppressed" || result.ZScore.ReasonCode != "minimum_population_not_met" || result.Recommendation.Action != "none" {
+	if result.Anomalous || result.DecisionStatus != "insufficient_data" || result.Fixed.Status != "suppressed" || result.Fixed.Population != 12 || result.ZScore.ReasonCode != "minimum_population_not_met" || result.Recommendation.Action != "none" {
 		t.Fatalf("low-population anomaly was not suppressed: %+v", result)
 	}
 }
