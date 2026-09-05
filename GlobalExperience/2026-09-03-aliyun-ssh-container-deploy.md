@@ -1406,3 +1406,15 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - `b59b522a` 补齐 M7-09 局部降级语义：子 Agent 的 `insufficient` 与执行异常分开记录，Evidence Gate 不通过时保留公开原因、Evidence 数量和 Usage，但不把“证据不足”当作成功 Claim。Synthesizer 只保留成功兄弟的引用结论，输出 `partial` 并显式回退 `diagnosis_standard`；不进行无界重试。
 - 最终 Release `20260905103221-b59b522aa536`，bundle SHA-256 `3e3428cabf9b9457280b34e97e14b838632186b13bec179c1cb4f418b6bd7e61`，四进程门通过。真实文档 + HTTP 502 样例在约 2.5 秒内得到 Knowledge/Diagnostic 两个成功任务、2 个 Claim、4 个合成引用、0 冲突、0 拒绝；不存在文档样例得到 Knowledge `insufficient/no_cross_retriever_support`、Diagnostic success、合成 partial 且只保留 1 条诊断引用。简单 Redis NOAUTH 样例保持 20/70，零子 Agent 执行。
 - Prometheus 对三种关键路径使用固定低基数标签：完整路径为 run `complete=1`、两个 Agent success；局部降级为 run `partial=1`、Knowledge insufficient、Diagnostic success、synthesis partial；简单请求为 `single_agent/not_executed`（进程重启前已验证）。经验：必须把“Planner 认为值得拆”与“每个子任务实际有足够证据”作为两个独立门，不能把零 Claim 的正常返回包装成协作成功。
+
+## 59. 2026-09-05 小内存 ECS 发布链路二次保护
+
+- 当容器内旧 Vue development server 与一次全仓编译叠加后，ECS 再次出现“22/8080/9090 端口能建立 TCP，但 SSH banner、HTTP userspace 均无响应”的资源枯竭症状。2026-09-05 13:30 再测仍为 `Connection timed out during banner exchange`，Backend 健康返回 empty reply，前端 10 秒无响应；因此本轮 M7 后半段和 M8 候选只能标记为本地验证，不能伪称已经云端发布。
+- 提交 `6de8cdb4` 已把发布链路改为本地执行 Vue production build，并用小型 Go static gateway 在云端提供静态文件与 `/api` 转发。服务器恢复后只上传预构建 Linux 二进制和前端 `dist`，不再在运行容器执行 `npm run serve`、`npm run build`、`go build` 或 `go test`。
+- 遇到 banner timeout 时，发布脚本必须快速失败，不能高频重连、重复上传或启动更多进程。恢复顺序固定为：ECS 控制台重启或停掉资源消耗进程 → SSH 单次有界探测 → `free -m`/`docker ps`/唯一进程审计 → 原子部署预构建 Bundle → 四进程与 HTTP 健康门。不要删除 `gopherai2`，因为项目配置、上传文档和 MySQL 数据仍依赖该容器。
+
+## 60. 2026-09-05 评测候选、人工复核与基线必须分层
+
+- 320 条目录校验通过只表示文件数量、哈希、Case ID、Schema 和敏感信息扫描合格；全部 `pending_user` 时，页面必须显示“基线不可用”，不能把机械校验包装成人工事实正确性。
+- 当前确定性 Scorecard 可执行 300 条；新增的 20 条 insufficient-evidence 需要统一 Runner + Groundedness/Judge 后才进入完整分数。LLM Judge 使用固定 Prompt/模型版本、temperature 0、严格 JSON、未知引用拒绝、失败最多重试一次且最终计为 `judge_failed`，绝不按中性分掩盖评测基础设施故障。
+- 提交 `3b4d6733` 的基线门禁只接受人工复核、技术门通过、完成率至少 98% 的 Snapshot；Snapshot 锁定 dataset/fixture/model/prompt/judge/environment 版本且不可覆盖。候选既要满足绝对阈值，又不能相对同版本基线退化超过 5%；越权召回、危险动作等安全计数必须保持 0。版本不一致时拒绝比较，而不是生成看似精确但口径不同的百分比。
