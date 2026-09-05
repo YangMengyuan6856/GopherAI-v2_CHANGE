@@ -157,6 +157,56 @@
               </details>
             </article>
           </section>
+          <section class="collaboration-plan-console">
+            <div class="strategy-result-heading">
+              <div>
+                <strong>有限多 Agent 规划门</strong>
+                <p>先判断是否存在两个独立子问题；当前只生成公开计划，不启动 Agent、不调用工具。</p>
+              </div>
+              <span class="shadow-only-badge">PLAN ONLY · MAX 2</span>
+            </div>
+            <div class="case-shadow-input">
+              <textarea
+                v-model="collaborationPlanMessage"
+                rows="2"
+                maxlength="4000"
+                placeholder="例如：Redis NOAUTH，同时 RabbitMQ PRECONDITION_FAILED，请核对项目文档并分别定位。"
+              ></textarea>
+              <button :disabled="planningCollaboration || !collaborationPlanMessage.trim()" @click="runCollaborationPlan">
+                {{ planningCollaboration ? '规划中...' : '运行协作规划' }}
+              </button>
+            </div>
+            <article v-if="collaborationPlan" class="case-shadow-result">
+              <div class="strategy-result-heading">
+                <strong>{{ collaborationDecisionLabel(collaborationPlan.decision) }}</strong>
+                <span>复杂度 {{ collaborationPlan.complexity_score }} / 门槛 {{ collaborationPlan.complexity_threshold }}</span>
+              </div>
+              <div class="strategy-result-grid">
+                <span>候选策略 {{ collaborationPlan.strategy }}</span>
+                <span>原因 {{ collaborationReasonLabel(collaborationPlan.reason_code) }}</span>
+                <span>Agent 上限 {{ collaborationPlan.budget.max_agents }}</span>
+                <span>总超时 {{ collaborationPlan.budget.total_timeout_ms / 1000 }} 秒</span>
+              </div>
+              <div class="collaboration-signal-list">
+                <span :class="collaborationPlan.signals.has_independent_failure_scopes ? 'signal-on' : 'signal-off'">独立故障域</span>
+                <span :class="collaborationPlan.signals.has_knowledge_verification ? 'signal-on' : 'signal-off'">需要项目证据核对</span>
+                <span :class="collaborationPlan.signals.has_evidence_conflict ? 'signal-on' : 'signal-off'">存在证据冲突</span>
+                <span :class="collaborationPlan.signals.has_high_impact_marker ? 'signal-on' : 'signal-off'">高影响标记</span>
+              </div>
+              <div class="collaboration-task-grid">
+                <article v-for="task in collaborationPlan.tasks" :key="task.task_id">
+                  <div class="strategy-result-heading">
+                    <strong>{{ task.index }}. {{ task.agent }}</strong>
+                    <span>{{ task.output_contract }}</span>
+                  </div>
+                  <p>{{ task.objective }}</p>
+                  <p>预算：迭代 {{ task.budget.max_iterations }} · 工具 {{ task.budget.max_tool_calls }} · 输入 {{ task.budget.max_input_tokens }} tokens</p>
+                  <p>{{ task.may_spawn_agents ? '允许递归（异常）' : '禁止递归创建 Agent' }}</p>
+                </article>
+              </div>
+              <div class="strategy-control-notice">{{ collaborationPlan.limitations[0] }}</div>
+            </article>
+          </section>
           <details class="strategy-registry-details">
             <summary>查看 7 个策略的元数据与治理边界</summary>
             <div class="strategy-registry-grid">
@@ -943,6 +993,9 @@ export default {
     const caseShadowMessage = ref('Redis 返回 NOAUTH Authentication required，应用容器无法连接缓存。')
     const runningCaseShadow = ref(false)
     const caseShadowResult = ref(null)
+    const collaborationPlanMessage = ref('Redis 返回 NOAUTH；同时 RabbitMQ 返回 PRECONDITION_FAILED，请核对项目文档并分别定位两条故障链。')
+    const planningCollaboration = ref(false)
+    const collaborationPlan = ref(null)
     const strategyIntentOptions = [
       { value: 'troubleshooting', label: '故障诊断' },
       { value: 'project_qa', label: '项目知识问答' },
@@ -1568,6 +1621,22 @@ export default {
       }
     }
 
+    const runCollaborationPlan = async () => {
+      if (!collaborationPlanMessage.value.trim()) return
+      try {
+        planningCollaboration.value = true
+        collaborationPlan.value = null
+        const response = await api.post('/agent-runs/diagnostics/collaboration-plan', { message: collaborationPlanMessage.value.trim() })
+        collaborationPlan.value = response.data
+        if (response.data.decision === 'collaborative_candidate') ElMessage.success('满足协作候选门；本次仍只生成计划，不执行 Agent')
+        else ElMessage.info('复杂度不足，保持单 DiagnosticAgent 基线')
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || '协作规划暂时不可用')
+      } finally {
+        planningCollaboration.value = false
+      }
+    }
+
     const policySourceLabel = (source) => ({ redis: 'Redis 缓存', mysql: 'MySQL 权威源' }[source] || source)
     const shortPolicyHash = (hash) => hash ? `${hash.slice(0, 10)}…${hash.slice(-6)}` : 'unknown'
     const strategyIntentLabel = (intent) => ({ troubleshooting: '故障诊断', project_qa: '项目知识问答', general: '通用问答' }[intent] || intent)
@@ -1587,6 +1656,13 @@ export default {
       case_no_match: '没有可用的确认案例',
       case_recall_unavailable: '案例召回异常，已降级',
       case_payload_invalid: '案例载荷校验失败，已降级'
+    }[reason] || reason)
+    const collaborationDecisionLabel = (decision) => ({ single_agent: '保持单 Agent', collaborative_candidate: '候选：KnowledgeAgent + DiagnosticAgent' }[decision] || decision)
+    const collaborationReasonLabel = (reason) => ({
+      single_task_preferred: '单一故障，协作收益不足',
+      independent_diagnostic_branches: '存在两个独立故障域',
+      knowledge_diagnostic_split: '证据核对与诊断可独立执行',
+      conflict_requires_evidence_verification: '冲突需要独立证据核验'
     }[reason] || reason)
 
     const diagnosticStateLabel = (state) => ({
@@ -2264,6 +2340,9 @@ export default {
       caseShadowMessage,
       runningCaseShadow,
       caseShadowResult,
+      collaborationPlanMessage,
+      planningCollaboration,
+      collaborationPlan,
       strategyIntentOptions,
       profileMemories,
       profileDrafts,
@@ -2306,6 +2385,7 @@ export default {
       togglePolicyControl,
       simulatePolicy,
       runCaseShadow,
+      runCollaborationPlan,
       policySourceLabel,
       shortPolicyHash,
       strategyIntentLabel,
@@ -2315,6 +2395,8 @@ export default {
       caseStrengthLabel,
       caseMemoryStatusLabel,
       caseReasonLabel,
+      collaborationDecisionLabel,
+      collaborationReasonLabel,
       toggleDiagnosticEvaluation,
       toggleContextCompression,
       formattedFacts,
@@ -3769,6 +3851,25 @@ export default {
   background: rgba(244, 240, 255, 0.72);
 }
 
+.collaboration-plan-console {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px dashed rgba(41, 124, 151, 0.34);
+  border-radius: 11px;
+  background: rgba(235, 250, 252, 0.72);
+}
+
+.collaboration-plan-console .strategy-result-heading > div {
+  display: grid;
+  gap: 3px;
+}
+
+.collaboration-plan-console p {
+  margin: 0;
+  color: #627985;
+  font-weight: 500;
+}
+
 .case-shadow-console .strategy-result-heading > div {
   display: grid;
   gap: 3px;
@@ -3828,6 +3929,45 @@ export default {
   border-radius: 6px;
   background: #effaf6;
   color: #3f5860;
+}
+
+.collaboration-signal-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 9px;
+}
+
+.collaboration-signal-list span {
+  padding: 5px 8px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.signal-on {
+  background: #ddf5ec;
+  color: #16704c;
+}
+
+.signal-off {
+  background: #edf0f4;
+  color: #7c8491;
+}
+
+.collaboration-task-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.collaboration-task-grid article {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid rgba(41, 124, 151, 0.18);
+  border-radius: 8px;
+  background: #fff;
 }
 
 @media (max-width: 760px) {

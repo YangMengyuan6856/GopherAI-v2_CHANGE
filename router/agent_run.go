@@ -9,8 +9,10 @@ import (
 func RegisterAgentRunRouter(group *gin.RouterGroup) {
 	handler := agentrun.NewDefaultHandler()
 	caseShadowHandler := agentrun.NewDefaultCaseShadowHandler()
+	collaborationPlanHandler := agentrun.NewDefaultCollaborationPlanHandler()
 	group.POST("/diagnostics", handler.Start)
 	group.POST("/diagnostics/case-shadow", caseShadowHandler.Analyze)
+	group.POST("/diagnostics/collaboration-plan", collaborationPlanHandler.Plan)
 	group.GET("/:run_id", handler.Get)
 	group.GET("/:run_id/context-compression", handler.ContextCompression)
 	group.POST("/:run_id/resume", handler.Resume)

@@ -72,3 +72,16 @@ func TestCaseStrategyMetricsUseFixedLowCardinalityLabels(t *testing.T) {
 		t.Fatalf("untrusted case strategy labels escaped bounds: %v", count)
 	}
 }
+
+func TestCollaborationPlanMetricsUseFixedLowCardinalityLabels(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	metrics := NewMetrics(registry, registry)
+	metrics.RecordCollaborationPlan("collaborative_candidate", "knowledge_diagnostic_split", 25)
+	metrics.RecordCollaborationPlan("caller-decision", "caller-reason", 50)
+	if count := testutil.ToFloat64(metrics.collaborationPlans.WithLabelValues("collaborative_candidate", "knowledge_diagnostic_split")); count != 1 {
+		t.Fatalf("expected collaborative candidate count 1, got %v", count)
+	}
+	if count := testutil.ToFloat64(metrics.collaborationPlans.WithLabelValues("error", "error")); count != 1 {
+		t.Fatalf("untrusted planner labels escaped bounds: %v", count)
+	}
+}

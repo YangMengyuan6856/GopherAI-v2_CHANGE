@@ -37,6 +37,8 @@ type Metrics struct {
 	caseMemoryRecallResults     *prometheus.HistogramVec
 	caseStrategyRuns            *prometheus.CounterVec
 	caseStrategyDuration        *prometheus.HistogramVec
+	collaborationPlans          *prometheus.CounterVec
+	collaborationPlanDuration   *prometheus.HistogramVec
 	profileMemoryRecalls        *prometheus.CounterVec
 	profileMemoryRecallDuration *prometheus.HistogramVec
 	profileMemoryRecallResults  *prometheus.HistogramVec
@@ -176,6 +178,15 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 			Help:    "End-to-end diagnosis_case_based shadow duration in seconds.",
 			Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2},
 		}, []string{"outcome"}),
+		collaborationPlans: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_collaboration_plans_total",
+			Help: "Total bounded collaboration shadow plans by decision and reason.",
+		}, []string{"decision", "reason"}),
+		collaborationPlanDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "gopherai_collaboration_plan_duration_seconds",
+			Help:    "Bounded collaboration planner duration in seconds by decision.",
+			Buckets: []float64{0.0001, 0.0005, 0.001, 0.005, 0.01, 0.025, 0.05, 0.1},
+		}, []string{"decision"}),
 		profileMemoryRecalls: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "gopherai_profile_memory_recalls_total",
 			Help: "Total governed profile-memory recalls by bounded outcome.",
@@ -282,6 +293,8 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 		metrics.caseMemoryRecallResults,
 		metrics.caseStrategyRuns,
 		metrics.caseStrategyDuration,
+		metrics.collaborationPlans,
+		metrics.collaborationPlanDuration,
 		metrics.profileMemoryRecalls,
 		metrics.profileMemoryRecallDuration,
 		metrics.profileMemoryRecallResults,
@@ -326,6 +339,11 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 	for _, strength := range []string{"strong", "weak", "none"} {
 		for _, outcome := range []string{"success", "fallback", "error", "cancelled"} {
 			metrics.caseStrategyRuns.WithLabelValues(strength, outcome).Add(0)
+		}
+	}
+	for _, decision := range []string{"single_agent", "collaborative_candidate", "error", "cancelled"} {
+		for _, reason := range []string{"single_task_preferred", "independent_diagnostic_branches", "knowledge_diagnostic_split", "conflict_requires_evidence_verification", "error"} {
+			metrics.collaborationPlans.WithLabelValues(decision, reason).Add(0)
 		}
 	}
 	for _, strategy := range []string{"rag_fast", "rag_deep"} {
@@ -375,6 +393,27 @@ func (metrics *Metrics) RecordCaseStrategy(strength string, outcome string, dura
 	}
 	metrics.caseStrategyRuns.WithLabelValues(strength, outcome).Inc()
 	metrics.caseStrategyDuration.WithLabelValues(outcome).Observe(duration.Seconds())
+}
+
+func (metrics *Metrics) RecordCollaborationPlan(decision string, reason string, duration time.Duration) {
+	if metrics == nil {
+		return
+	}
+	switch decision {
+	case "single_agent", "collaborative_candidate", "error", "cancelled":
+	default:
+		decision = "error"
+	}
+	switch reason {
+	case "single_task_preferred", "independent_diagnostic_branches", "knowledge_diagnostic_split", "conflict_requires_evidence_verification":
+	default:
+		reason = "error"
+	}
+	if duration < 0 {
+		duration = 0
+	}
+	metrics.collaborationPlans.WithLabelValues(decision, reason).Inc()
+	metrics.collaborationPlanDuration.WithLabelValues(decision).Observe(duration.Seconds())
 }
 
 func (metrics *Metrics) RecordPolicyLoad(source string, result string) {

@@ -28,6 +28,10 @@ const (
 	ControlNone   ControlLevel = "none"
 	ControlShadow ControlLevel = "shadow"
 	ControlCanary ControlLevel = "canary"
+
+	DiagnosisStandardStrategyName      = "diagnosis_standard"
+	DiagnosisCaseBasedStrategyName     = "diagnosis_case_based"
+	DiagnosisCollaborativeStrategyName = "diagnosis_collaborative"
 )
 
 var strategyIdentifier = regexp.MustCompile(`^[a-z][a-z0-9_]{1,63}$`)
@@ -161,9 +165,9 @@ func DefaultStrategyRegistry() *StrategyRegistry {
 		StrategyMetadata{Name: LegacyChatStrategyName, Version: LegacyChatStrategyVersion, Intents: []string{"legacy", "general", "follow_up", "doc_task", "tool_task"}, LatencyTier: "medium", CostTier: "medium", Dependencies: []Dependency{DependencyModel}, MaximumBudget: standard, State: StrategyActive, Fallback: "direct_fallback", ControlLevel: ControlNone},
 		StrategyMetadata{Name: RAGFastStrategyName, Version: RAGFastStrategyVersion, Intents: []string{"project_qa"}, LatencyTier: "medium", CostTier: "medium", Dependencies: []Dependency{DependencyModel, DependencyVector}, MaximumBudget: standard, State: StrategyActive, Fallback: "direct_fallback", ControlLevel: ControlNone},
 		StrategyMetadata{Name: "rag_deep", Version: "rag-deep-v1", Intents: []string{"project_qa"}, LatencyTier: "high", CostTier: "high", Dependencies: []Dependency{DependencyModel, DependencyVector}, MaximumBudget: standard, State: StrategyShadow, Fallback: RAGFastStrategyName, ControlLevel: ControlShadow},
-		StrategyMetadata{Name: "diagnosis_standard", Version: "diagnosis-standard-v1", Intents: []string{"troubleshooting"}, LatencyTier: "medium", CostTier: "medium", Dependencies: []Dependency{DependencyModel, DependencyTool}, MaximumBudget: standard, State: StrategyActive, Fallback: "direct_fallback", ControlLevel: ControlNone},
-		StrategyMetadata{Name: "diagnosis_case_based", Version: "diagnosis-case-v1", Intents: []string{"troubleshooting"}, LatencyTier: "medium", CostTier: "medium", Dependencies: []Dependency{DependencyModel, DependencyTool, DependencyCaseMemory}, MaximumBudget: standard, State: StrategyShadow, Fallback: "diagnosis_standard", ControlLevel: ControlShadow},
-		StrategyMetadata{Name: "diagnosis_collaborative", Version: "diagnosis-collaborative-v1", Intents: []string{"troubleshooting"}, LatencyTier: "high", CostTier: "high", Dependencies: []Dependency{DependencyModel, DependencyVector, DependencyTool, DependencyCaseMemory}, MaximumBudget: collaborative, State: StrategyDisabled, Fallback: "diagnosis_standard", ControlLevel: ControlShadow},
+		StrategyMetadata{Name: DiagnosisStandardStrategyName, Version: "diagnosis-standard-v1", Intents: []string{"troubleshooting"}, LatencyTier: "medium", CostTier: "medium", Dependencies: []Dependency{DependencyModel, DependencyTool}, MaximumBudget: standard, State: StrategyActive, Fallback: "direct_fallback", ControlLevel: ControlNone},
+		StrategyMetadata{Name: DiagnosisCaseBasedStrategyName, Version: "diagnosis-case-v1", Intents: []string{"troubleshooting"}, LatencyTier: "medium", CostTier: "medium", Dependencies: []Dependency{DependencyModel, DependencyTool, DependencyCaseMemory}, MaximumBudget: standard, State: StrategyShadow, Fallback: DiagnosisStandardStrategyName, ControlLevel: ControlShadow},
+		StrategyMetadata{Name: DiagnosisCollaborativeStrategyName, Version: "diagnosis-collaborative-v1", Intents: []string{"troubleshooting"}, LatencyTier: "high", CostTier: "high", Dependencies: []Dependency{DependencyModel, DependencyVector, DependencyTool, DependencyCaseMemory}, MaximumBudget: collaborative, State: StrategyDisabled, Fallback: DiagnosisStandardStrategyName, ControlLevel: ControlShadow},
 		StrategyMetadata{Name: "direct_fallback", Version: "direct-fallback-v1", Intents: []string{"legacy", "general", "follow_up", "doc_task", "tool_task", "project_qa", "troubleshooting", "unknown"}, LatencyTier: "low", CostTier: "low", MaximumBudget: standard, State: StrategyActive, ControlLevel: ControlNone},
 	)
 	if err != nil {
