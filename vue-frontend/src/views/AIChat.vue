@@ -179,6 +179,9 @@
                 <button class="collaboration-run-button" :disabled="planningCollaboration || runningCollaboration || !collaborationPlanMessage.trim()" @click="runCollaborationShadow">
                   {{ runningCollaboration ? '并行执行中...' : '执行协作 Shadow' }}
                 </button>
+                <button :disabled="loadingCollaborationEvaluation" @click="toggleCollaborationEvaluation">
+                  {{ collaborationEvaluationOpen ? '收起 A/B 报告' : (loadingCollaborationEvaluation ? '读取报告中...' : '查看 A/B 净收益') }}
+                </button>
               </div>
             </div>
             <article v-if="collaborationPlan" class="case-shadow-result">
@@ -253,6 +256,40 @@
                 </details>
               </template>
               <div class="strategy-control-notice">这是显式评测入口：最多 2 个 Agent、禁止递归、只读、Shadow，不会自动切换正式聊天策略。</div>
+            </article>
+            <article v-if="collaborationEvaluationOpen" class="case-shadow-result collaboration-evaluation-result">
+              <div v-if="collaborationEvaluation">
+                <div class="diagnostic-evaluation-title">
+                  <div>
+                    <strong>standard vs collaborative 成对 A/B</strong>
+                    <span>{{ collaborationEvaluation.metrics.case_count }} 条 · {{ collaborationEvaluation.dataset_version }}</span>
+                  </div>
+                  <span :class="['evaluation-gate', collaborationEvaluation.technical_gates_passed ? 'passed' : 'failed']">
+                    {{ collaborationEvaluation.technical_gates_passed ? '技术门通过' : '技术门未通过' }}
+                  </span>
+                </div>
+                <div class="diagnostic-evaluation-grid">
+                  <div><strong>{{ metricPercent(collaborationEvaluation.metrics.baseline_mean_quality) }}</strong><span>standard 质量</span></div>
+                  <div><strong>{{ metricPercent(collaborationEvaluation.metrics.candidate_mean_quality) }}</strong><span>collaborative 质量</span></div>
+                  <div><strong>+{{ metricPercent(collaborationEvaluation.metrics.mean_quality_delta) }}</strong><span>成对净提升</span></div>
+                  <div><strong>[{{ metricPercent(collaborationEvaluation.metrics.quality_delta_ci95_lower) }}, {{ metricPercent(collaborationEvaluation.metrics.quality_delta_ci95_upper) }}]</strong><span>95% paired CI</span></div>
+                  <div><strong>{{ collaborationEvaluation.metrics.baseline_p95_latency_ms }} / {{ collaborationEvaluation.metrics.candidate_p95_latency_ms }} ms</strong><span>standard / candidate P95</span></div>
+                  <div><strong>{{ metricPercent(collaborationEvaluation.metrics.simple_false_trigger_rate) }}</strong><span>简单请求误触发率</span></div>
+                  <div><strong>{{ metricPercent(collaborationEvaluation.metrics.target_trigger_rate) }}</strong><span>复杂目标触发率</span></div>
+                  <div><strong>{{ Math.round(collaborationEvaluation.metrics.candidate_mean_input_tokens + collaborationEvaluation.metrics.candidate_mean_output_tokens) }}</strong><span>每条平均 Token</span></div>
+                  <div><strong>{{ collaborationEvaluation.metrics.maximum_observed_agents }}</strong><span>实际最大 Agent 数</span></div>
+                  <div><strong>{{ collaborationEvaluation.metrics.safety_violation_count }} / {{ collaborationEvaluation.metrics.budget_violation_count }}</strong><span>安全 / 预算违规</span></div>
+                </div>
+                <div class="evaluation-candidate-warning">
+                  <strong>默认流量仍为 {{ collaborationEvaluation.recommended_default_weight }}%</strong>
+                  <span>{{ collaborationEvaluation.human_reviewed ? '标签已人工复核' : '20 条标签仍待人工复核' }}；{{ collaborationEvaluation.promotion_eligible ? '满足晋级门' : '当前不可晋级' }}。技术收益不能绕过人工复核与密封留出集。</span>
+                </div>
+                <details v-if="collaborationEvaluation.gate_failures?.length" class="strategy-registry-details">
+                  <summary>查看未通过原因（{{ collaborationEvaluation.gate_failures.length }}）</summary>
+                  <div class="strategy-control-notice">{{ collaborationEvaluation.gate_failures.join(' · ') }}</div>
+                </details>
+              </div>
+              <div v-else class="diagnostic-evaluation-loading">正在读取不含逐例问题的评测汇总...</div>
             </article>
           </section>
           <details class="strategy-registry-details">
@@ -1046,6 +1083,9 @@ export default {
     const collaborationPlan = ref(null)
     const runningCollaboration = ref(false)
     const collaborationRun = ref(null)
+    const collaborationEvaluationOpen = ref(false)
+    const loadingCollaborationEvaluation = ref(false)
+    const collaborationEvaluation = ref(null)
     const strategyIntentOptions = [
       { value: 'troubleshooting', label: '故障诊断' },
       { value: 'project_qa', label: '项目知识问答' },
@@ -1702,6 +1742,21 @@ export default {
         ElMessage.error(error.response?.data?.message || '协作 Shadow 暂时不可用')
       } finally {
         runningCollaboration.value = false
+      }
+    }
+
+    const toggleCollaborationEvaluation = async () => {
+      collaborationEvaluationOpen.value = !collaborationEvaluationOpen.value
+      if (!collaborationEvaluationOpen.value || collaborationEvaluation.value) return
+      try {
+        loadingCollaborationEvaluation.value = true
+        const response = await api.get('/evaluations/collaboration/latest')
+        collaborationEvaluation.value = response.data
+      } catch (error) {
+        collaborationEvaluationOpen.value = false
+        ElMessage.error(error.response?.data?.message || '多 Agent 成对评测报告暂时不可用')
+      } finally {
+        loadingCollaborationEvaluation.value = false
       }
     }
 
@@ -2432,6 +2487,9 @@ export default {
       collaborationPlan,
       runningCollaboration,
       collaborationRun,
+      collaborationEvaluationOpen,
+      loadingCollaborationEvaluation,
+      collaborationEvaluation,
       strategyIntentOptions,
       profileMemories,
       profileDrafts,
@@ -2476,6 +2534,7 @@ export default {
       runCaseShadow,
       runCollaborationPlan,
       runCollaborationShadow,
+      toggleCollaborationEvaluation,
       policySourceLabel,
       shortPolicyHash,
       strategyIntentLabel,
