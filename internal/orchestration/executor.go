@@ -13,22 +13,25 @@ import (
 )
 
 const (
-	ExecutionSchemaVersion = "collaboration-execution-shadow-v1"
-	ExecutorVersion        = "bounded-parallel-executor-v1"
-	TaskStatusSucceeded    = "succeeded"
-	TaskStatusFailed       = "failed"
-	TaskStatusTimedOut     = "timed_out"
-	TaskStatusCancelled    = "cancelled"
-	TaskStatusBudget       = "budget_exceeded"
-	ExecutionCompleted     = "completed"
-	ExecutionPartial       = "partial"
-	ExecutionCancelled     = "cancelled"
-	ExecutionBudget        = "budget_exceeded"
-	ExecutionFailed        = "failed"
-	maxAgentClaims         = 10
-	maxAgentEvidence       = 20
-	maxAgentFollowUps      = 5
-	maxAgentSummaryRunes   = 4000
+	ExecutionSchemaVersion  = "collaboration-execution-shadow-v1"
+	ExecutorVersion         = "bounded-parallel-executor-v1"
+	TaskStatusSucceeded     = "succeeded"
+	TaskStatusFailed        = "failed"
+	TaskStatusTimedOut      = "timed_out"
+	TaskStatusCancelled     = "cancelled"
+	TaskStatusBudget        = "budget_exceeded"
+	ExecutionCompleted      = "completed"
+	ExecutionPartial        = "partial"
+	ExecutionCancelled      = "cancelled"
+	ExecutionBudget         = "budget_exceeded"
+	ExecutionFailed         = "failed"
+	maxAgentClaims          = 10
+	maxAgentEvidence        = 20
+	maxAgentFollowUps       = 5
+	maxAgentSummaryRunes    = 4000
+	maxClaimStatementRunes  = 2000
+	maxEvidenceSummaryRunes = 1200
+	maxIdentifierRunes      = 160
 )
 
 type ExecutionInput struct {
@@ -51,11 +54,13 @@ type SharedEvidence struct {
 }
 
 type AgentClaim struct {
-	ID           string   `json:"id"`
-	Kind         string   `json:"kind"`
-	Statement    string   `json:"statement"`
-	EvidenceRefs []string `json:"evidence_refs"`
-	Confidence   float64  `json:"confidence"`
+	ID            string   `json:"id"`
+	Kind          string   `json:"kind"`
+	Statement     string   `json:"statement"`
+	EvidenceRefs  []string `json:"evidence_refs"`
+	Confidence    float64  `json:"confidence"`
+	ConflictKey   string   `json:"conflict_key,omitempty"`
+	ConflictValue string   `json:"conflict_value,omitempty"`
 }
 
 type AgentOutput struct {
@@ -251,12 +256,17 @@ func validateAgentOutput(output AgentOutput, tenantID string) error {
 		return errors.New("agent output usage is invalid")
 	}
 	for _, claim := range output.Claims {
-		if strings.TrimSpace(claim.ID) == "" || strings.TrimSpace(claim.Statement) == "" || len(claim.EvidenceRefs) > 10 || claim.Confidence < 0 || claim.Confidence > 1 {
+		if strings.TrimSpace(claim.ID) == "" || strings.TrimSpace(claim.Statement) == "" || utf8.RuneCountInString(claim.ID) > maxIdentifierRunes || utf8.RuneCountInString(claim.Kind) > maxIdentifierRunes || utf8.RuneCountInString(claim.Statement) > maxClaimStatementRunes || utf8.RuneCountInString(claim.ConflictKey) > maxIdentifierRunes || utf8.RuneCountInString(claim.ConflictValue) > maxClaimStatementRunes || len(claim.EvidenceRefs) > 10 || claim.Confidence < 0 || claim.Confidence > 1 {
 			return errors.New("agent claim is invalid")
+		}
+		for _, reference := range claim.EvidenceRefs {
+			if strings.TrimSpace(reference) == "" || utf8.RuneCountInString(reference) > maxIdentifierRunes {
+				return errors.New("agent claim evidence reference is invalid")
+			}
 		}
 	}
 	for _, evidence := range output.Evidence {
-		if strings.TrimSpace(evidence.ID) == "" || strings.TrimSpace(evidence.SourceType) == "" || strings.TrimSpace(evidence.Summary) == "" || strings.TrimSpace(evidence.TenantID) != tenantID || evidence.Score < 0 || evidence.Score > 1 {
+		if strings.TrimSpace(evidence.ID) == "" || strings.TrimSpace(evidence.SourceType) == "" || strings.TrimSpace(evidence.Summary) == "" || utf8.RuneCountInString(evidence.ID) > maxIdentifierRunes || utf8.RuneCountInString(evidence.SourceType) > maxIdentifierRunes || utf8.RuneCountInString(evidence.Summary) > maxEvidenceSummaryRunes || strings.TrimSpace(evidence.TenantID) != tenantID || evidence.Score < 0 || evidence.Score > 1 {
 			return errors.New("agent evidence is invalid or outside tenant scope")
 		}
 	}
