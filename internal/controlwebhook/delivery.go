@@ -207,11 +207,14 @@ func (repository *GormRepository) ClaimAvailable(ctx context.Context, now time.T
 	var claimed model.ControlWebhookDelivery
 	err := repository.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var row model.ControlWebhookDelivery
-		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("available_at <= ? AND (status IN ? OR (status = ? AND lease_until <= ?))", now, []string{StatusPending, StatusRetry}, StatusProcessing, now).
-			Order("available_at ASC, created_at ASC").First(&row).Error
-		if err != nil {
-			return err
+			Order("available_at ASC, created_at ASC").Limit(1).Find(&row)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
 		}
 		leaseUntil := now.Add(lease)
 		result := tx.Model(&model.ControlWebhookDelivery{}).Where("event_id = ?", row.EventID).Updates(map[string]any{

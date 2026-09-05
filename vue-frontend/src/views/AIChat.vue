@@ -2746,7 +2746,7 @@ export default {
       try {
         runningWebhookAcceptance.value = true
         await api.post('/evaluations/webhooks/acceptance', { scenario: 'signed_loopback_delivery' })
-        await new Promise(resolve => setTimeout(resolve, 1800))
+        await new Promise(resolve => setTimeout(resolve, 5600))
         const audit = await loadWebhookAudit()
         const latest = audit.latest?.[0]
         if (latest?.simulation && latest.status === 'delivered' && latest.receipt_verified) {

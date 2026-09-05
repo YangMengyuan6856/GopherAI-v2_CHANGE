@@ -110,11 +110,11 @@ func (repository *GormRepository) ApplyCandidate(ctx context.Context, candidate 
 	err := repository.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		key := stableIncidentKey(candidate.Series.Metric, candidate.Series.Strategy)
 		var incident model.ControlIncident
-		findErr := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("incident_key = ?", key).First(&incident).Error
-		if findErr != nil && !errors.Is(findErr, gorm.ErrRecordNotFound) {
-			return findErr
+		findResult := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("incident_key = ?", key).Limit(1).Find(&incident)
+		if findResult.Error != nil {
+			return findResult.Error
 		}
-		exists := findErr == nil
+		exists := findResult.RowsAffected == 1
 		eventType, next, notify := transitionIncident(incident, exists, candidate, now)
 		if !exists && next == nil {
 			return nil

@@ -34,7 +34,7 @@ func ConfigFromEnvironment() (Config, error) {
 	secretFile := strings.TrimSpace(os.Getenv(envSecretFile))
 	loopback := strings.EqualFold(strings.TrimSpace(os.Getenv(envLoopbackReceiver)), "true")
 	if rawURL == "" && secretFile == "" {
-		return Config{Enabled: false, EndpointMode: "disabled", RequestTimeout: 3 * time.Second, PollInterval: time.Second, LeaseDuration: 10 * time.Second, MaxAttempts: 3}, nil
+		return Config{Enabled: false, EndpointMode: "disabled", RequestTimeout: 3 * time.Second, PollInterval: 5 * time.Second, LeaseDuration: 10 * time.Second, MaxAttempts: 3}, nil
 	}
 	if rawURL == "" || secretFile == "" {
 		return Config{}, errors.New("webhook URL and secret file must be configured together")
@@ -68,7 +68,7 @@ func ConfigFromEnvironment() (Config, error) {
 	}
 	return Config{
 		Enabled: true, Endpoint: endpoint, Secret: secret, EndpointMode: mode, LoopbackReceiver: loopback,
-		RequestTimeout: 3 * time.Second, PollInterval: time.Second, LeaseDuration: 10 * time.Second, MaxAttempts: 3,
+		RequestTimeout: 3 * time.Second, PollInterval: 5 * time.Second, LeaseDuration: 10 * time.Second, MaxAttempts: 3,
 	}, nil
 }
 
