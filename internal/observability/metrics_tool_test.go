@@ -2,6 +2,7 @@ package observability
 
 import (
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -83,5 +84,34 @@ func TestCollaborationPlanMetricsUseFixedLowCardinalityLabels(t *testing.T) {
 	}
 	if count := testutil.ToFloat64(metrics.collaborationPlans.WithLabelValues("error", "error")); count != 1 {
 		t.Fatalf("untrusted planner labels escaped bounds: %v", count)
+	}
+}
+
+func TestCollaborationRunMetricsUseFixedLowCardinalityLabels(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	metrics := NewMetrics(registry, registry)
+	metrics.RecordCollaborationRun("collaborative_candidate", "complete", 25*time.Millisecond)
+	metrics.RecordCollaborationRun("caller-decision", "caller-status", 50*time.Millisecond)
+	metrics.RecordCollaborationTask("KnowledgeAgent", "succeeded", 20*time.Millisecond)
+	metrics.RecordCollaborationTask("caller-agent", "caller-status", 10*time.Millisecond)
+	metrics.RecordCollaborationSynthesis("complete", "all_claims_citation_verified")
+	metrics.RecordCollaborationSynthesis("caller-status", "caller-reason")
+	if count := testutil.ToFloat64(metrics.collaborationRuns.WithLabelValues("collaborative_candidate", "complete")); count != 1 {
+		t.Fatalf("expected completed collaboration count 1, got %v", count)
+	}
+	if count := testutil.ToFloat64(metrics.collaborationRuns.WithLabelValues("error", "failed")); count != 1 {
+		t.Fatalf("untrusted run labels escaped bounds: %v", count)
+	}
+	if count := testutil.ToFloat64(metrics.collaborationTasks.WithLabelValues("KnowledgeAgent", "succeeded")); count != 1 {
+		t.Fatalf("expected knowledge task count 1, got %v", count)
+	}
+	if count := testutil.ToFloat64(metrics.collaborationTasks.WithLabelValues("error", "failed")); count != 1 {
+		t.Fatalf("untrusted task labels escaped bounds: %v", count)
+	}
+	if count := testutil.ToFloat64(metrics.collaborationSyntheses.WithLabelValues("complete", "all_claims_citation_verified")); count != 1 {
+		t.Fatalf("expected synthesis count 1, got %v", count)
+	}
+	if count := testutil.ToFloat64(metrics.collaborationSyntheses.WithLabelValues("error", "error")); count != 1 {
+		t.Fatalf("untrusted synthesis labels escaped bounds: %v", count)
 	}
 }

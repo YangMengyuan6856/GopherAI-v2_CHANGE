@@ -48,12 +48,18 @@ func NewChatStrategy(answerer Answerer, store ConversationStore) (*ChatStrategy,
 }
 
 func NewDefaultChatStrategy() *ChatStrategy {
-	strategy, err := NewChatStrategy(new(lazyDefaultAnswerer), &gormConversationStore{db: mysql.DB, memory: memorydomain.NewDefaultService()})
+	strategy, err := NewChatStrategy(NewLazyDefaultAnswerer(), &gormConversationStore{db: mysql.DB, memory: memorydomain.NewDefaultService()})
 	if err != nil {
 		panic(fmt.Sprintf("initialize rag_fast chat strategy: %v", err))
 	}
 	return strategy
 }
+
+// NewLazyDefaultAnswerer returns the production KnowledgeAgent without opening
+// model or retrieval dependencies until the first request. Shadow orchestration
+// reuses this read-only answer path without creating a chat session or writing
+// conversation memory.
+func NewLazyDefaultAnswerer() Answerer { return new(lazyDefaultAnswerer) }
 
 func (*ChatStrategy) Name() string { return policy.RAGFastStrategyName }
 

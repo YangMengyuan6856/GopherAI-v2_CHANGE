@@ -158,7 +158,7 @@ func (planner *BoundedPlanner) Plan(ctx context.Context, message string) (Collab
 		Limitations: []string{
 			"复杂度分数来自确定性启发式，不代表多 Agent 已获得线上质量收益。",
 			"本计划只生成公开结构化子任务，不保存或展示隐藏思维链。",
-			"任何子 Agent 都禁止继续创建 Agent；执行能力将在独立质量门后接入。",
+			"任何子 Agent 都禁止继续创建 Agent；只有独立协作 Shadow 入口可执行，仍不接管线上聊天。",
 		},
 	}
 	if err := plan.validate(); err != nil {

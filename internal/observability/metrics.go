@@ -39,6 +39,11 @@ type Metrics struct {
 	caseStrategyDuration        *prometheus.HistogramVec
 	collaborationPlans          *prometheus.CounterVec
 	collaborationPlanDuration   *prometheus.HistogramVec
+	collaborationRuns           *prometheus.CounterVec
+	collaborationRunDuration    *prometheus.HistogramVec
+	collaborationTasks          *prometheus.CounterVec
+	collaborationTaskDuration   *prometheus.HistogramVec
+	collaborationSyntheses      *prometheus.CounterVec
 	profileMemoryRecalls        *prometheus.CounterVec
 	profileMemoryRecallDuration *prometheus.HistogramVec
 	profileMemoryRecallResults  *prometheus.HistogramVec
@@ -187,6 +192,28 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 			Help:    "Bounded collaboration planner duration in seconds by decision.",
 			Buckets: []float64{0.0001, 0.0005, 0.001, 0.005, 0.01, 0.025, 0.05, 0.1},
 		}, []string{"decision"}),
+		collaborationRuns: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_collaboration_runs_total",
+			Help: "Total diagnosis_collaborative shadow runs by bounded planner decision and outcome.",
+		}, []string{"decision", "status"}),
+		collaborationRunDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "gopherai_collaboration_run_duration_seconds",
+			Help:    "End-to-end bounded collaboration shadow duration in seconds.",
+			Buckets: []float64{0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 4, 8, 15, 30, 45, 60, 90, 120},
+		}, []string{"decision", "status"}),
+		collaborationTasks: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_collaboration_agent_tasks_total",
+			Help: "Total bounded collaboration child tasks by fixed agent role and status.",
+		}, []string{"agent", "status"}),
+		collaborationTaskDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "gopherai_collaboration_agent_task_duration_seconds",
+			Help:    "Bounded collaboration child-task duration by fixed agent role and status.",
+			Buckets: []float64{0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 4, 8, 15, 30, 45, 60},
+		}, []string{"agent", "status"}),
+		collaborationSyntheses: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_collaboration_syntheses_total",
+			Help: "Total evidence-aware synthesis outcomes with bounded reason labels.",
+		}, []string{"status", "reason"}),
 		profileMemoryRecalls: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "gopherai_profile_memory_recalls_total",
 			Help: "Total governed profile-memory recalls by bounded outcome.",
@@ -295,6 +322,11 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 		metrics.caseStrategyDuration,
 		metrics.collaborationPlans,
 		metrics.collaborationPlanDuration,
+		metrics.collaborationRuns,
+		metrics.collaborationRunDuration,
+		metrics.collaborationTasks,
+		metrics.collaborationTaskDuration,
+		metrics.collaborationSyntheses,
 		metrics.profileMemoryRecalls,
 		metrics.profileMemoryRecallDuration,
 		metrics.profileMemoryRecallResults,
@@ -344,6 +376,21 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 	for _, decision := range []string{"single_agent", "collaborative_candidate", "error", "cancelled"} {
 		for _, reason := range []string{"single_task_preferred", "independent_diagnostic_branches", "knowledge_diagnostic_split", "conflict_requires_evidence_verification", "error"} {
 			metrics.collaborationPlans.WithLabelValues(decision, reason).Add(0)
+		}
+	}
+	for _, decision := range []string{"single_agent", "collaborative_candidate", "error"} {
+		for _, status := range []string{"not_executed", "complete", "partial", "conflict", "insufficient", "failed", "cancelled"} {
+			metrics.collaborationRuns.WithLabelValues(decision, status).Add(0)
+		}
+	}
+	for _, agent := range []string{"KnowledgeAgent", "DiagnosticAgent", "error"} {
+		for _, status := range []string{"succeeded", "failed", "timed_out", "cancelled", "budget_exceeded"} {
+			metrics.collaborationTasks.WithLabelValues(agent, status).Add(0)
+		}
+	}
+	for _, status := range []string{"complete", "partial", "conflict", "insufficient", "error"} {
+		for _, reason := range []string{"all_claims_citation_verified", "partial_agent_results", "evidence_conflict_requires_user_review", "no_supported_claims", "error"} {
+			metrics.collaborationSyntheses.WithLabelValues(status, reason).Add(0)
 		}
 	}
 	for _, strategy := range []string{"rag_fast", "rag_deep"} {
@@ -414,6 +461,63 @@ func (metrics *Metrics) RecordCollaborationPlan(decision string, reason string, 
 	}
 	metrics.collaborationPlans.WithLabelValues(decision, reason).Inc()
 	metrics.collaborationPlanDuration.WithLabelValues(decision).Observe(duration.Seconds())
+}
+
+func (metrics *Metrics) RecordCollaborationRun(decision string, status string, duration time.Duration) {
+	if metrics == nil {
+		return
+	}
+	switch decision {
+	case "single_agent", "collaborative_candidate":
+	default:
+		decision = "error"
+	}
+	switch status {
+	case "not_executed", "complete", "partial", "conflict", "insufficient", "failed", "cancelled":
+	default:
+		status = "failed"
+	}
+	if duration < 0 {
+		duration = 0
+	}
+	metrics.collaborationRuns.WithLabelValues(decision, status).Inc()
+	metrics.collaborationRunDuration.WithLabelValues(decision, status).Observe(duration.Seconds())
+}
+
+func (metrics *Metrics) RecordCollaborationTask(agent string, status string, duration time.Duration) {
+	if metrics == nil {
+		return
+	}
+	if agent != "KnowledgeAgent" && agent != "DiagnosticAgent" {
+		agent = "error"
+	}
+	switch status {
+	case "succeeded", "failed", "timed_out", "cancelled", "budget_exceeded":
+	default:
+		status = "failed"
+	}
+	if duration < 0 {
+		duration = 0
+	}
+	metrics.collaborationTasks.WithLabelValues(agent, status).Inc()
+	metrics.collaborationTaskDuration.WithLabelValues(agent, status).Observe(duration.Seconds())
+}
+
+func (metrics *Metrics) RecordCollaborationSynthesis(status string, reason string) {
+	if metrics == nil {
+		return
+	}
+	switch status {
+	case "complete", "partial", "conflict", "insufficient":
+	default:
+		status = "error"
+	}
+	switch reason {
+	case "all_claims_citation_verified", "partial_agent_results", "evidence_conflict_requires_user_review", "no_supported_claims":
+	default:
+		reason = "error"
+	}
+	metrics.collaborationSyntheses.WithLabelValues(status, reason).Inc()
 }
 
 func (metrics *Metrics) RecordPolicyLoad(source string, result string) {

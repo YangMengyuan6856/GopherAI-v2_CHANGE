@@ -161,9 +161,9 @@
             <div class="strategy-result-heading">
               <div>
                 <strong>有限多 Agent 规划门</strong>
-                <p>先判断是否存在两个独立子问题；当前只生成公开计划，不启动 Agent、不调用工具。</p>
+                <p>先判断是否值得拆分；可只看计划，也可显式运行隔离的协作 Shadow，均不改变下方聊天结果。</p>
               </div>
-              <span class="shadow-only-badge">PLAN ONLY · MAX 2</span>
+              <span class="shadow-only-badge">SHADOW ONLY · MAX 2</span>
             </div>
             <div class="case-shadow-input">
               <textarea
@@ -172,9 +172,14 @@
                 maxlength="4000"
                 placeholder="例如：Redis NOAUTH，同时 RabbitMQ PRECONDITION_FAILED，请核对项目文档并分别定位。"
               ></textarea>
-              <button :disabled="planningCollaboration || !collaborationPlanMessage.trim()" @click="runCollaborationPlan">
-                {{ planningCollaboration ? '规划中...' : '运行协作规划' }}
-              </button>
+              <div class="collaboration-actions">
+                <button :disabled="planningCollaboration || runningCollaboration || !collaborationPlanMessage.trim()" @click="runCollaborationPlan">
+                  {{ planningCollaboration ? '规划中...' : '只运行规划门' }}
+                </button>
+                <button class="collaboration-run-button" :disabled="planningCollaboration || runningCollaboration || !collaborationPlanMessage.trim()" @click="runCollaborationShadow">
+                  {{ runningCollaboration ? '并行执行中...' : '执行协作 Shadow' }}
+                </button>
+              </div>
             </div>
             <article v-if="collaborationPlan" class="case-shadow-result">
               <div class="strategy-result-heading">
@@ -205,6 +210,49 @@
                 </article>
               </div>
               <div class="strategy-control-notice">{{ collaborationPlan.limitations[0] }}</div>
+            </article>
+            <article v-if="collaborationRun" class="case-shadow-result collaboration-run-result">
+              <div class="strategy-result-heading">
+                <strong>{{ collaborationRunStatusLabel(collaborationRun.status) }}</strong>
+                <span>{{ collaborationRun.executed ? '已运行受限子 Agent' : '规划门阻止执行' }}</span>
+              </div>
+              <div class="strategy-result-grid">
+                <span>模式 {{ collaborationRun.mode }}</span>
+                <span>影响线上聊天 {{ collaborationRun.affects_live_traffic ? '是（异常）' : '否' }}</span>
+                <span>原因 {{ collaborationRunReasonLabel(collaborationRun.reason_code) }}</span>
+                <span v-if="collaborationRun.fallback_strategy">安全回退 {{ collaborationRun.fallback_strategy }}</span>
+              </div>
+              <div v-if="collaborationRun.execution" class="collaboration-task-grid">
+                <article v-for="task in collaborationRun.execution.task_results" :key="`run-${task.task_id}`">
+                  <div class="strategy-result-heading">
+                    <strong>{{ task.agent }}</strong>
+                    <span :class="task.status === 'succeeded' ? 'signal-on' : 'signal-off'">{{ collaborationTaskStatusLabel(task.status) }}</span>
+                  </div>
+                  <p>{{ task.output.summary || '该 Agent 没有返回可采纳摘要。' }}</p>
+                  <p>耗时 {{ task.duration_ms }} ms · Claim {{ task.output.claims.length }} · Evidence {{ task.output.evidence.length }}</p>
+                  <p>输出原因 {{ task.output.output_reason || task.reason_code }}</p>
+                </article>
+              </div>
+              <template v-if="collaborationRun.synthesis">
+                <div class="collaboration-unified-answer">{{ collaborationRun.synthesis.unified_answer }}</div>
+                <div class="strategy-result-grid">
+                  <span>通过引用的 Claim {{ collaborationRun.synthesis.claims.length }}</span>
+                  <span>合成引用 {{ collaborationRun.synthesis.citations.length }}</span>
+                  <span>冲突 {{ collaborationRun.synthesis.conflicts.length }}</span>
+                  <span>拒绝 Claim {{ collaborationRun.synthesis.rejected_claims.length }}</span>
+                </div>
+                <details v-if="collaborationRun.synthesis.citations.length" class="strategy-registry-details">
+                  <summary>查看合成后的证据引用（{{ collaborationRun.synthesis.citations.length }}）</summary>
+                  <div class="strategy-registry-grid">
+                    <article v-for="citation in collaborationRun.synthesis.citations" :key="citation.citation_id">
+                      <strong>{{ citation.citation_id }} · {{ citation.source_type }}</strong>
+                      <p>{{ citation.source_id }}<template v-if="citation.source_version"> · v{{ citation.source_version }}</template></p>
+                      <p v-if="citation.line_start">L{{ citation.line_start }}-{{ citation.line_end }}</p>
+                    </article>
+                  </div>
+                </details>
+              </template>
+              <div class="strategy-control-notice">这是显式评测入口：最多 2 个 Agent、禁止递归、只读、Shadow，不会自动切换正式聊天策略。</div>
             </article>
           </section>
           <details class="strategy-registry-details">
@@ -993,9 +1041,11 @@ export default {
     const caseShadowMessage = ref('Redis 返回 NOAUTH Authentication required，应用容器无法连接缓存。')
     const runningCaseShadow = ref(false)
     const caseShadowResult = ref(null)
-    const collaborationPlanMessage = ref('Redis 返回 NOAUTH；同时 RabbitMQ 返回 PRECONDITION_FAILED，请核对项目文档并分别定位两条故障链。')
+    const collaborationPlanMessage = ref('生产发布后服务返回 HTTP 502；同时请根据 m3b-config.json 核对 release.probe_code 和 timeout_seconds，并给出只读故障排查假设。')
     const planningCollaboration = ref(false)
     const collaborationPlan = ref(null)
+    const runningCollaboration = ref(false)
+    const collaborationRun = ref(null)
     const strategyIntentOptions = [
       { value: 'troubleshooting', label: '故障诊断' },
       { value: 'project_qa', label: '项目知识问答' },
@@ -1637,6 +1687,24 @@ export default {
       }
     }
 
+    const runCollaborationShadow = async () => {
+      if (!collaborationPlanMessage.value.trim()) return
+      try {
+        runningCollaboration.value = true
+        collaborationRun.value = null
+        const response = await api.post('/agent-runs/diagnostics/collaboration-shadow', { message: collaborationPlanMessage.value.trim() })
+        collaborationRun.value = response.data
+        collaborationPlan.value = response.data.plan
+        if (!response.data.executed) ElMessage.info('规划门判定协作收益不足，未启动子 Agent')
+        else if (response.data.status === 'complete') ElMessage.success('两个 Agent 已完成，且所有合成结论均通过引用校验')
+        else ElMessage.warning('协作 Shadow 已完成，但存在降级、证据不足或冲突，请查看结果')
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || '协作 Shadow 暂时不可用')
+      } finally {
+        runningCollaboration.value = false
+      }
+    }
+
     const policySourceLabel = (source) => ({ redis: 'Redis 缓存', mysql: 'MySQL 权威源' }[source] || source)
     const shortPolicyHash = (hash) => hash ? `${hash.slice(0, 10)}…${hash.slice(-6)}` : 'unknown'
     const strategyIntentLabel = (intent) => ({ troubleshooting: '故障诊断', project_qa: '项目知识问答', general: '通用问答' }[intent] || intent)
@@ -1664,6 +1732,25 @@ export default {
       knowledge_diagnostic_split: '证据核对与诊断可独立执行',
       conflict_requires_evidence_verification: '冲突需要独立证据核验'
     }[reason] || reason)
+    const collaborationRunStatusLabel = (status) => ({
+      not_executed: '保持单 Agent：未执行',
+      complete: '协作完成：引用校验通过',
+      partial: '部分完成：已显式降级',
+      conflict: '发现证据冲突：不静默选边',
+      insufficient: '证据不足：回退标准诊断',
+      failed: '协作执行失败',
+      cancelled: '协作已取消'
+    }[status] || status)
+    const collaborationRunReasonLabel = (reason) => ({
+      single_agent_gate: '简单请求不值得启动多 Agent',
+      all_claims_citation_verified: '全部 Claim 都能追溯到证据',
+      partial_agent_results: '仅保留成功 Agent 的可验证结论',
+      evidence_conflict_requires_user_review: '有效证据相互冲突，需要人工核对',
+      no_supported_claims: '没有通过引用校验的结论'
+    }[reason] || reason)
+    const collaborationTaskStatusLabel = (status) => ({
+      succeeded: '成功', failed: '失败', timed_out: '超时', cancelled: '取消', budget_exceeded: '超预算'
+    }[status] || status)
 
     const diagnosticStateLabel = (state) => ({
       RECEIVED: '已接收',
@@ -2343,6 +2430,8 @@ export default {
       collaborationPlanMessage,
       planningCollaboration,
       collaborationPlan,
+      runningCollaboration,
+      collaborationRun,
       strategyIntentOptions,
       profileMemories,
       profileDrafts,
@@ -2386,6 +2475,7 @@ export default {
       simulatePolicy,
       runCaseShadow,
       runCollaborationPlan,
+      runCollaborationShadow,
       policySourceLabel,
       shortPolicyHash,
       strategyIntentLabel,
@@ -2397,6 +2487,9 @@ export default {
       caseReasonLabel,
       collaborationDecisionLabel,
       collaborationReasonLabel,
+      collaborationRunStatusLabel,
+      collaborationRunReasonLabel,
+      collaborationTaskStatusLabel,
       toggleDiagnosticEvaluation,
       toggleContextCompression,
       formattedFacts,
@@ -3913,6 +4006,15 @@ export default {
   opacity: 0.6;
 }
 
+.collaboration-actions {
+  display: grid;
+  gap: 7px;
+}
+
+.collaboration-actions .collaboration-run-button {
+  background: #167c86;
+}
+
 .case-shadow-result {
   margin-top: 10px;
   padding: 10px;
@@ -3968,6 +4070,20 @@ export default {
   border: 1px solid rgba(41, 124, 151, 0.18);
   border-radius: 8px;
   background: #fff;
+}
+
+.collaboration-run-result {
+  border: 1px solid rgba(22, 124, 134, 0.22);
+}
+
+.collaboration-unified-answer {
+  margin-top: 10px;
+  padding: 10px;
+  border-left: 4px solid #167c86;
+  border-radius: 7px;
+  background: #eefafa;
+  color: #34535c;
+  white-space: pre-wrap;
 }
 
 @media (max-width: 760px) {
