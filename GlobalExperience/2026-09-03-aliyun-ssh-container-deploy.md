@@ -1462,3 +1462,11 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - Ubuntu 包通过独立 bootstrap 一次性安装，`policy-rc.d` 阻止 apt 自动启动系统服务，避免与项目生命周期及端口发生冲突。项目自行管理 PID、日志和 TSDB，启动参数固定 `72h` 与 `128MB` 双保留上限；回滚到不含 Prometheus 配置的旧 Release 时跳过该进程，保持兼容。
 - Release `20260906010721-134fca776d7d`，bundle SHA-256 `5cd350c0b2e74c1b21eaa066cf4357f5b66195e3740345482cac28f639cd1a23`。线上 2/2 targets up、4/4 groups、17/17 rules healthy、失败规则 0；`gopherai:scrape_target_up` 对 Backend/Worker 均为 1。Prometheus RSS 约 43 MiB，ECS 1612 MiB 总内存下仍有约 585 MiB available，TSDB 初始 64 KiB，资源预算可接受。
 - 页面真实读取 Prometheus HTTP API，显示上述状态、规则版本 SHA 和 loopback/保留边界。该纵切只证明抓取与聚合规则正在生产运行，不证明业务窗口已经达到 50 个最少样本，也不意味着检测器已接入生产数据；下一步必须持久化带口径版本的窗口快照，再接 M8-13/M8-14。
+
+## 67. 2026-09-06 生产指标窗口持久化与首事件基线
+
+- `5261e7f3` 将两条首批受控生产 Scope 接入真实 Prometheus 窗口：`rag_deep` 的 15 分钟有依据回答率，以及 `diagnosis_collaborative` 的 5 分钟请求 P95。后台每分钟只执行服务端固定 allowlist 查询，把数值、样本量、规则版本/SHA、批次/快照 Hash 和采样状态原子写入 MySQL `metric_window_snapshots`，不同规则版本不混算，保留期固定 7 天；调用方不能提交任意 PromQL。
+- 同一实现把固定阈值与 Z-score 检测器接到 MySQL 历史窗口。生产 API 与页面只读结果，明确区分 `observed/no_series/query_error` 和确定性验收 Fixture；单点只返回 `insufficient_window`，低样本只返回 `minimum_population_not_met`，所有建议保持 `recommend_only`、`Applied=false`，不写 active policy、不自动切流、不执行修复。
+- 首次真实 Smoke 暴露 Prometheus Counter 的首事件陷阱：如果时序在第一次增量时才出现，`increase(counter[15m])` 没有零值基线，会把第一次请求算成 0。`373cd807` 在注册时预初始化所有受监控的 RAG strategy/status 组合，并为协作诊断请求与耗时建立零值基线；测试直接反射 Registry，锁定首次业务事件前精确标签组合已经存在。
+- Release `20260906023245-373cd807d71c`，bundle SHA-256 `13e112f9a43f6a44b6cb466f65833ca5c3a3ab16a48ecd61f7deb13faf514ac5`，Prometheus 规则升级为 4 组 19 条，config/rules/unit-test 三重门和四进程健康门通过。真实公网页面执行一次复杂跨文档 `rag_deep` 后，回答得到 `47 / 6 / gopher.jobs.dlx.v1` 与两条引用；Prometheus 15 分钟 population 约为 1，下一次 MySQL 分钟采样显示 `100.0% / 1`，页面正确保持“数据不足 · 暂不判定”和“是否已修改线上策略：否”。
+- 工程经验：生产窗口接线不能只测“第 N 次请求”；必须在进程重启后先证明零值时序存在，再发第一条真实请求，并依次核对业务结果、原始 Counter、recording rule、持久化快照和控制边界。Prometheus `increase` 会做区间外推，样本量可能是略高于整数的浮点数；当前决策层保守向下取整，避免把不足 50 的窗口误判为达到门槛。
