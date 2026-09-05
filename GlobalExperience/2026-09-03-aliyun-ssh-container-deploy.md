@@ -1440,3 +1440,9 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - `92c32855` 增加固定阈值与滑动窗口 Z-score 双检测内核：最低 50 样本、30 点窗口、基线排除当前候选点、连续 2 点异常、Z 阈值 3.0，并用稳定 Incident Key 支持首次触发、重复抑制、恢复通知。检测只返回 `recommend_only` 的 `-10%` 候选权重建议，`Applied=false`，不写 active policy、不自动切流、不执行修复。
 - 首次线上 UI Smoke 发现零方差基线的突变虽然正确告警，但不可定义的 Z 值显示为 `0.00`，容易误导。`c9d0719b` 增加显式 `zero_variance=true`，页面显示 `∞` 和 `zero_variance_adverse_shift` 原因码。最终 Release `20260905193258-c9d0719b67eb`，bundle SHA-256 `0af531cce58c16be7a531e3a08d3f7dfc2ba5d0a8908a827722e0de5fb6e3c5a`，四进程与所有依赖健康门通过；真实浏览器已验证健康窗口不告警、质量下降和延迟突增双检测、低样本抑制、零方差突变保护。
 - 经验：Z-score 实现必须明确当前点是否进入基线，并单独处理零方差；不能用 JSON 的 `NaN/Inf`，也不能以 `0` 冒充有效 Z 值。验收 Fixture 必须显式标记 `deterministic_acceptance_fixture`，不得包装成生产 Prometheus 观测。M8-12 生产 recording rules、持久化事件、签名 Webhook 和 M8-17 Controller 接线仍未完成。
+
+## 64. 2026-09-05 低样本不是健康：异常检测第三态与前端缓存复验
+
+- 用户验收指出“低样本抑制”虽然返回了 `minimum_population_not_met`，页面却用绿色“未触发异常”、`Z=0.00` 和“基线点 0”展示。这会把“证据不足、不能判断”误读成“指标健康”。`5e31de0a` 为检测结果增加独立 `decision_status=insufficient_data`，并以契约测试锁定当前样本 `12`、最低门槛 `50`、两个检测器均 `suppressed`、不产生建议且 `Applied=false`。
+- 页面将低样本改为中性第三态：显示“数据不足 · 暂不判定”、固定阈值/Z-score“已抑制 · 未参与判定”、Z 值“未计算”，以及“当前样本 / 最低门槛 12 / 50 · 尚差 38”。异常、健康、数据不足必须是互斥状态；不能继续用单个 `anomalous bool` 推导所有 UI 语义，也不能用数值 `0` 表达尚未计算。
+- Release `20260905204908-5e31de0a0e78`，bundle SHA-256 `001645e8509ab8d75e91327719ae0e5e52def96fdc172861c01f69b9808738e3`，Backend/Worker live+ready、MCP 和前端静态网关门均通过。首次在已打开标签页点击仍看到旧文案，原因是标签页保留旧 JS 资源；重新导航/强制刷新后，真实页面已显示上述第三态。以后前端发布验收必须先 `Ctrl+F5` 或重新导航，再判断新版本是否生效；服务端健康通过不能证明浏览器已加载最新静态资源。
