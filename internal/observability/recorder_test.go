@@ -145,6 +145,12 @@ func TestRAGStrategyMetricsUseBoundedLabels(t *testing.T) {
 	if count := testutil.ToFloat64(metrics.ragEnhancements.WithLabelValues("rerank", "rerank_completed")); count != 1 {
 		t.Fatalf("expected rerank outcome metric, got %v", count)
 	}
+	if count := testutil.ToFloat64(metrics.ragQueries.WithLabelValues("rag_deep", "answered")); count != 1 {
+		t.Fatalf("expected SDD RAG query metric, got %v", count)
+	}
+	if count := testutil.ToFloat64(metrics.ragRewrite.WithLabelValues("completed")); count != 1 {
+		t.Fatalf("expected bounded rewrite result, got %v", count)
+	}
 	if count := testutil.ToFloat64(metrics.ragStrategyRequests.WithLabelValues("rag_fast", "error", "partial_fallback")); count != 1 {
 		t.Fatalf("untrusted labels must collapse to bounded values, got %v", count)
 	}
@@ -165,6 +171,9 @@ func TestCaseRecallMetricsUseBoundedLabels(t *testing.T) {
 	if count := testutil.ToFloat64(metrics.caseMemoryRecalls.WithLabelValues("unavailable")); count != 1 {
 		t.Fatalf("untrusted recall status must collapse to unavailable, got %v", count)
 	}
+	if count := testutil.ToFloat64(metrics.memoryRecall.WithLabelValues("episodic", "hit")); count != 1 {
+		t.Fatalf("expected unified episodic recall metric, got %v", count)
+	}
 }
 
 func TestProfileRecallMetricsUseBoundedLabels(t *testing.T) {
@@ -178,6 +187,9 @@ func TestProfileRecallMetricsUseBoundedLabels(t *testing.T) {
 	}
 	if count := testutil.ToFloat64(metrics.profileMemoryRecalls.WithLabelValues("unavailable")); count != 1 {
 		t.Fatalf("untrusted recall status must collapse to unavailable, got %v", count)
+	}
+	if count := testutil.ToFloat64(metrics.memoryRecall.WithLabelValues("profile", "hit")); count != 1 {
+		t.Fatalf("expected unified profile recall metric, got %v", count)
 	}
 }
 
@@ -211,5 +223,11 @@ func TestHarnessMetricsTrackLifecycleWithoutIdentifierLabels(t *testing.T) {
 	}
 	if got := testutil.ToFloat64(metrics.harnessTerminals.WithLabelValues("troubleshooting", "diagnosis_standard", "SUCCEEDED", "DIAGNOSTIC_HYPOTHESES_READY")); got != 1 {
 		t.Fatalf("expected one terminal outcome, got %v", got)
+	}
+	if got := testutil.ToFloat64(metrics.agentRunTransitions.WithLabelValues("running", "succeeded", "success")); got != 1 {
+		t.Fatalf("expected one SDD Agent transition, got %v", got)
+	}
+	if got := testutil.ToFloat64(metrics.agentActiveRuns.WithLabelValues("running")); got != 0 {
+		t.Fatalf("terminal transition must remove the run from active state, got %v", got)
 	}
 }

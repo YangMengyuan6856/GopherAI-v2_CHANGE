@@ -541,6 +541,52 @@
                 </div>
               </article>
             </details>
+            <details v-if="metricCatalog" class="metric-catalog-workbench">
+              <summary>查看指标目录与标签基数审计（{{ metricCatalog.family_count }} 个指标族）</summary>
+              <div class="metric-catalog-heading">
+                <div>
+                  <strong>{{ metricCatalog.catalog_version }}</strong>
+                  <span>SHA-256 {{ metricCatalog.catalog_sha256.slice(0, 16) }}…</span>
+                </div>
+                <span :class="['evaluation-gate', metricCatalog.passed ? 'passed' : 'failed']">{{ metricCatalog.passed ? '目录审计通过' : '目录审计失败' }}</span>
+              </div>
+              <div class="diagnostic-evaluation-grid">
+                <div><strong>{{ metricCatalog.family_count }}</strong><span>业务指标族</span></div>
+                <div><strong>{{ metricCatalog.label_key_count }}</strong><span>受控标签键</span></div>
+                <div><strong>{{ metricCatalog.max_series_estimate }} / {{ metricCatalog.series_budget }}</strong><span>最大序列估算 / 总预算</span></div>
+                <div><strong>{{ metricCatalog.forbidden_label_hits }}</strong><span>高基数标签命中</span></div>
+              </div>
+              <div class="metric-component-strip">
+                <span :class="metricCatalog.required_present_count === metricCatalog.required_family_count ? 'dependency-ready' : 'dependency-down'">
+                  SDD 核心契约 {{ metricCatalog.required_present_count }} / {{ metricCatalog.required_family_count }}
+                </span>
+                <span :class="metricCatalog.contract_mismatch_count === 0 ? 'dependency-ready' : 'dependency-down'">类型/标签不一致 {{ metricCatalog.contract_mismatch_count }}</span>
+                <span v-for="component in metricCatalog.components" :key="component.name" class="dependency-ready">
+                  {{ component.name === 'index_worker' ? 'Index Worker' : 'Backend' }} {{ component.family_count }} 个
+                </span>
+                <span :class="metricCatalog.duplicate_metric_names === 0 ? 'dependency-ready' : 'dependency-down'">重复指标名 {{ metricCatalog.duplicate_metric_names }}</span>
+              </div>
+              <div class="metric-domain-grid">
+                <article v-for="domain in metricCatalog.domains" :key="domain.name">
+                  <strong>{{ metricDomainLabel(domain.name) }}</strong>
+                  <span>{{ domain.family_count }} 个指标族 · 上限估算 {{ domain.max_series_estimate }}</span>
+                </article>
+              </div>
+              <div class="metric-cardinality-guard">
+                <strong>已阻断的高基数标签</strong>
+                <span>{{ metricCatalog.high_cardinality_blocked.join('、') }}</span>
+              </div>
+              <details class="metric-definition-list">
+                <summary>查看全部 {{ metricCatalog.definitions.length }} 个指标定义</summary>
+                <div>
+                  <article v-for="metric in metricCatalog.definitions" :key="metric.name">
+                    <div><strong>{{ metric.name }}</strong><span>{{ metricTypeLabel(metric.type) }} · {{ metric.component }}</span></div>
+                    <small>标签：{{ metric.labels.length ? metric.labels.join(', ') : '无' }} · 固定值域 · 最大序列估算 {{ metric.max_series_estimate }}</small>
+                  </article>
+                </div>
+              </details>
+              <p>目录通过只证明命名、覆盖与标签边界合格，不代表线上质量健康；实际活跃序列将在下一阶段 Prometheus recording rules 中观测。</p>
+            </details>
           </article>
 
           <div class="evaluation-catalog-heading">
@@ -1274,6 +1320,7 @@ export default {
     const loadingEvaluationCatalog = ref(false)
     const evaluationCatalog = ref(null)
     const evaluationRun = ref(null)
+    const metricCatalog = ref(null)
     const loadingAnomaly = ref(false)
     const anomalyResult = ref(null)
     const anomalyScenarios = [
@@ -2494,12 +2541,14 @@ export default {
       if (!evaluationCatalogOpen.value || evaluationCatalog.value || loadingEvaluationCatalog.value) return
       try {
         loadingEvaluationCatalog.value = true
-        const [catalogResponse, runResponse] = await Promise.all([
+        const [catalogResponse, runResponse, metricCatalogResponse] = await Promise.all([
           api.get('/evaluations/catalog/latest'),
-          api.get('/evaluations/unified/latest')
+          api.get('/evaluations/unified/latest'),
+          api.get('/evaluations/metrics/catalog')
         ])
         evaluationCatalog.value = catalogResponse.data
         evaluationRun.value = runResponse.data
+        metricCatalog.value = metricCatalogResponse.data.report
       } catch (error) {
         evaluationCatalogOpen.value = false
         ElMessage.error(error.response?.data?.message || '评测数据目录暂时不可用')
@@ -2521,6 +2570,13 @@ export default {
       verification_gap: '验证步骤缺口', retrieval_miss: '检索漏召回', unsupported_answer: '无证据作答',
       runtime_error: '运行错误', unsafe_action: '危险动作', nondeterministic_replay: '重放不一致'
     }[code] || code)
+
+    const metricDomainLabel = (domain) => ({
+      platform: '平台入口', intent: '意图识别', knowledge_rag: '知识与 RAG', agent_harness: 'Agent Harness',
+      memory: '三级记忆', tool_governance: '工具治理', multi_agent: '多 Agent', evaluation: '评测与反馈', control_plane: '策略控制面'
+    }[domain] || domain)
+
+    const metricTypeLabel = (type) => ({ counter: 'Counter', histogram: 'Histogram', gauge: 'Gauge' }[type] || type)
 
     const anomalyMetricLabel = (metric) => ({
       rag_grounded_answer_rate: 'RAG 有依据回答率', request_p95_latency_seconds: '请求 P95 延迟'
@@ -2816,6 +2872,7 @@ export default {
       loadingEvaluationCatalog,
       evaluationCatalog,
       evaluationRun,
+      metricCatalog,
       loadingAnomaly,
       anomalyResult,
       anomalyScenarios,
@@ -2953,6 +3010,8 @@ export default {
       evaluationSliceLabel,
       evaluationStatusLabel,
       evaluationFailureLabel,
+      metricDomainLabel,
+      metricTypeLabel,
       anomalyMetricLabel,
       anomalyRecommendationLabel,
       anomalyDecisionLabel,
@@ -4765,6 +4824,109 @@ export default {
 .anomaly-result.anomaly-insufficient {
   border: 1px solid rgba(85, 116, 173, 0.3);
   background: #f3f6fb;
+}
+
+.metric-catalog-workbench {
+  padding: 9px;
+  border: 1px dashed rgba(42, 137, 118, 0.35);
+  border-radius: 8px;
+  background: rgba(240, 251, 247, 0.72);
+}
+
+.metric-catalog-workbench > summary,
+.metric-definition-list > summary {
+  cursor: pointer;
+  color: #267d6b;
+  font-weight: 800;
+}
+
+.metric-catalog-workbench > p {
+  margin: 8px 0 0;
+  color: #69758c;
+  font-size: 12px;
+}
+
+.metric-catalog-heading,
+.metric-catalog-heading > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.metric-catalog-heading {
+  margin: 9px 0;
+}
+
+.metric-catalog-heading > div {
+  align-items: flex-start;
+  flex-direction: column;
+}
+
+.metric-catalog-heading span,
+.metric-domain-grid span,
+.metric-definition-list small {
+  color: #69758c;
+  font-size: 12px;
+}
+
+.metric-component-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 8px 0;
+}
+
+.metric-domain-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 7px;
+}
+
+.metric-domain-grid article,
+.metric-definition-list article {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px;
+  border: 1px solid rgba(42, 137, 118, 0.16);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.metric-domain-grid article {
+  flex-direction: column;
+}
+
+.metric-cardinality-guard {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0;
+  padding: 8px;
+  border-radius: 7px;
+  background: #edf6ff;
+  color: #48627e;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.metric-definition-list {
+  margin-top: 8px;
+}
+
+.metric-definition-list > div {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.metric-definition-list article {
+  margin-top: 6px;
+  align-items: flex-start;
+}
+
+.metric-definition-list article > div {
+  display: grid;
+  gap: 2px;
 }
 
 @media (max-width: 760px) {

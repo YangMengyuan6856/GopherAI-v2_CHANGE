@@ -15,6 +15,21 @@ type WorkerMetrics struct {
 	incidentDuration prometheus.Histogram
 }
 
+// Collectors is shared by registration and metric catalog discovery.
+func (metrics *WorkerMetrics) Collectors() []prometheus.Collector {
+	if metrics == nil {
+		return nil
+	}
+	return []prometheus.Collector{
+		metrics.outboxPublishes,
+		metrics.outboxOldestAge,
+		metrics.indexJobs,
+		metrics.indexDuration,
+		metrics.incidentJobs,
+		metrics.incidentDuration,
+	}
+}
+
 func NewWorkerMetrics(registerer prometheus.Registerer) *WorkerMetrics {
 	metrics := &WorkerMetrics{
 		outboxPublishes: prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -44,7 +59,7 @@ func NewWorkerMetrics(registerer prometheus.Registerer) *WorkerMetrics {
 			Buckets: []float64{0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5},
 		}),
 	}
-	registerer.MustRegister(metrics.outboxPublishes, metrics.outboxOldestAge, metrics.indexJobs, metrics.indexDuration, metrics.incidentJobs, metrics.incidentDuration)
+	registerer.MustRegister(metrics.Collectors()...)
 	for _, status := range []string{"published", "error", "invalid"} {
 		metrics.outboxPublishes.WithLabelValues(status).Add(0)
 	}
@@ -56,15 +71,12 @@ func NewWorkerMetrics(registerer prometheus.Registerer) *WorkerMetrics {
 }
 
 func (metrics *WorkerMetrics) RecordIncidentIndex(status string, code string, duration time.Duration) {
-	if code == "" {
-		code = "none"
-	}
-	metrics.incidentJobs.WithLabelValues(status, code).Inc()
+	metrics.incidentJobs.WithLabelValues(boundedWorkerJobStatus(status), boundedWorkerErrorCode(code)).Inc()
 	metrics.incidentDuration.Observe(duration.Seconds())
 }
 
 func (metrics *WorkerMetrics) RecordOutboxPublish(status string) {
-	metrics.outboxPublishes.WithLabelValues(status).Inc()
+	metrics.outboxPublishes.WithLabelValues(boundedOutboxStatus(status)).Inc()
 }
 
 func (metrics *WorkerMetrics) SetOutboxOldestAge(seconds float64) {
@@ -72,9 +84,38 @@ func (metrics *WorkerMetrics) SetOutboxOldestAge(seconds float64) {
 }
 
 func (metrics *WorkerMetrics) RecordIndexJob(status string, code string, duration time.Duration) {
-	if code == "" {
-		code = "none"
-	}
-	metrics.indexJobs.WithLabelValues(status, code).Inc()
+	metrics.indexJobs.WithLabelValues(boundedWorkerJobStatus(status), boundedWorkerErrorCode(code)).Inc()
 	metrics.indexDuration.Observe(duration.Seconds())
+}
+
+func boundedWorkerJobStatus(status string) string {
+	switch status {
+	case "success", "retry", "dead":
+		return status
+	default:
+		return "unknown"
+	}
+}
+
+func boundedOutboxStatus(status string) string {
+	switch status {
+	case "published", "error", "invalid":
+		return status
+	default:
+		return "unknown"
+	}
+}
+
+func boundedWorkerErrorCode(code string) string {
+	switch code {
+	case "":
+		return "none"
+	case "INDEX_EVENT_INVALID", "INDEX_JOB_NOT_FOUND", "INDEX_INTERNAL_ERROR", "DOCUMENT_STORAGE_READ_FAILED", "DOCUMENT_PARSE_FAILED",
+		"CHUNK_PERSIST_FAILED", "REDIS_INDEX_FAILED", "INDEX_COMPLETION_FAILED", "REDIS_DELETE_FAILED",
+		"DELETE_COMPLETION_FAILED", "INCIDENT_EVENT_INVALID", "INCIDENT_NOT_FOUND",
+		"INCIDENT_REDIS_INDEX_FAILED", "INCIDENT_INDEX_COMPLETION_FAILED":
+		return code
+	default:
+		return "unknown"
+	}
 }

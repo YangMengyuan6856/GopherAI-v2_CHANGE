@@ -13,8 +13,14 @@ import (
 type Metrics struct {
 	requests                    *prometheus.CounterVec
 	requestDuration             *prometheus.HistogramVec
+	ttft                        *prometheus.HistogramVec
+	modelCalls                  *prometheus.CounterVec
+	modelTokens                 *prometheus.CounterVec
+	modelCostMicros             *prometheus.CounterVec
 	intentDecisions             *prometheus.CounterVec
 	intentConfidence            *prometheus.HistogramVec
+	intentStageDuration         *prometheus.HistogramVec
+	intentClarifications        *prometheus.CounterVec
 	intentShadowDecisions       *prometheus.CounterVec
 	intentShadowDuration        *prometheus.HistogramVec
 	intentShadowStageCalls      *prometheus.CounterVec
@@ -32,6 +38,14 @@ type Metrics struct {
 	ragStrategyRequests         *prometheus.CounterVec
 	ragStrategyDuration         *prometheus.HistogramVec
 	ragEnhancements             *prometheus.CounterVec
+	ragQueries                  *prometheus.CounterVec
+	ragDuration                 *prometheus.HistogramVec
+	ragCandidates               *prometheus.HistogramVec
+	ragTopScore                 *prometheus.HistogramVec
+	ragEmpty                    *prometheus.CounterVec
+	ragRewrite                  *prometheus.CounterVec
+	ragRerank                   *prometheus.CounterVec
+	citations                   *prometheus.CounterVec
 	caseMemoryRecalls           *prometheus.CounterVec
 	caseMemoryRecallDuration    *prometheus.HistogramVec
 	caseMemoryRecallResults     *prometheus.HistogramVec
@@ -52,6 +66,15 @@ type Metrics struct {
 	harnessTerminals            *prometheus.CounterVec
 	harnessDuration             *prometheus.HistogramVec
 	harnessBudgetUtilization    *prometheus.HistogramVec
+	agentBudgetExceeded         *prometheus.CounterVec
+	agentRunTransitions         *prometheus.CounterVec
+	agentResume                 *prometheus.CounterVec
+	agentNoProgress             *prometheus.CounterVec
+	agentActiveRuns             *prometheus.GaugeVec
+	contextTokens               *prometheus.HistogramVec
+	contextRetentionChecks      *prometheus.CounterVec
+	memoryRecall                *prometheus.CounterVec
+	memoryCandidates            *prometheus.HistogramVec
 	toolCalls                   *prometheus.CounterVec
 	toolDuration                *prometheus.HistogramVec
 	toolRetries                 *prometheus.CounterVec
@@ -62,7 +85,54 @@ type Metrics struct {
 	legacyEntryAttempts         *prometheus.CounterVec
 	policyLoads                 *prometheus.CounterVec
 	strategyWeights             *prometheus.GaugeVec
+	feedback                    *prometheus.CounterVec
+	onlineEvalScore             *prometheus.HistogramVec
+	onlineEvalFailures          *prometheus.CounterVec
+	evalRegressions             *prometheus.CounterVec
+	strategyState               *prometheus.GaugeVec
+	controlActions              *prometheus.CounterVec
+	controlLoopDuration         *prometheus.HistogramVec
+	webhookDeliveries           *prometheus.CounterVec
 	gatherer                    prometheus.Gatherer
+}
+
+// Collectors returns the complete set of application-owned Prometheus
+// collectors. Registration and catalog discovery share this list so the
+// published metric contract cannot silently drift from the runtime registry.
+func (metrics *Metrics) Collectors() []prometheus.Collector {
+	if metrics == nil {
+		return nil
+	}
+	return []prometheus.Collector{
+		metrics.requests, metrics.requestDuration, metrics.ttft,
+		metrics.modelCalls, metrics.modelTokens, metrics.modelCostMicros,
+		metrics.intentDecisions, metrics.intentConfidence, metrics.intentStageDuration, metrics.intentClarifications,
+		metrics.intentShadowDecisions, metrics.intentShadowDuration,
+		metrics.intentShadowStageCalls, metrics.intentShadowDisagreements,
+		metrics.agentRuns, metrics.agentDuration, metrics.persistFailures,
+		metrics.documentUploads, metrics.documentBytes,
+		metrics.retrievals, metrics.retrievalDuration, metrics.retrievalResults,
+		metrics.knowledgeAnswers, metrics.knowledgeAnswerDuration,
+		metrics.ragStrategyRequests, metrics.ragStrategyDuration, metrics.ragEnhancements,
+		metrics.ragQueries, metrics.ragDuration, metrics.ragCandidates, metrics.ragTopScore,
+		metrics.ragEmpty, metrics.ragRewrite, metrics.ragRerank, metrics.citations,
+		metrics.caseMemoryRecalls, metrics.caseMemoryRecallDuration, metrics.caseMemoryRecallResults,
+		metrics.caseStrategyRuns, metrics.caseStrategyDuration,
+		metrics.collaborationPlans, metrics.collaborationPlanDuration,
+		metrics.collaborationRuns, metrics.collaborationRunDuration,
+		metrics.collaborationTasks, metrics.collaborationTaskDuration, metrics.collaborationSyntheses,
+		metrics.profileMemoryRecalls, metrics.profileMemoryRecallDuration, metrics.profileMemoryRecallResults,
+		metrics.harnessRuns, metrics.harnessTransitions, metrics.harnessTerminals,
+		metrics.harnessDuration, metrics.harnessBudgetUtilization,
+		metrics.agentBudgetExceeded, metrics.agentRunTransitions, metrics.agentResume, metrics.agentNoProgress,
+		metrics.agentActiveRuns, metrics.contextTokens, metrics.contextRetentionChecks,
+		metrics.memoryRecall, metrics.memoryCandidates,
+		metrics.toolCalls, metrics.toolDuration, metrics.toolRetries, metrics.toolCircuitState,
+		metrics.toolCache, metrics.toolValidation, metrics.toolCancellations,
+		metrics.legacyEntryAttempts, metrics.policyLoads, metrics.strategyWeights,
+		metrics.feedback, metrics.onlineEvalScore, metrics.onlineEvalFailures, metrics.evalRegressions,
+		metrics.strategyState, metrics.controlActions, metrics.controlLoopDuration, metrics.webhookDeliveries,
+	}
 }
 
 func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) *Metrics {
@@ -76,6 +146,23 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 			Help:    "End-to-end AppService request duration in seconds.",
 			Buckets: []float64{0.1, 0.25, 0.5, 1, 2, 4, 8, 15, 30, 60, 90},
 		}, []string{"intent", "strategy"}),
+		ttft: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "gopherai_ttft_seconds",
+			Help:    "Time to first generated token in seconds by bounded strategy.",
+			Buckets: []float64{0.05, 0.1, 0.25, 0.5, 1, 2, 4, 8, 15, 30},
+		}, []string{"strategy"}),
+		modelCalls: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_model_calls_total",
+			Help: "Total model calls by bounded purpose, model alias and outcome.",
+		}, []string{"purpose", "model", "status"}),
+		modelTokens: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_model_tokens_total",
+			Help: "Total estimated model tokens by bounded purpose, model alias and direction.",
+		}, []string{"purpose", "model", "direction"}),
+		modelCostMicros: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_model_cost_micros_total",
+			Help: "Total estimated model cost in micro-units by bounded purpose and model alias.",
+		}, []string{"purpose", "model"}),
 		intentDecisions: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "gopherai_intent_decisions_total",
 			Help: "Total intent decisions by bounded intent and final stage.",
@@ -85,6 +172,15 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 			Help:    "Intent confidence distribution.",
 			Buckets: prometheus.LinearBuckets(0, 0.1, 11),
 		}, []string{"intent", "final_stage"}),
+		intentStageDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "gopherai_intent_stage_duration_seconds",
+			Help:    "Intent cascade stage duration in seconds by bounded stage.",
+			Buckets: []float64{0.0001, 0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 4, 8},
+		}, []string{"stage"}),
+		intentClarifications: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_intent_clarifications_total",
+			Help: "Total clarification decisions by bounded predicted intent.",
+		}, []string{"predicted_intent"}),
 		intentShadowDecisions: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "gopherai_intent_shadow_decisions_total",
 			Help: "Total bounded shadow intent decisions; shadow decisions never change live routing.",
@@ -160,6 +256,41 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 			Name: "gopherai_rag_enhancements_total",
 			Help: "Total conditional RAG enhancement component outcomes.",
 		}, []string{"component", "outcome"}),
+		ragQueries: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_rag_queries_total",
+			Help: "Total RAG queries by bounded strategy and outcome.",
+		}, []string{"strategy", "status"}),
+		ragDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "gopherai_rag_duration_seconds",
+			Help:    "RAG stage duration in seconds by bounded stage and strategy.",
+			Buckets: []float64{0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 4, 8, 15, 30, 60},
+		}, []string{"stage", "strategy"}),
+		ragCandidates: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "gopherai_rag_candidates",
+			Help:    "RAG candidate count by bounded retrieval source.",
+			Buckets: []float64{0, 1, 2, 3, 5, 8, 10, 20, 40},
+		}, []string{"source"}),
+		ragTopScore: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "gopherai_rag_top_score",
+			Help:    "Highest normalized retrieval or rerank score by bounded strategy.",
+			Buckets: prometheus.LinearBuckets(0, 0.1, 11),
+		}, []string{"strategy"}),
+		ragEmpty: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_rag_empty_total",
+			Help: "Total empty or evidence-gated RAG results by bounded reason.",
+		}, []string{"strategy", "reason"}),
+		ragRewrite: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_rag_rewrite_total",
+			Help: "Total bounded query rewrite outcomes.",
+		}, []string{"result"}),
+		ragRerank: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_rag_rerank_total",
+			Help: "Total bounded rerank outcomes.",
+		}, []string{"result"}),
+		citations: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_citations_total",
+			Help: "Total citation verification outcomes.",
+		}, []string{"verification"}),
 		caseMemoryRecalls: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "gopherai_case_memory_recalls_total",
 			Help: "Total advisory episodic-memory recalls by bounded outcome.",
@@ -250,6 +381,44 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 			Help:    "Terminal harness budget utilization ratio by bounded resource and outcome.",
 			Buckets: []float64{0, 0.1, 0.25, 0.5, 0.75, 0.9, 1, 1.1},
 		}, []string{"resource", "state"}),
+		agentBudgetExceeded: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_agent_budget_exceeded_total",
+			Help: "Total Agent budget breaches by bounded resource type.",
+		}, []string{"budget_type"}),
+		agentRunTransitions: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_agent_run_transitions_total",
+			Help: "Total Agent Run state transition attempts by bounded states and result.",
+		}, []string{"from", "to", "result"}),
+		agentResume: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_agent_resume_total",
+			Help: "Total Agent checkpoint resume attempts by bounded result.",
+		}, []string{"result"}),
+		agentNoProgress: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_agent_no_progress_total",
+			Help: "Total repeated Agent actions blocked by the no-progress guard.",
+		}, []string{"agent", "strategy"}),
+		agentActiveRuns: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "gopherai_agent_active_runs",
+			Help: "Current durable Agent Runs by bounded state.",
+		}, []string{"state"}),
+		contextTokens: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "gopherai_context_tokens",
+			Help:    "Estimated Context Assembler tokens by bounded segment and direction.",
+			Buckets: []float64{0, 128, 256, 512, 1024, 2048, 4096, 8192, 16384},
+		}, []string{"segment", "direction"}),
+		contextRetentionChecks: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_context_retention_checks_total",
+			Help: "Total Context Assembler invariant checks by bounded field and result.",
+		}, []string{"field", "result"}),
+		memoryRecall: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_memory_recall_total",
+			Help: "Total three-tier memory recall outcomes by bounded tier.",
+		}, []string{"tier", "status"}),
+		memoryCandidates: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "gopherai_memory_candidates",
+			Help:    "Memory candidates considered by bounded memory tier.",
+			Buckets: []float64{0, 1, 2, 3, 5, 8, 10, 20, 50, 100},
+		}, []string{"tier"}),
 		toolCalls: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "gopherai_tool_calls_total",
 			Help: "Total governed tool calls by bounded tool, strategy and terminal status.",
@@ -290,62 +459,45 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 		strategyWeights: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "gopherai_strategy_weight",
 			Help: "Configured strategy weight in basis points for the bounded active policy version.",
-		}, []string{"strategy", "policy_version_short"}),
+		}, []string{"intent", "strategy", "policy_version_short"}),
+		feedback: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_feedback_total",
+			Help: "Total explicit and implicit feedback outcomes by bounded strategy and feedback type.",
+		}, []string{"strategy", "type", "result"}),
+		onlineEvalScore: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "gopherai_online_eval_score",
+			Help:    "Online evaluation score by bounded strategy and quality dimension.",
+			Buckets: prometheus.LinearBuckets(0, 0.1, 11),
+		}, []string{"strategy", "dimension"}),
+		onlineEvalFailures: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_online_eval_failures_total",
+			Help: "Total online evaluation failures by bounded strategy and reason.",
+		}, []string{"strategy", "reason"}),
+		evalRegressions: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_eval_regressions_total",
+			Help: "Total detected evaluation regressions by fixed suite and metric.",
+		}, []string{"suite", "metric"}),
+		strategyState: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "gopherai_strategy_state",
+			Help: "Current bounded strategy health state represented as a one-hot gauge.",
+		}, []string{"intent", "strategy", "state"}),
+		controlActions: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_control_actions_total",
+			Help: "Total control-loop recommendations by bounded action and result.",
+		}, []string{"action", "result"}),
+		controlLoopDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "gopherai_control_loop_duration_seconds",
+			Help:    "Control-loop evaluation duration in seconds by bounded result.",
+			Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5},
+		}, []string{"result"}),
+		webhookDeliveries: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_webhook_deliveries_total",
+			Help: "Total control-plane webhook delivery outcomes by bounded event type.",
+		}, []string{"event_type", "status"}),
 		gatherer: gatherer,
 	}
-	registerer.MustRegister(
-		metrics.requests,
-		metrics.requestDuration,
-		metrics.intentDecisions,
-		metrics.intentConfidence,
-		metrics.intentShadowDecisions,
-		metrics.intentShadowDuration,
-		metrics.intentShadowStageCalls,
-		metrics.intentShadowDisagreements,
-		metrics.agentRuns,
-		metrics.agentDuration,
-		metrics.persistFailures,
-		metrics.documentUploads,
-		metrics.documentBytes,
-		metrics.retrievals,
-		metrics.retrievalDuration,
-		metrics.retrievalResults,
-		metrics.knowledgeAnswers,
-		metrics.knowledgeAnswerDuration,
-		metrics.ragStrategyRequests,
-		metrics.ragStrategyDuration,
-		metrics.ragEnhancements,
-		metrics.caseMemoryRecalls,
-		metrics.caseMemoryRecallDuration,
-		metrics.caseMemoryRecallResults,
-		metrics.caseStrategyRuns,
-		metrics.caseStrategyDuration,
-		metrics.collaborationPlans,
-		metrics.collaborationPlanDuration,
-		metrics.collaborationRuns,
-		metrics.collaborationRunDuration,
-		metrics.collaborationTasks,
-		metrics.collaborationTaskDuration,
-		metrics.collaborationSyntheses,
-		metrics.profileMemoryRecalls,
-		metrics.profileMemoryRecallDuration,
-		metrics.profileMemoryRecallResults,
-		metrics.harnessRuns,
-		metrics.harnessTransitions,
-		metrics.harnessTerminals,
-		metrics.harnessDuration,
-		metrics.harnessBudgetUtilization,
-		metrics.toolCalls,
-		metrics.toolDuration,
-		metrics.toolRetries,
-		metrics.toolCircuitState,
-		metrics.toolCache,
-		metrics.toolValidation,
-		metrics.toolCancellations,
-		metrics.legacyEntryAttempts,
-		metrics.policyLoads,
-		metrics.strategyWeights,
-	)
+	registerer.MustRegister(metrics.Collectors()...)
+	metrics.initializeRequiredMetricSeries()
 	for _, status := range []string{"accepted", "duplicate", "rejected", "error"} {
 		metrics.documentUploads.WithLabelValues(status).Add(0)
 	}
@@ -419,6 +571,58 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 		}
 	}
 	return metrics
+}
+
+// initializeRequiredMetricSeries exposes every SDD-required metric family on
+// /metrics before the first production event. Only fixed fallback labels are
+// used, so startup visibility cannot introduce caller-controlled cardinality.
+func (metrics *Metrics) initializeRequiredMetricSeries() {
+	metrics.requests.WithLabelValues("unknown", "unknown", "error").Add(0)
+	metrics.requestDuration.WithLabelValues("unknown", "unknown")
+	metrics.ttft.WithLabelValues("unknown")
+	metrics.modelCalls.WithLabelValues("other", "other", "error").Add(0)
+	metrics.modelTokens.WithLabelValues("other", "other", "input").Add(0)
+	metrics.modelCostMicros.WithLabelValues("other", "other").Add(0)
+	metrics.intentStageDuration.WithLabelValues("unknown")
+	metrics.intentClarifications.WithLabelValues("unknown").Add(0)
+	metrics.intentDecisions.WithLabelValues("unknown", "unknown", "degraded").Add(0)
+	metrics.intentConfidence.WithLabelValues("unknown", "unknown")
+	metrics.intentShadowDisagreements.WithLabelValues("unknown", "unknown").Add(0)
+	metrics.ragQueries.WithLabelValues("rag_fast", "error").Add(0)
+	metrics.ragDuration.WithLabelValues("end_to_end", "rag_fast")
+	metrics.ragCandidates.WithLabelValues("fused")
+	metrics.ragTopScore.WithLabelValues("rag_fast")
+	metrics.ragEmpty.WithLabelValues("rag_fast", "error").Add(0)
+	metrics.ragRewrite.WithLabelValues("skipped").Add(0)
+	metrics.ragRerank.WithLabelValues("skipped").Add(0)
+	metrics.citations.WithLabelValues("rejected").Add(0)
+	metrics.agentRuns.WithLabelValues("unknown", "unknown", "error").Add(0)
+	metrics.agentDuration.WithLabelValues("unknown", "unknown")
+	metrics.agentBudgetExceeded.WithLabelValues("token").Add(0)
+	metrics.agentRunTransitions.WithLabelValues("new", "new", "success").Add(0)
+	metrics.agentResume.WithLabelValues("no_checkpoint").Add(0)
+	metrics.agentNoProgress.WithLabelValues("DiagnosticAgent", "diagnosis_standard").Add(0)
+	metrics.agentActiveRuns.WithLabelValues("new").Set(0)
+	metrics.contextTokens.WithLabelValues("working", "input")
+	metrics.contextRetentionChecks.WithLabelValues("goal", "passed").Add(0)
+	metrics.memoryRecall.WithLabelValues("working", "no_match").Add(0)
+	metrics.memoryCandidates.WithLabelValues("working")
+	metrics.toolCalls.WithLabelValues("unknown", "unknown", "error").Add(0)
+	metrics.toolDuration.WithLabelValues("unknown", "unknown")
+	metrics.toolRetries.WithLabelValues("unknown", "unknown").Add(0)
+	metrics.toolCircuitState.WithLabelValues("unknown", "open").Set(0)
+	metrics.toolCache.WithLabelValues("unknown", "bypass").Add(0)
+	metrics.toolValidation.WithLabelValues("unknown", "unknown").Add(0)
+	metrics.toolCancellations.WithLabelValues("unknown", "unknown").Add(0)
+	metrics.feedback.WithLabelValues("legacy_chat", "explicit", "accepted").Add(0)
+	metrics.onlineEvalScore.WithLabelValues("legacy_chat", "quality")
+	metrics.onlineEvalFailures.WithLabelValues("legacy_chat", "error").Add(0)
+	metrics.evalRegressions.WithLabelValues("unified", "completion").Add(0)
+	metrics.strategyWeights.WithLabelValues("unknown", "unknown", "other").Set(0)
+	metrics.strategyState.WithLabelValues("unknown", "unknown", "healthy").Set(0)
+	metrics.controlActions.WithLabelValues("none", "suppressed").Add(0)
+	metrics.controlLoopDuration.WithLabelValues("success")
+	metrics.webhookDeliveries.WithLabelValues("anomaly", "queued").Add(0)
 }
 
 func (metrics *Metrics) RecordCaseStrategy(strength string, outcome string, duration time.Duration) {
@@ -540,6 +744,7 @@ func (metrics *Metrics) SetStrategyWeight(policyVersion string, strategy string,
 		return
 	}
 	strategy = boundedRoutingStrategy(strategy)
+	intent := boundedStrategyIntent(strategy)
 	policyVersion = boundedRoutingPolicyVersion(policyVersion)
 	if weightBasis < 0 {
 		weightBasis = 0
@@ -547,7 +752,20 @@ func (metrics *Metrics) SetStrategyWeight(policyVersion string, strategy string,
 	if weightBasis > 10_000 {
 		weightBasis = 10_000
 	}
-	metrics.strategyWeights.WithLabelValues(strategy, policyVersion).Set(float64(weightBasis))
+	metrics.strategyWeights.WithLabelValues(intent, strategy, policyVersion).Set(float64(weightBasis))
+}
+
+func boundedStrategyIntent(strategy string) string {
+	switch strategy {
+	case "rag_fast", "rag_deep":
+		return "project_qa"
+	case "diagnosis_standard", "diagnosis_case_based", "diagnosis_collaborative":
+		return "troubleshooting"
+	case "legacy_chat", "direct_fallback":
+		return "general"
+	default:
+		return "unknown"
+	}
 }
 
 func boundedRoutingStrategy(value string) string {
@@ -714,6 +932,8 @@ func (metrics *Metrics) RecordProfileRecall(status string, duration time.Duratio
 	metrics.profileMemoryRecalls.WithLabelValues(status).Inc()
 	metrics.profileMemoryRecallDuration.WithLabelValues(status).Observe(duration.Seconds())
 	metrics.profileMemoryRecallResults.WithLabelValues(status).Observe(float64(count))
+	metrics.memoryRecall.WithLabelValues("profile", status).Inc()
+	metrics.memoryCandidates.WithLabelValues("profile").Observe(float64(count))
 }
 
 // RecordCaseRecall implements diagnostic.CaseRecallObserver without importing
@@ -739,6 +959,8 @@ func (metrics *Metrics) RecordCaseRecall(status string, duration time.Duration, 
 	metrics.caseMemoryRecalls.WithLabelValues(status).Inc()
 	metrics.caseMemoryRecallDuration.WithLabelValues(status).Observe(duration.Seconds())
 	metrics.caseMemoryRecallResults.WithLabelValues(status).Observe(float64(count))
+	metrics.memoryRecall.WithLabelValues("episodic", status).Inc()
+	metrics.memoryCandidates.WithLabelValues("episodic").Observe(float64(count))
 }
 
 // RecordRunCreate implements harness.Observer. Only fixed-domain values reach
@@ -752,6 +974,9 @@ func (metrics *Metrics) RecordRunCreate(run harness.Run, created bool) {
 		outcome = "created"
 	}
 	metrics.harnessRuns.WithLabelValues(boundedHarnessIntent(run.Intent), boundedHarnessStrategy(run.Strategy), outcome).Inc()
+	if created {
+		metrics.agentActiveRuns.WithLabelValues(boundedAgentState(run.State)).Inc()
+	}
 }
 
 // RecordRunTransition implements harness.Observer after a successful durable
@@ -765,10 +990,24 @@ func (metrics *Metrics) RecordRunTransition(previous harness.Run, current harnes
 	fromState := boundedHarnessState(previous.State)
 	toState := boundedHarnessState(current.State)
 	metrics.harnessTransitions.WithLabelValues(intent, strategy, fromState, toState).Inc()
+	metrics.agentRunTransitions.WithLabelValues(boundedAgentState(previous.State), boundedAgentState(current.State), "success").Inc()
+	metrics.agentActiveRuns.WithLabelValues(boundedAgentState(previous.State)).Dec()
+	if !harness.IsTerminal(current.State) {
+		metrics.agentActiveRuns.WithLabelValues(boundedAgentState(current.State)).Inc()
+	}
 	if !harness.IsTerminal(current.State) {
 		return
 	}
 	reason := boundedHarnessTerminalReason(current.TerminalReason)
+	if reason == "NO_PROGRESS" {
+		metrics.agentNoProgress.WithLabelValues("DiagnosticAgent", strategy).Inc()
+	}
+	if reason == "TIME_BUDGET_EXCEEDED" {
+		metrics.agentBudgetExceeded.WithLabelValues("time").Inc()
+	}
+	if reason == "EXECUTION_BUDGET_EXCEEDED" {
+		metrics.agentBudgetExceeded.WithLabelValues("iteration").Inc()
+	}
 	metrics.harnessTerminals.WithLabelValues(intent, strategy, toState, reason).Inc()
 	duration := current.UpdatedAt.Sub(current.StartedAt)
 	if current.FinishedAt != nil {
@@ -818,6 +1057,31 @@ func boundedHarnessState(value harness.State) string {
 	}
 }
 
+func boundedAgentState(value harness.State) string {
+	switch value {
+	case harness.StateReceived:
+		return "received"
+	case harness.StateContextReady:
+		return "context_ready"
+	case harness.StatePlanned:
+		return "planned"
+	case harness.StateRunning:
+		return "running"
+	case harness.StateWaitingUser:
+		return "waiting_user"
+	case harness.StateSucceeded:
+		return "succeeded"
+	case harness.StateFailed:
+		return "failed"
+	case harness.StateCancelled:
+		return "cancelled"
+	case harness.StateBudgetExceeded:
+		return "budget_exceeded"
+	default:
+		return "unknown"
+	}
+}
+
 func boundedHarnessTerminalReason(value string) string {
 	switch value {
 	case "DIAGNOSTIC_HYPOTHESES_READY", "USER_CANCELLED", "REQUEST_CONTEXT_CANCELLED", "TIME_BUDGET_EXCEEDED", "EXECUTION_BUDGET_EXCEEDED", "NO_PROGRESS":
@@ -836,13 +1100,51 @@ func (metrics *Metrics) RecordRAGStrategy(strategy string, status string, enhanc
 	strategy = boundedRAGStrategy(strategy)
 	status = boundedRAGStatus(status)
 	enhancement = boundedEnhancement(enhancement)
+	if duration < 0 {
+		duration = 0
+	}
 	metrics.ragStrategyRequests.WithLabelValues(strategy, status, enhancement).Inc()
 	metrics.ragStrategyDuration.WithLabelValues(strategy, status).Observe(duration.Seconds())
+	metrics.ragQueries.WithLabelValues(strategy, status).Inc()
+	metrics.ragDuration.WithLabelValues("end_to_end", strategy).Observe(duration.Seconds())
+	if status == "insufficient" || status == "verifier_rejected" || status == "rejected" || status == "error" {
+		metrics.ragEmpty.WithLabelValues(strategy, boundedRAGEmptyReason(status)).Inc()
+	}
 	if rewriteOutcome != "" && rewriteOutcome != "none" {
-		metrics.ragEnhancements.WithLabelValues("rewrite", boundedEnhancementOutcome(rewriteOutcome)).Inc()
+		outcome := boundedEnhancementOutcome(rewriteOutcome)
+		metrics.ragEnhancements.WithLabelValues("rewrite", outcome).Inc()
+		metrics.ragRewrite.WithLabelValues(boundedRAGEnhancementResult(outcome)).Inc()
+	} else {
+		metrics.ragRewrite.WithLabelValues("skipped").Inc()
 	}
 	if rerankOutcome != "" && rerankOutcome != "none" {
-		metrics.ragEnhancements.WithLabelValues("rerank", boundedEnhancementOutcome(rerankOutcome)).Inc()
+		outcome := boundedEnhancementOutcome(rerankOutcome)
+		metrics.ragEnhancements.WithLabelValues("rerank", outcome).Inc()
+		metrics.ragRerank.WithLabelValues(boundedRAGEnhancementResult(outcome)).Inc()
+	} else {
+		metrics.ragRerank.WithLabelValues("skipped").Inc()
+	}
+}
+
+func boundedRAGEmptyReason(status string) string {
+	switch status {
+	case "insufficient", "verifier_rejected", "rejected":
+		return status
+	default:
+		return "error"
+	}
+}
+
+func boundedRAGEnhancementResult(outcome string) string {
+	switch outcome {
+	case "rewrite_completed", "rerank_completed":
+		return "completed"
+	case "rewrite_not_required", "rerank_not_required":
+		return "not_required"
+	case "rewrite_model_error", "rewrite_timeout", "rewrite_invalid_output", "rerank_model_error", "rerank_timeout", "rerank_invalid_output":
+		return "failed"
+	default:
+		return "unknown"
 	}
 }
 
@@ -897,6 +1199,11 @@ func (metrics *Metrics) RecordKnowledgeAnswer(status string, gateReason string, 
 	}
 	metrics.knowledgeAnswers.WithLabelValues(status, gateReason).Inc()
 	metrics.knowledgeAnswerDuration.WithLabelValues(status).Observe(duration.Seconds())
+	verification := "rejected"
+	if status == "answered" && gateReason == "sufficient" {
+		verification = "verified"
+	}
+	metrics.citations.WithLabelValues(verification).Inc()
 }
 
 func (metrics *Metrics) Handler() http.Handler {
@@ -922,6 +1229,18 @@ func (metrics *Metrics) RecordKnowledgeRetrieval(status string, mode string, dur
 		resultCount = 0
 	}
 	metrics.retrievalResults.WithLabelValues(mode).Observe(float64(resultCount))
+	metrics.ragCandidates.WithLabelValues(boundedRAGCandidateSource(mode)).Observe(float64(resultCount))
+}
+
+func boundedRAGCandidateSource(mode string) string {
+	switch mode {
+	case "dense_only":
+		return "dense"
+	case "bm25_only":
+		return "bm25"
+	default:
+		return "fused"
+	}
 }
 
 func boundedRetrievalStatus(status string) string {

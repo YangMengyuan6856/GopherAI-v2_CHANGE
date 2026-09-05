@@ -53,10 +53,10 @@ func TestRoutingPolicyMetricsUseFixedLowCardinalityLabels(t *testing.T) {
 	if count := testutil.ToFloat64(metrics.policyLoads.WithLabelValues("mysql", "error")); count != 1 {
 		t.Fatalf("untrusted policy labels escaped bounds: %v", count)
 	}
-	if weight := testutil.ToFloat64(metrics.strategyWeights.WithLabelValues("rag_fast", "routing-policy-v1")); weight != 7500 {
+	if weight := testutil.ToFloat64(metrics.strategyWeights.WithLabelValues("project_qa", "rag_fast", "routing-policy-v1")); weight != 7500 {
 		t.Fatalf("unexpected strategy weight %v", weight)
 	}
-	if weight := testutil.ToFloat64(metrics.strategyWeights.WithLabelValues("unknown", "other")); weight != 10000 {
+	if weight := testutil.ToFloat64(metrics.strategyWeights.WithLabelValues("unknown", "unknown", "other")); weight != 10000 {
 		t.Fatalf("untrusted strategy labels or weights escaped bounds: %v", weight)
 	}
 }
