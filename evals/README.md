@@ -1,5 +1,23 @@
 # GopherAI DevSupport evaluations
 
+## Versioned catalog validator
+
+`cmd/eval-catalog` validates a dataset catalog before any scorer runs. The
+manifest pins every slice by relative path, case count, allowed dataset
+version, review policy and SHA-256. Validation also enforces globally unique
+case IDs, blocks path traversal, records `human` versus `pending_user` counts,
+and rejects common credential signatures or non-placeholder values stored in
+sensitive fields. A manifest cannot silently call itself “320 cases” when its
+slice denominators do not add up to 320.
+
+```powershell
+go run ./cmd/eval-catalog -manifest evals/devsupport-eval-v1.manifest.json
+```
+
+The full `devsupport-eval-v1` manifest is added only after all six frozen
+slices exist; until then this command and its tests are the M8-01 schema and
+validator contract, not a claim that the 320-case baseline is complete.
+
 ## Diagnostic core dataset
 
 `devsupport-diagnostic-v1.jsonl` contains 40 sanitized, project-specific
