@@ -1425,3 +1425,11 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - Release `20260905134535-c7530e6a5295` 的源码为 clean `add_eico@c7530e6a`，bundle SHA-256 `53b741766a09ae7af76675338f0431b5fa784d5e0f070b99c7bad97d598910ad`。Vue production assets 和六个 Linux/amd64 程序全部在 Windows 构建；服务器只校验、解压、原子切换和启动。Backend/Worker live+ready、MCP loopback 和前端静态网关均通过，运行进程中不再存在 `vue-cli-service serve`。
 - 两个真实模型评测严格串行且各有 15 分钟硬超时。协作 A/B 13.9 秒完成，质量 `0.60→0.92`、提升 CI `[0.20,0.40]`、简单误触发/安全/预算违规均为 0；父子上下文 A/B 28.6 秒完成，引用与安全门通过，但质量不变且输入 Token 增加 44.62%，所以净收益失败并保持权重 0。这证明发布成功、技术门通过与候选值得晋级是三个不同结论。
 - 前端公网 `GET /` 返回生产构建资产 `app.fa7a328f.js`；静态网关按 Vue 的 `/api/<path>` 约定转发到 Backend `/api/v1/<path>`。手工探测不能错误使用 `/api/v1/...`，否则网关会按设计拼成 `/api/v1/v1/...` 并得到 404。无 Token 请求 `/api/evaluations/catalog/latest` 返回业务码 `2006/无效的Token`，证明代理链已进入认证中间件。
+
+## 62. 2026-09-05 Redis 投影精确对账与长面板可用性修复
+
+- ECS 重启后页面一度出现父子上下文 `0 → 0` 候选和协作 KnowledgeAgent 证据不足。排查时不能只看 `DBSIZE` 或 MySQL 文档状态：MySQL 有 11 个当前有效 Child，而 Redis Search 有 20 个 Hash，其中 9 个来自旧版本/已删除版本。旧记录暂时未必立刻导致空结果，但版本继续累积后会占满固定 KNN TopK，再被 MySQL 权威过滤，形成“Redis 有数据、最终仍无证据”的隐患。
+- `9f2cbd38` 先补了“缺失 Hash 重建”；`d87aa351` 又把启动恢复升级为精确投影对账：Index Worker 消费队列前用 `SCAN MATCH` 枚举固定命名空间、只保留 MySQL 当前有效 Chunk ID、批量删除陈旧 Hash，再执行存在性二次校验。扫描期间先收集后删除，避免边扫描边改变 keyspace；游标重复、返回类型异常或清理失败都会 fail-closed，Worker 不会错误宣告 ready。
+- Release `20260905163113-426ba08b8e80`，bundle SHA-256 `6a536fe3b7e16ba8830d7b3e9ad493de6b253a7f0fa128ef9c9886635eb309e1`。Worker 启动日志记录 `expected=11 / present_before=11 / present_after=11 / pruned=9`；随后 Redis 命名空间 Key 与 RediSearch `num_docs` 均为 11。使用同一文档主体做真实鉴权 Smoke，父子上下文返回 `47 / 6 / gopher.jobs.dlx.v1`、候选 `10 → 5`；协作 Shadow 为 KnowledgeAgent 与 DiagnosticAgent 均 succeeded、整体 complete、3 个 Claim 和 6 个引用。
+- `426ba08b` 将策略演算、受治理工具、三级记忆、评测总览和证据检索改为互斥的能力工作区，并为工作区设置独立纵向滚动和视口高度上限；聊天记录至少保留 120px，输入框固定保留布局空间。这样无需把浏览器缩放到不可读比例，长策略结果可在工作区内滚动，点击另一个能力按钮会自动收起前一个。
+- 本轮全量 `go test -p 1 ./...`、`go vet ./...`、Vue lint 与 production build 全通过。生产构建资产为 `app.f8efac65.js`；Backend/Worker/MCP/Frontend 四进程及 live/ready 门全部通过。经验：服务端数据恢复、检索正确性与浏览器可访问性必须分别验收，不能用“发布健康”代替功能 Smoke，也不能用页面缩放掩盖布局溢出。
