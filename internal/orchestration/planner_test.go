@@ -54,6 +54,28 @@ func TestBoundedPlannerSplitsKnowledgeVerificationFromDiagnosis(t *testing.T) {
 	}
 }
 
+func TestBoundedPlannerRecognizesExplicitProjectFileVerification(t *testing.T) {
+	planner := NewDefaultBoundedPlanner()
+	plan, err := planner.Plan(context.Background(), "生产发布后服务返回 HTTP 502；同时请根据 m3b-config.json 核对 release.probe_code 和 timeout_seconds，并给出只读故障排查假设。")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Decision != DecisionCollaborative || plan.ReasonCode != "knowledge_diagnostic_split" || !plan.Signals.HasKnowledgeVerification || plan.ComplexityScore < plan.ComplexityThreshold {
+		t.Fatalf("explicit project file did not open the collaboration gate: %+v", plan)
+	}
+}
+
+func TestBoundedPlannerDoesNotStartMultipleAgentsForFileQuestionAlone(t *testing.T) {
+	planner := NewDefaultBoundedPlanner()
+	plan, err := planner.Plan(context.Background(), "请解释 m3b-config.json 的字段结构。")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Decision != DecisionSingleAgent || len(plan.Tasks) != 1 {
+		t.Fatalf("a simple file question incorrectly started multiple agents: %+v", plan)
+	}
+}
+
 func TestBoundedPlannerDoesNotExposeSanitizedInputOrSecretsInTasks(t *testing.T) {
 	planner := NewDefaultBoundedPlanner()
 	plan, err := planner.Plan(context.Background(), "Redis NOAUTH，同时核对项目文档。password=super-secret-value")

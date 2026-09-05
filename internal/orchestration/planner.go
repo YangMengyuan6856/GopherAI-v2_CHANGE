@@ -24,7 +24,7 @@ const (
 )
 
 var (
-	knowledgeVerificationPattern = regexp.MustCompile(`(?i)文档|手册|配置说明|发布清单|项目资料|知识库|引用|证据|document|manual|manifest|runbook`)
+	knowledgeVerificationPattern = regexp.MustCompile(`(?i)文档|手册|配置(?:文件|说明)|发布清单|项目资料|知识库|引用|证据|document|manual|manifest|runbook|\.(?:json|ya?ml|toml|md)\b`)
 	conflictPattern              = regexp.MustCompile(`(?i)冲突|不一致|互相矛盾|分别显示|一个.+另一个|conflict|inconsistent|contradict`)
 	highImpactPattern            = regexp.MustCompile(`(?i)生产|全站|大面积|数据丢失|资金|安全事件|production|outage|data loss|security incident`)
 	separateClausePattern        = regexp.MustCompile(`(?i)同时|另外|并且|以及|分别|一边.+一边|\b(?:then|also|while|and)\b`)
