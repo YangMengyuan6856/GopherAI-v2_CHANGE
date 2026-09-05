@@ -13,25 +13,28 @@ import (
 )
 
 const (
-	ExecutionSchemaVersion  = "collaboration-execution-shadow-v1"
-	ExecutorVersion         = "bounded-parallel-executor-v1"
-	TaskStatusSucceeded     = "succeeded"
-	TaskStatusFailed        = "failed"
-	TaskStatusTimedOut      = "timed_out"
-	TaskStatusCancelled     = "cancelled"
-	TaskStatusBudget        = "budget_exceeded"
-	ExecutionCompleted      = "completed"
-	ExecutionPartial        = "partial"
-	ExecutionCancelled      = "cancelled"
-	ExecutionBudget         = "budget_exceeded"
-	ExecutionFailed         = "failed"
-	maxAgentClaims          = 10
-	maxAgentEvidence        = 20
-	maxAgentFollowUps       = 5
-	maxAgentSummaryRunes    = 4000
-	maxClaimStatementRunes  = 2000
-	maxEvidenceSummaryRunes = 1200
-	maxIdentifierRunes      = 160
+	ExecutionSchemaVersion   = "collaboration-execution-shadow-v1"
+	ExecutorVersion          = "bounded-parallel-executor-v1"
+	TaskStatusSucceeded      = "succeeded"
+	TaskStatusFailed         = "failed"
+	TaskStatusTimedOut       = "timed_out"
+	TaskStatusCancelled      = "cancelled"
+	TaskStatusBudget         = "budget_exceeded"
+	TaskStatusInsufficient   = "insufficient"
+	ExecutionCompleted       = "completed"
+	ExecutionPartial         = "partial"
+	ExecutionCancelled       = "cancelled"
+	ExecutionBudget          = "budget_exceeded"
+	ExecutionFailed          = "failed"
+	maxAgentClaims           = 10
+	maxAgentEvidence         = 20
+	maxAgentFollowUps        = 5
+	maxAgentSummaryRunes     = 4000
+	maxClaimStatementRunes   = 2000
+	maxEvidenceSummaryRunes  = 1200
+	maxIdentifierRunes       = 160
+	AgentOutcomeCompleted    = "completed"
+	AgentOutcomeInsufficient = "insufficient"
 )
 
 type ExecutionInput struct {
@@ -64,6 +67,7 @@ type AgentClaim struct {
 }
 
 type AgentOutput struct {
+	Outcome      string              `json:"outcome"`
 	Summary      string              `json:"summary"`
 	Claims       []AgentClaim        `json:"claims"`
 	Evidence     []SharedEvidence    `json:"evidence"`
@@ -244,11 +248,22 @@ func executeTask(parent context.Context, task PlannedTask, input ExecutionInput,
 		result.Status, result.ReasonCode, result.Output = TaskStatusBudget, "task_budget_exceeded", usageOnlyOutput(output)
 		return result
 	}
+	if output.Outcome == AgentOutcomeInsufficient {
+		reason := strings.TrimSpace(output.OutputReason)
+		if reason == "" {
+			reason = "insufficient_evidence"
+		}
+		result.Status, result.ReasonCode, result.Output = TaskStatusInsufficient, reason, output
+		return result
+	}
 	result.Status, result.ReasonCode, result.Output = TaskStatusSucceeded, "task_completed", output
 	return result
 }
 
 func validateAgentOutput(output AgentOutput, tenantID string) error {
+	if output.Outcome != "" && output.Outcome != AgentOutcomeCompleted && output.Outcome != AgentOutcomeInsufficient {
+		return errors.New("agent output outcome is invalid")
+	}
 	if utf8.RuneCountInString(output.Summary) > maxAgentSummaryRunes || len(output.Claims) > maxAgentClaims || len(output.Evidence) > maxAgentEvidence || len(output.FollowUps) > maxAgentFollowUps {
 		return errors.New("agent output exceeds bounds")
 	}
@@ -279,12 +294,12 @@ func exceedsTaskBudget(output AgentOutput, budget TaskBudget) bool {
 }
 
 func emptyAgentOutput() AgentOutput {
-	return AgentOutput{Claims: []AgentClaim{}, Evidence: []SharedEvidence{}, FollowUps: []string{}}
+	return AgentOutput{Outcome: AgentOutcomeInsufficient, Claims: []AgentClaim{}, Evidence: []SharedEvidence{}, FollowUps: []string{}}
 }
 
 func usageOnlyOutput(output AgentOutput) AgentOutput {
 	return AgentOutput{
-		Claims: []AgentClaim{}, Evidence: []SharedEvidence{}, FollowUps: []string{},
+		Outcome: AgentOutcomeInsufficient, Claims: []AgentClaim{}, Evidence: []SharedEvidence{}, FollowUps: []string{},
 		Usage: output.Usage, ToolCalls: output.ToolCalls, Iterations: output.Iterations,
 		OutputReason: "payload_dropped_after_budget_exceeded",
 	}

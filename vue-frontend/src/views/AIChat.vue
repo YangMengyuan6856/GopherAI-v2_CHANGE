@@ -1749,7 +1749,7 @@ export default {
       no_supported_claims: '没有通过引用校验的结论'
     }[reason] || reason)
     const collaborationTaskStatusLabel = (status) => ({
-      succeeded: '成功', failed: '失败', timed_out: '超时', cancelled: '取消', budget_exceeded: '超预算'
+      succeeded: '成功', insufficient: '证据不足', failed: '失败', timed_out: '超时', cancelled: '取消', budget_exceeded: '超预算'
     }[status] || status)
 
     const diagnosticStateLabel = (state) => ({

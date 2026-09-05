@@ -62,7 +62,12 @@ func (runner *KnowledgeRunner) Run(ctx context.Context, task PlannedTask, input 
 			EvidenceRefs: references, Confidence: result.Result.Confidence,
 		})
 	}
+	outcome := AgentOutcomeCompleted
+	if len(claims) == 0 {
+		outcome = AgentOutcomeInsufficient
+	}
 	return AgentOutput{
+		Outcome: outcome,
 		Summary: boundedRunes(result.Result.Answer, maxAgentSummaryRunes), Claims: claims, Evidence: evidence,
 		FollowUps: append([]string{}, result.Result.FollowUpQuestions...), Usage: result.Result.Usage,
 		ToolCalls: 1, Iterations: maximum(1, result.Answer.ModelAttempts), OutputReason: result.Answer.ReasonCode,
@@ -124,7 +129,12 @@ func (runner *DiagnosticRunner) Run(ctx context.Context, task PlannedTask, input
 	if result.PriorityRecommendation != nil {
 		summary += fmt.Sprintf(" 历史确认案例建议优先核对假设 %s（相似度 %.0f%%），不视为当前根因。", result.PriorityRecommendation.HypothesisID, result.PriorityRecommendation.Similarity*100)
 	}
+	outcome := AgentOutcomeCompleted
+	if len(claims) == 0 {
+		outcome = AgentOutcomeInsufficient
+	}
 	return AgentOutput{
+		Outcome: outcome,
 		Summary: boundedRunes(summary, maxAgentSummaryRunes), Claims: claims, Evidence: evidence, FollowUps: followUps,
 		ToolCalls: 1, Iterations: 1, OutputReason: result.ReasonCode,
 	}, nil

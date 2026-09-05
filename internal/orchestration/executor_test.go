@@ -74,6 +74,29 @@ func TestParallelExecutorKeepsPlanOrderWhenAgentsFinishOutOfOrder(t *testing.T) 
 	}
 }
 
+func TestParallelExecutorMarksInsufficientAgentWithoutDiscardingUsage(t *testing.T) {
+	plan := collaborativeTestPlan(t)
+	executor, _ := NewParallelExecutor(map[string]AgentRunner{
+		KnowledgeAgentRole: runnerFunc(func(_ context.Context, _ PlannedTask, _ ExecutionInput) (AgentOutput, error) {
+			return AgentOutput{
+				Outcome: AgentOutcomeInsufficient, Summary: "没有满足证据门的项目资料。",
+				Claims: []AgentClaim{}, Evidence: []SharedEvidence{}, FollowUps: []string{"请上传对应配置文件。"},
+				Usage: contract.ModelUsage{InputTokens: 80}, ToolCalls: 1, Iterations: 1, OutputReason: "no_evidence",
+			}, nil
+		}),
+		DiagnosticAgentRole: runnerFunc(func(_ context.Context, _ PlannedTask, input ExecutionInput) (AgentOutput, error) {
+			return validAgentOutput(input.TenantID, "diagnostic"), nil
+		}),
+	})
+	result, err := executor.Execute(context.Background(), plan, ExecutionInput{TenantID: "alice", UserID: "alice", Message: "HTTP 502，同时核对项目文档"})
+	if err != nil || result.Status != ExecutionPartial || result.TaskResults[0].Status != TaskStatusInsufficient || result.TaskResults[0].ReasonCode != "no_evidence" || result.TaskResults[1].Status != TaskStatusSucceeded {
+		t.Fatalf("insufficient task was not isolated from its successful sibling: result=%+v err=%v", result, err)
+	}
+	if result.Usage.InputTokens < 80 || result.TaskResults[0].Output.Summary == "" {
+		t.Fatalf("insufficient task usage or public explanation was discarded: %+v", result)
+	}
+}
+
 func TestParallelExecutorBoundsIndividualTaskTimeoutWithoutCancellingSibling(t *testing.T) {
 	plan := collaborativeTestPlan(t)
 	plan.Tasks[0].Budget.TimeoutMS = 10

@@ -54,7 +54,7 @@ func TestKnowledgeRunnerDoesNotPromoteGateFallbackToClaim(t *testing.T) {
 		Answer: knowledgeagent.AnswerDiagnostics{ReasonCode: "no_evidence"},
 	}})
 	output, err := runner.Run(context.Background(), PlannedTask{Agent: KnowledgeAgentRole}, ExecutionInput{TenantID: "alice", UserID: "alice", Message: "未知配置"})
-	if err != nil || len(output.Claims) != 0 || output.OutputReason != "no_evidence" {
+	if err != nil || len(output.Claims) != 0 || output.OutputReason != "no_evidence" || output.Outcome != AgentOutcomeInsufficient {
 		t.Fatalf("gate fallback was promoted to a claim: output=%+v err=%v", output, err)
 	}
 }

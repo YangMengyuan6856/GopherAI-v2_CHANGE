@@ -384,7 +384,7 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 		}
 	}
 	for _, agent := range []string{"KnowledgeAgent", "DiagnosticAgent", "error"} {
-		for _, status := range []string{"succeeded", "failed", "timed_out", "cancelled", "budget_exceeded"} {
+		for _, status := range []string{"succeeded", "failed", "timed_out", "cancelled", "budget_exceeded", "insufficient"} {
 			metrics.collaborationTasks.WithLabelValues(agent, status).Add(0)
 		}
 	}
@@ -492,7 +492,7 @@ func (metrics *Metrics) RecordCollaborationTask(agent string, status string, dur
 		agent = "error"
 	}
 	switch status {
-	case "succeeded", "failed", "timed_out", "cancelled", "budget_exceeded":
+	case "succeeded", "failed", "timed_out", "cancelled", "budget_exceeded", "insufficient":
 	default:
 		status = "failed"
 	}
