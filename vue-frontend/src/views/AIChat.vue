@@ -458,15 +458,61 @@
       <section v-if="evaluationCatalogOpen" class="strategy-control-panel evaluation-catalog-panel">
         <div class="strategy-control-header">
           <div>
-            <strong>devsupport-eval-v1 · Full 320 数据目录</strong>
-            <span>固定路径、切片分母、数据版本、SHA-256、全局唯一 ID 与人工复核状态</span>
+            <strong>统一评测运行 · Full 320 数据目录</strong>
+            <span>同一视图核对运行版本、执行覆盖率、技术门、人工门、失败聚类和输入报告 Hash</span>
           </div>
-          <span v-if="evaluationCatalog" :class="['evaluation-gate', evaluationCatalog.schema_passed ? 'passed' : 'failed']">
-            {{ evaluationCatalog.schema_passed ? '目录校验通过' : '目录校验失败' }}
+          <span v-if="evaluationRun" :class="['evaluation-gate', evaluationRun.decision.technical_gates_passed ? 'passed' : 'failed']">
+            {{ evaluationStatusLabel(evaluationRun.decision.status) }}
           </span>
         </div>
-        <div v-if="loadingEvaluationCatalog" class="strategy-control-empty">正在重新计算六个切片的 Hash 与数量...</div>
-        <template v-else-if="evaluationCatalog">
+        <div v-if="loadingEvaluationCatalog" class="strategy-control-empty">正在读取统一运行并重新计算六个切片的 Hash 与数量...</div>
+        <template v-else-if="evaluationCatalog && evaluationRun">
+          <article class="unified-evaluation-summary">
+            <div class="evaluation-run-heading">
+              <div>
+                <strong>{{ evaluationRun.run_id }}</strong>
+                <span>候选 {{ evaluationRun.candidate_version }} · {{ evaluationRun.runner_version }}</span>
+              </div>
+              <span>报告 SHA-256 {{ evaluationRun.report_sha256.slice(0, 16) }}…</span>
+            </div>
+            <div class="diagnostic-evaluation-grid">
+              <div><strong>{{ evaluationRun.coverage.catalog_validated_cases }} / {{ evaluationRun.coverage.catalog_cases }}</strong><span>目录校验</span></div>
+              <div><strong>{{ evaluationRun.coverage.completed_cases }} / {{ evaluationRun.coverage.executable_cases }}</strong><span>执行完成</span></div>
+              <div><strong>{{ metricPercent(evaluationRun.coverage.execution_coverage) }}</strong><span>目录执行覆盖率</span></div>
+              <div><strong>{{ metricPercent(evaluationRun.coverage.completion_rate) }}</strong><span>可执行集完成率</span></div>
+            </div>
+            <div class="evaluation-decision-strip">
+              <span :class="evaluationRun.decision.technical_gates_passed ? 'dependency-ready' : 'dependency-down'">技术门 {{ evaluationRun.decision.technical_gates_passed ? '通过' : '失败' }}</span>
+              <span :class="evaluationRun.decision.human_reviewed ? 'dependency-ready' : 'dependency-down'">人工复核 {{ evaluationRun.decision.human_reviewed ? '完成' : '待完成' }}</span>
+              <span :class="evaluationRun.decision.baseline_eligible ? 'dependency-ready' : 'dependency-down'">正式基线 {{ evaluationRun.decision.baseline_eligible ? '可冻结' : '不可冻结' }}</span>
+              <span class="dependency-down">默认切流 禁止</span>
+            </div>
+            <div class="evaluation-scorecard-grid">
+              <article v-for="slice in evaluationRun.scorecard.slices" :key="slice.name">
+                <div><strong>{{ evaluationSliceLabel(slice.name) }}</strong><span>{{ slice.case_count }} 条</span></div>
+                <span :class="slice.passed ? 'dependency-ready' : 'dependency-down'">{{ slice.passed ? '技术通过' : '未通过' }}</span>
+              </article>
+            </div>
+            <details class="evaluation-run-details">
+              <summary>查看失败聚类与 5 份输入报告 Hash</summary>
+              <div class="evaluation-failure-list">
+                <span v-for="cluster in evaluationRun.failure_clusters" :key="`${cluster.slice}-${cluster.code}`">
+                  {{ evaluationSliceLabel(cluster.slice) }} · {{ evaluationFailureLabel(cluster.code) }} · {{ cluster.count }} 条
+                </span>
+                <span v-if="!evaluationRun.failure_clusters.length">没有观察到确定性失败样本</span>
+              </div>
+              <div class="evaluation-artifact-list">
+                <span v-for="artifact in evaluationRun.artifacts" :key="artifact.name">
+                  {{ evaluationSliceLabel(artifact.name) }} {{ artifact.case_count }} 条 · SHA {{ artifact.sha256.slice(0, 16) }}…
+                </span>
+              </div>
+            </details>
+          </article>
+
+          <div class="evaluation-catalog-heading">
+            <strong>devsupport-eval-v1 · 数据目录校验</strong>
+            <span :class="['evaluation-gate', evaluationCatalog.schema_passed ? 'passed' : 'failed']">{{ evaluationCatalog.schema_passed ? 'Hash/Schema 通过' : '目录失败' }}</span>
+          </div>
           <div class="diagnostic-evaluation-grid">
             <div><strong>{{ evaluationCatalog.actual_total }} / {{ evaluationCatalog.expected_total }}</strong><span>实际 / 声明用例</span></div>
             <div><strong>{{ evaluationCatalog.unique_ids }}</strong><span>全局唯一 ID</span></div>
@@ -485,7 +531,7 @@
           </div>
           <div class="evaluation-candidate-warning">
             <strong>{{ evaluationCatalog.baseline_eligible ? '已具备基线资格' : '当前不可冻结为基线' }}</strong>
-            <span>{{ evaluationCatalog.human_reviewed ? '标签已完成人工复核。' : '320 条当前均为待用户复核；目录完整不等于模型质量达标。' }}</span>
+            <span>{{ evaluationCatalog.human_reviewed ? '标签已完成人工复核。' : `320 条当前均为待用户复核；${evaluationRun.coverage.catalog_only_cases} 条安全补充集暂只做目录校验，目录完整不等于模型质量达标。` }}</span>
           </div>
         </template>
       </section>
@@ -1193,6 +1239,7 @@ export default {
     const evaluationCatalogOpen = ref(false)
     const loadingEvaluationCatalog = ref(false)
     const evaluationCatalog = ref(null)
+    const evaluationRun = ref(null)
     const parentContextEvaluationOpen = ref(false)
     const loadingParentContextEvaluation = ref(false)
     const parentContextEvaluation = ref(null)
@@ -2404,8 +2451,12 @@ export default {
       if (!evaluationCatalogOpen.value || evaluationCatalog.value || loadingEvaluationCatalog.value) return
       try {
         loadingEvaluationCatalog.value = true
-        const response = await api.get('/evaluations/catalog/latest')
-        evaluationCatalog.value = response.data
+        const [catalogResponse, runResponse] = await Promise.all([
+          api.get('/evaluations/catalog/latest'),
+          api.get('/evaluations/unified/latest')
+        ])
+        evaluationCatalog.value = catalogResponse.data
+        evaluationRun.value = runResponse.data
       } catch (error) {
         evaluationCatalogOpen.value = false
         ElMessage.error(error.response?.data?.message || '评测数据目录暂时不可用')
@@ -2417,6 +2468,16 @@ export default {
     const evaluationSliceLabel = (slice) => ({
       intent: '意图识别', rag: 'RAG', diagnosis: '故障诊断', tool: '工具治理', memory: '三级记忆', insufficient_evidence: '证据不足'
     }[slice] || slice)
+
+    const evaluationStatusLabel = (status) => ({
+      technical_candidate: '技术候选 · 不可切流', rejected: '技术门拒绝', baseline_eligible: '可冻结基线 · 仍不可自动切流'
+    }[status] || status)
+
+    const evaluationFailureLabel = (code) => ({
+      misclassification: '普通误分类', severe_misroute: '严重误路由', citation_gap: '引用覆盖缺口',
+      verification_gap: '验证步骤缺口', retrieval_miss: '检索漏召回', unsupported_answer: '无证据作答',
+      runtime_error: '运行错误', unsafe_action: '危险动作', nondeterministic_replay: '重放不一致'
+    }[code] || code)
 
     const evidenceForCitation = (citation) => {
       const evidence = knowledgeAnswer.value?.result?.evidence || []
@@ -2670,6 +2731,7 @@ export default {
       evaluationCatalogOpen,
       loadingEvaluationCatalog,
       evaluationCatalog,
+      evaluationRun,
       parentContextEvaluationOpen,
       loadingParentContextEvaluation,
       parentContextEvaluation,
@@ -2802,6 +2864,8 @@ export default {
       toggleParentContextEvaluation,
       toggleEvaluationCatalog,
       evaluationSliceLabel,
+      evaluationStatusLabel,
+      evaluationFailureLabel,
       cancelDiagnosticRun,
       resetDiagnosticRun,
       onDiagnosticModeChanged,
@@ -4462,6 +4526,88 @@ export default {
   background: #eefafa;
   color: #34535c;
   white-space: pre-wrap;
+}
+
+.unified-evaluation-summary {
+  display: grid;
+  gap: 10px;
+  margin: 10px 0 14px;
+  padding: 12px;
+  border: 1px solid rgba(52, 168, 121, 0.24);
+  border-radius: 10px;
+  background: rgba(244, 253, 249, 0.92);
+}
+
+.evaluation-run-heading,
+.evaluation-catalog-heading,
+.evaluation-scorecard-grid article,
+.evaluation-scorecard-grid article > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.evaluation-run-heading > div {
+  display: grid;
+  gap: 2px;
+}
+
+.evaluation-run-heading span,
+.evaluation-scorecard-grid span,
+.evaluation-run-details,
+.evaluation-catalog-heading span {
+  color: #65718b;
+  font-size: 12px;
+}
+
+.evaluation-decision-strip,
+.evaluation-failure-list,
+.evaluation-artifact-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.evaluation-scorecard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 7px;
+}
+
+.evaluation-scorecard-grid article {
+  padding: 8px;
+  border: 1px solid rgba(64, 90, 125, 0.13);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.evaluation-scorecard-grid article > div {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.evaluation-run-details summary {
+  cursor: pointer;
+  color: #5e45ad;
+  font-weight: 700;
+}
+
+.evaluation-failure-list,
+.evaluation-artifact-list {
+  margin-top: 8px;
+}
+
+.evaluation-failure-list span,
+.evaluation-artifact-list span {
+  padding: 5px 7px;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.evaluation-catalog-heading {
+  margin: 4px 0 8px;
 }
 
 @media (max-width: 760px) {

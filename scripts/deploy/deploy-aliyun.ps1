@@ -178,6 +178,12 @@ function Build-LocalLinuxArtifacts {
         "-o", (Join-Path $ArtifactDirectory "GopherAI-parent-context-eval"),
         "./cmd/parent-context-eval"
     )
+    Write-Host "[build] unified evaluation runner linux/amd64 CGO_ENABLED=0"
+    Invoke-Checked -FilePath $GoExecutable -Arguments @(
+        "-C", $RepoRoot, "build", "-p", "1",
+        "-o", (Join-Path $ArtifactDirectory "GopherAI-eval-runner"),
+        "./cmd/eval-runner"
+    )
 }
 
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..\..")).Path
@@ -263,7 +269,7 @@ try {
         build_strategy = $buildStrategy
         target = "linux/amd64"
         go_version = $goVersion
-        included_components = @("backend", "index-worker", "mcp", "frontend-static-gateway", "frontend-dist", "collaboration-eval", "parent-context-eval")
+        included_components = @("backend", "index-worker", "mcp", "frontend-static-gateway", "frontend-dist", "collaboration-eval", "parent-context-eval", "unified-eval-runner")
         config_included = [bool]$DeployConfig
         migrations = @()
         rollback = "previous-directory"
@@ -363,6 +369,7 @@ if [ "$build_in_container" = "true" ]; then
   (cd "$new_path" && go build -p 1 -o GopherAI-frontend ./cmd/frontend-gateway)
   (cd "$new_path" && go build -p 1 -o GopherAI-collaboration-eval ./cmd/collaboration-eval)
   (cd "$new_path" && go build -p 1 -o GopherAI-parent-context-eval ./cmd/parent-context-eval)
+  (cd "$new_path" && go build -p 1 -o GopherAI-eval-runner ./cmd/eval-runner)
 else
   echo "[container] installing locally built Linux binaries"
   test -f "$new_path/.deploy-bin/GopherAI"
@@ -371,13 +378,15 @@ else
   test -f "$new_path/.deploy-bin/GopherAI-frontend"
   test -f "$new_path/.deploy-bin/GopherAI-collaboration-eval"
   test -f "$new_path/.deploy-bin/GopherAI-parent-context-eval"
+  test -f "$new_path/.deploy-bin/GopherAI-eval-runner"
   cp "$new_path/.deploy-bin/GopherAI" "$new_path/GopherAI"
   cp "$new_path/.deploy-bin/GopherAI-index-worker" "$new_path/GopherAI-index-worker"
   cp "$new_path/.deploy-bin/gopherai-mcp" "$new_path/common/mcp/gopherai-mcp"
   cp "$new_path/.deploy-bin/GopherAI-frontend" "$new_path/GopherAI-frontend"
   cp "$new_path/.deploy-bin/GopherAI-collaboration-eval" "$new_path/GopherAI-collaboration-eval"
   cp "$new_path/.deploy-bin/GopherAI-parent-context-eval" "$new_path/GopherAI-parent-context-eval"
-  chmod 0755 "$new_path/GopherAI" "$new_path/GopherAI-index-worker" "$new_path/common/mcp/gopherai-mcp" "$new_path/GopherAI-frontend" "$new_path/GopherAI-collaboration-eval" "$new_path/GopherAI-parent-context-eval"
+  cp "$new_path/.deploy-bin/GopherAI-eval-runner" "$new_path/GopherAI-eval-runner"
+  chmod 0755 "$new_path/GopherAI" "$new_path/GopherAI-index-worker" "$new_path/common/mcp/gopherai-mcp" "$new_path/GopherAI-frontend" "$new_path/GopherAI-collaboration-eval" "$new_path/GopherAI-parent-context-eval" "$new_path/GopherAI-eval-runner"
   rm -rf -- "$new_path/.deploy-bin"
 fi
 
@@ -575,7 +584,7 @@ if ! start_release "$project_path"; then rollback_release; exit 1; fi
 
 echo "[container] release active: $release_id"
 echo "[container] bundle sha256: $expected_sha"
-sha256sum "$project_path/GopherAI" "$project_path/GopherAI-index-worker" "$project_path/common/mcp/gopherai-mcp" "$project_path/GopherAI-frontend" "$project_path/GopherAI-collaboration-eval" "$project_path/GopherAI-parent-context-eval" 2>/dev/null || true
+sha256sum "$project_path/GopherAI" "$project_path/GopherAI-index-worker" "$project_path/common/mcp/gopherai-mcp" "$project_path/GopherAI-frontend" "$project_path/GopherAI-collaboration-eval" "$project_path/GopherAI-parent-context-eval" "$project_path/GopherAI-eval-runner" 2>/dev/null || true
 pgrep -af '^\./GopherAI$|^\./GopherAI-index-worker$|^\./gopherai-mcp -mode server$|^\./GopherAI-frontend |node .*vue-cli-service.*serve' || true
 echo "[container] sanitized backend log tail"
 tail -n 30 "$project_path/backend.log" 2>/dev/null | sed -E 's#(amqp://)[^@]+@#\1***:***@#g' || true

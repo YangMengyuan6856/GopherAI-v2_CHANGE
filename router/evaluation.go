@@ -14,6 +14,7 @@ func RegisterEvaluationRouter(group *gin.RouterGroup) {
 	collaborationHandler := evaluationcontroller.NewDefaultCollaborationHandler()
 	parentContextHandler := evaluationcontroller.NewDefaultParentContextHandler()
 	catalogHandler := evaluationcontroller.NewDefaultCatalogHandler()
+	unifiedHandler := evaluationcontroller.NewDefaultUnifiedHandler()
 	group.GET("/diagnostic/latest", handler.LatestDiagnostic)
 	group.GET("/memory/latest", memoryHandler.LatestMemory)
 	group.GET("/context/latest", contextHandler.LatestContext)
@@ -21,4 +22,5 @@ func RegisterEvaluationRouter(group *gin.RouterGroup) {
 	group.GET("/collaboration/latest", collaborationHandler.Latest)
 	group.GET("/parent-context/latest", parentContextHandler.Latest)
 	group.GET("/catalog/latest", catalogHandler.Latest)
+	group.GET("/unified/latest", unifiedHandler.Latest)
 }
