@@ -5,6 +5,7 @@ import (
 	"GopherAI/common/rabbitmq"
 	"GopherAI/common/redis"
 	"GopherAI/config"
+	"GopherAI/internal/controlrecommendation"
 	"GopherAI/internal/controlwebhook"
 	"GopherAI/internal/observability"
 	"GopherAI/router"
@@ -49,6 +50,12 @@ func main() {
 	}
 	metricWindowService := observability.NewDefaultMetricWindowService()
 	go observability.RunMetricWindowSampler(context.Background(), metricWindowService, 20*time.Second, time.Minute, log.Default())
+	recommendationController, err := controlrecommendation.NewDefaultController()
+	if err != nil {
+		log.Println("recommend-only controller configuration rejected")
+		return
+	}
+	go controlrecommendation.Run(context.Background(), metricWindowService, recommendationController, 45*time.Second, time.Minute, log.Default())
 	webhookRepository := controlwebhook.NewGormRepository(mysql.DB)
 	go controlwebhook.RunReconciler(context.Background(), metricWindowService, controlwebhook.NewReconciler(webhookRepository, observability.DefaultMetrics()), 35*time.Second, time.Minute, log.Default())
 	if webhookConfig.Enabled {

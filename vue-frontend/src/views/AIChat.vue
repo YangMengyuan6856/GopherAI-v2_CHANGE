@@ -579,6 +579,56 @@
                   <span v-for="guardrail in webhookAudit.guardrails" :key="guardrail" class="dependency-ready">{{ guardrail }}</span>
                 </div>
               </details>
+              <details v-if="controllerAudit" class="controller-audit-card">
+                <summary>查看只建议控制器（{{ controllerAudit.recommended }} 条候选 / {{ controllerAudit.blocked }} 条被门禁阻断）</summary>
+                <div class="metric-catalog-heading">
+                  <div>
+                    <strong>Recommend-only Controller · {{ controllerAudit.active_policy.version }}</strong>
+                    <span>活动策略 SHA {{ controllerAudit.active_policy.sha256.slice(0, 12) }}… · {{ controllerAudit.active_policy.status }}</span>
+                  </div>
+                  <button :disabled="runningControllerAcceptance" @click="runControllerAcceptance">
+                    {{ runningControllerAcceptance ? '验证门禁中...' : '运行只建议闭环验收' }}
+                  </button>
+                </div>
+                <p>生产周期只消费成熟异常窗口。当前真实评测尚未完成人工复核，因此会被基线门阻断；验收 Fixture 仅证明合格输入可生成不可变候选，绝不激活。</p>
+                <div class="evaluation-decision-strip">
+                  <span :class="controllerAudit.evaluation.technical_gates_passed ? 'dependency-ready' : 'dependency-down'">技术门 {{ controllerAudit.evaluation.technical_gates_passed ? '通过' : '失败' }}</span>
+                  <span :class="controllerAudit.evaluation.human_reviewed ? 'dependency-ready' : 'dependency-down'">人工复核 {{ controllerAudit.evaluation.human_reviewed ? '完成' : '待完成' }}</span>
+                  <span :class="controllerAudit.evaluation.baseline_eligible ? 'dependency-ready' : 'dependency-down'">基线 {{ controllerAudit.evaluation.baseline_eligible ? '合格' : '不可用' }}</span>
+                  <span class="dependency-ready">活动策略未改写</span>
+                </div>
+                <article v-if="controllerAcceptance" class="controller-acceptance-result">
+                  <div class="evaluation-run-heading">
+                    <div><strong>双门禁验收结果</strong><span>Simulation · 不冒充生产异常或正式基线</span></div>
+                    <span :class="controllerAcceptance.active_policy_unchanged ? 'dependency-ready' : 'dependency-down'">活动策略 {{ controllerAcceptance.active_policy_unchanged ? '保持不变' : '发生变化' }}</span>
+                  </div>
+                  <div class="controller-decision-grid">
+                    <div>
+                      <strong>当前真实基线门</strong>
+                      <span>{{ controllerStatusLabel(controllerAcceptance.baseline_guard.status) }} · {{ controllerReasonLabel(controllerAcceptance.baseline_guard.reason_code) }}</span>
+                    </div>
+                    <div>
+                      <strong>合格基线 Fixture</strong>
+                      <span>{{ controllerAcceptance.eligible_fixture.strategy }} {{ controllerWeight(controllerAcceptance.eligible_fixture.before_weight_basis) }} → {{ controllerWeight(controllerAcceptance.eligible_fixture.proposed_weight_basis) }}</span>
+                      <small>{{ controllerAcceptance.eligible_fixture.fallback_strategy }} {{ controllerWeight(controllerAcceptance.eligible_fixture.fallback_before_basis) }} → {{ controllerWeight(controllerAcceptance.eligible_fixture.fallback_proposed_basis) }} · Applied=false</small>
+                    </div>
+                  </div>
+                </article>
+                <div v-if="controllerAudit.latest.length" class="controller-decision-list">
+                  <article v-for="decision in controllerAudit.latest" :key="decision.recommendation_id">
+                    <div>
+                      <strong>{{ decision.simulation ? '验收审计' : '生产审计' }} · {{ decision.strategy }}</strong>
+                      <span :class="decision.status === 'recommended' ? 'dependency-ready' : 'dependency-down'">{{ controllerStatusLabel(decision.status) }}</span>
+                    </div>
+                    <span>{{ controllerReasonLabel(decision.reason_code) }} · Parent {{ decision.parent_policy_version }} · Applied={{ decision.applied }}</span>
+                    <small>Evidence SHA {{ decision.evidence_sha256.slice(0, 12) }}…<template v-if="decision.candidate_policy_sha256"> · Candidate SHA {{ decision.candidate_policy_sha256.slice(0, 12) }}…</template></small>
+                  </article>
+                </div>
+                <div v-else class="strategy-control-empty">尚无控制决策；只有成熟异常窗口才会进入生产控制周期。</div>
+                <div class="evaluation-decision-strip">
+                  <span v-for="guardrail in controllerAudit.guardrails" :key="guardrail" class="dependency-ready">{{ guardrail }}</span>
+                </div>
+              </details>
               <div v-if="loadingAnomaly" class="strategy-control-empty">正在以“基线窗口不含当前点”的规则计算...</div>
               <article v-else-if="anomalyResult" :class="['anomaly-result', anomalyDecisionClass(anomalyResult.analysis)]">
                 <div class="evaluation-run-heading">
@@ -1425,6 +1475,9 @@ export default {
     const productionAnomaly = ref(null)
     const webhookAudit = ref(null)
     const runningWebhookAcceptance = ref(false)
+    const controllerAudit = ref(null)
+    const controllerAcceptance = ref(null)
+    const runningControllerAcceptance = ref(false)
     const anomalyScenarios = [
       { value: 'healthy', label: '健康窗口' },
       { value: 'quality_drop', label: 'RAG 质量下降' },
@@ -2643,13 +2696,14 @@ export default {
       if (!evaluationCatalogOpen.value || evaluationCatalog.value || loadingEvaluationCatalog.value) return
       try {
         loadingEvaluationCatalog.value = true
-        const [catalogResponse, runResponse, metricCatalogResponse, prometheusRuntimeResponse, productionAnomalyResponse, webhookAuditResponse] = await Promise.all([
+        const [catalogResponse, runResponse, metricCatalogResponse, prometheusRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse] = await Promise.all([
           api.get('/evaluations/catalog/latest'),
           api.get('/evaluations/unified/latest'),
           api.get('/evaluations/metrics/catalog'),
           api.get('/evaluations/metrics/runtime').catch(() => null),
           api.get('/evaluations/anomaly/production/latest').catch(() => null),
-          api.get('/evaluations/webhooks/latest').catch(() => null)
+          api.get('/evaluations/webhooks/latest').catch(() => null),
+          api.get('/evaluations/controller/latest').catch(() => null)
         ])
         evaluationCatalog.value = catalogResponse.data
         evaluationRun.value = runResponse.data
@@ -2657,6 +2711,7 @@ export default {
         prometheusRuntime.value = prometheusRuntimeResponse?.data?.snapshot || null
         productionAnomaly.value = productionAnomalyResponse?.data || null
         webhookAudit.value = webhookAuditResponse?.data || null
+        controllerAudit.value = controllerAuditResponse?.data || null
       } catch (error) {
         evaluationCatalogOpen.value = false
         ElMessage.error(error.response?.data?.message || '评测数据目录暂时不可用')
@@ -2734,6 +2789,41 @@ export default {
     const webhookEventLabel = (eventType) => ({
       opened: '异常开启', updated: '异常更新', resolved: '异常恢复', control_action: '控制建议', rollback: '回滚'
     }[eventType] || eventType)
+
+    const controllerStatusLabel = (status) => ({ recommended: '已生成不可变候选', blocked: '已被门禁阻断' }[status] || status)
+
+    const controllerReasonLabel = (reason) => ({
+      candidate_created: '候选已生成但未激活', baseline_not_eligible: '正式基线不合格',
+      strategy_not_in_active_policy: '目标策略不在活动策略中', healthy_fallback_unavailable: '没有健康 fallback',
+      exploration_floor_guard: '触及 5% 探索下限'
+    }[reason] || reason)
+
+    const controllerWeight = (basis) => `${(Number(basis || 0) / 100).toFixed(0)}%`
+
+    const loadControllerAudit = async () => {
+      const response = await api.get('/evaluations/controller/latest')
+      controllerAudit.value = response.data
+      return response.data
+    }
+
+    const runControllerAcceptance = async () => {
+      if (runningControllerAcceptance.value) return
+      try {
+        runningControllerAcceptance.value = true
+        const response = await api.post('/evaluations/controller/acceptance', { scenario: 'recommend_only_guardrails' })
+        controllerAcceptance.value = response.data
+        await loadControllerAudit()
+        if (response.data?.active_policy_unchanged && response.data?.eligible_fixture?.status === 'recommended' && response.data?.eligible_fixture?.applied === false) {
+          ElMessage.success('控制器已生成不可变候选，活动策略版本与哈希保持不变')
+        } else {
+          ElMessage.error('控制器验收未证明活动策略不可写')
+        }
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || '只建议控制器验收暂时不可用')
+      } finally {
+        runningControllerAcceptance.value = false
+      }
+    }
 
     const loadWebhookAudit = async () => {
       const response = await api.get('/evaluations/webhooks/latest')
@@ -3060,6 +3150,9 @@ export default {
       productionAnomaly,
       webhookAudit,
       runningWebhookAcceptance,
+      controllerAudit,
+      controllerAcceptance,
+      runningControllerAcceptance,
       parentContextEvaluationOpen,
       loadingParentContextEvaluation,
       parentContextEvaluation,
@@ -3209,6 +3302,11 @@ export default {
       webhookEventLabel,
       loadWebhookAudit,
       runWebhookAcceptance,
+      controllerStatusLabel,
+      controllerReasonLabel,
+      controllerWeight,
+      loadControllerAudit,
+      runControllerAcceptance,
       loadProductionAnomaly,
       simulateAnomaly,
       cancelDiagnosticRun,
@@ -5080,6 +5178,82 @@ export default {
 .webhook-delivery-list small {
   color: #69758c;
   font-size: 12px;
+}
+
+.controller-audit-card {
+  margin-top: 9px;
+  padding: 9px;
+  border: 1px dashed rgba(126, 91, 30, 0.38);
+  border-radius: 8px;
+  background: #fffaf0;
+}
+
+.controller-audit-card > summary {
+  cursor: pointer;
+  color: #875f19;
+  font-weight: 800;
+}
+
+.controller-audit-card p {
+  margin: 6px 0;
+  color: #69758c;
+  font-size: 12px;
+}
+
+.controller-audit-card button {
+  padding: 6px 9px;
+  border: 1px solid rgba(126, 91, 30, 0.35);
+  border-radius: 7px;
+  background: #fff;
+  color: #875f19;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.controller-acceptance-result {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 9px;
+  border: 1px solid rgba(126, 91, 30, 0.2);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.controller-decision-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 8px;
+}
+
+.controller-decision-grid > div,
+.controller-decision-list article {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid rgba(126, 91, 30, 0.14);
+  border-radius: 7px;
+  background: #fff;
+}
+
+.controller-decision-grid span,
+.controller-decision-grid small,
+.controller-decision-list span,
+.controller-decision-list small {
+  color: #69758c;
+  font-size: 12px;
+}
+
+.controller-decision-list {
+  display: grid;
+  gap: 7px;
+  margin: 8px 0;
+}
+
+.controller-decision-list article > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .anomaly-result {

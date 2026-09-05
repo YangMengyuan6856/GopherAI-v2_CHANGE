@@ -61,6 +61,24 @@ func TestRoutingPolicyMetricsUseFixedLowCardinalityLabels(t *testing.T) {
 	}
 }
 
+func TestControlRecommendationMetricsUseFixedLabels(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	metrics := NewMetrics(registry, registry)
+	metrics.RecordControlAction("reduce_weight", "recommended")
+	metrics.RecordControlAction("caller-action", "caller-result")
+	metrics.ObserveControlLoop("success", 25*time.Millisecond)
+	metrics.ObserveControlLoop("caller-result", -time.Second)
+	if count := testutil.ToFloat64(metrics.controlActions.WithLabelValues("reduce_weight", "recommended")); count != 1 {
+		t.Fatalf("expected recommend-only action count 1, got %v", count)
+	}
+	if count := testutil.ToFloat64(metrics.controlActions.WithLabelValues("none", "error")); count != 1 {
+		t.Fatalf("untrusted controller labels escaped bounds: %v", count)
+	}
+	if count := testutil.CollectAndCount(metrics.controlLoopDuration); count != 3 {
+		t.Fatalf("expected three pre-initialized bounded control-loop outcomes, got %v", count)
+	}
+}
+
 func TestCaseStrategyMetricsUseFixedLowCardinalityLabels(t *testing.T) {
 	registry := prometheus.NewRegistry()
 	metrics := NewMetrics(registry, registry)

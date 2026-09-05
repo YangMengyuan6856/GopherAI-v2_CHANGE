@@ -625,8 +625,14 @@ func (metrics *Metrics) initializeRequiredMetricSeries() {
 	metrics.evalRegressions.WithLabelValues("unified", "completion").Add(0)
 	metrics.strategyWeights.WithLabelValues("unknown", "unknown", "other").Set(0)
 	metrics.strategyState.WithLabelValues("unknown", "unknown", "healthy").Set(0)
-	metrics.controlActions.WithLabelValues("none", "suppressed").Add(0)
-	metrics.controlLoopDuration.WithLabelValues("success")
+	for _, action := range []string{"none", "reduce_weight"} {
+		for _, result := range []string{"suppressed", "recommended", "blocked", "duplicate", "error"} {
+			metrics.controlActions.WithLabelValues(action, result).Add(0)
+		}
+	}
+	for _, result := range []string{"success", "no_anomaly", "error"} {
+		metrics.controlLoopDuration.WithLabelValues(result)
+	}
 	for _, eventType := range []string{"opened", "updated", "resolved", "control_action", "rollback"} {
 		for _, status := range []string{"queued", "success", "retry", "dead", "error"} {
 			metrics.webhookDeliveries.WithLabelValues(eventType, status).Add(0)
@@ -649,6 +655,38 @@ func (metrics *Metrics) RecordWebhookDelivery(eventType string, status string) {
 		status = "error"
 	}
 	metrics.webhookDeliveries.WithLabelValues(eventType, status).Inc()
+}
+
+func (metrics *Metrics) RecordControlAction(action string, result string) {
+	if metrics == nil {
+		return
+	}
+	switch action {
+	case "none", "reduce_weight":
+	default:
+		action = "none"
+	}
+	switch result {
+	case "suppressed", "recommended", "blocked", "duplicate", "error":
+	default:
+		result = "error"
+	}
+	metrics.controlActions.WithLabelValues(action, result).Inc()
+}
+
+func (metrics *Metrics) ObserveControlLoop(result string, duration time.Duration) {
+	if metrics == nil {
+		return
+	}
+	switch result {
+	case "success", "no_anomaly", "error":
+	default:
+		result = "error"
+	}
+	if duration < 0 {
+		duration = 0
+	}
+	metrics.controlLoopDuration.WithLabelValues(result).Observe(duration.Seconds())
 }
 
 func (metrics *Metrics) RecordCaseStrategy(strength string, outcome string, duration time.Duration) {

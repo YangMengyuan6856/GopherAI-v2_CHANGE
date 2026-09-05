@@ -84,6 +84,7 @@ func migration() error {
 		new(model.ControlIncident),
 		new(model.ControlWebhookDelivery),
 		new(model.ControlWebhookReceipt),
+		new(model.ControlRecommendation),
 	)
 }
 

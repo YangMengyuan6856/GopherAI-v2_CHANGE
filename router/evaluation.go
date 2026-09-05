@@ -19,6 +19,7 @@ func RegisterEvaluationRouter(group *gin.RouterGroup) {
 	metricCatalogHandler := evaluationcontroller.NewDefaultMetricCatalogHandler()
 	prometheusRuntimeHandler := evaluationcontroller.NewDefaultPrometheusRuntimeHandler()
 	controlWebhookHandler := evaluationcontroller.NewDefaultControlWebhookHandler()
+	recommendationHandler := evaluationcontroller.NewDefaultRecommendationHandler()
 	group.GET("/diagnostic/latest", handler.LatestDiagnostic)
 	group.GET("/memory/latest", memoryHandler.LatestMemory)
 	group.GET("/context/latest", contextHandler.LatestContext)
@@ -33,4 +34,6 @@ func RegisterEvaluationRouter(group *gin.RouterGroup) {
 	group.GET("/metrics/runtime", prometheusRuntimeHandler.Latest)
 	group.GET("/webhooks/latest", controlWebhookHandler.Latest)
 	group.POST("/webhooks/acceptance", controlWebhookHandler.Acceptance)
+	group.GET("/controller/latest", recommendationHandler.Latest)
+	group.POST("/controller/acceptance", recommendationHandler.Acceptance)
 }
