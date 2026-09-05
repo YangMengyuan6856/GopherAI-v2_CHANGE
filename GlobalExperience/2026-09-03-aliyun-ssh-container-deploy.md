@@ -1418,3 +1418,10 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 320 条目录校验通过只表示文件数量、哈希、Case ID、Schema 和敏感信息扫描合格；全部 `pending_user` 时，页面必须显示“基线不可用”，不能把机械校验包装成人工事实正确性。
 - 当前确定性 Scorecard 可执行 300 条；新增的 20 条 insufficient-evidence 需要统一 Runner + Groundedness/Judge 后才进入完整分数。LLM Judge 使用固定 Prompt/模型版本、temperature 0、严格 JSON、未知引用拒绝、失败最多重试一次且最终计为 `judge_failed`，绝不按中性分掩盖评测基础设施故障。
 - 提交 `3b4d6733` 的基线门禁只接受人工复核、技术门通过、完成率至少 98% 的 Snapshot；Snapshot 锁定 dataset/fixture/model/prompt/judge/environment 版本且不可覆盖。候选既要满足绝对阈值，又不能相对同版本基线退化超过 5%；越权召回、危险动作等安全计数必须保持 0。版本不一致时拒绝比较，而不是生成看似精确但口径不同的百分比。
+
+## 61. 2026-09-05 重启后只做预构建发布与串行评测
+
+- ECS 重启后一分多钟时内存为 1612 MiB total、1204 MiB available，三个既有容器均为 `Exited (255)`，无遗留 Go/npm 编译进程。直接运行发布脚本会启动 `rabbitmq redis-vector gopherai2`，无需人工进入容器逐个启动，也绝不能删除项目容器。
+- Release `20260905134535-c7530e6a5295` 的源码为 clean `add_eico@c7530e6a`，bundle SHA-256 `53b741766a09ae7af76675338f0431b5fa784d5e0f070b99c7bad97d598910ad`。Vue production assets 和六个 Linux/amd64 程序全部在 Windows 构建；服务器只校验、解压、原子切换和启动。Backend/Worker live+ready、MCP loopback 和前端静态网关均通过，运行进程中不再存在 `vue-cli-service serve`。
+- 两个真实模型评测严格串行且各有 15 分钟硬超时。协作 A/B 13.9 秒完成，质量 `0.60→0.92`、提升 CI `[0.20,0.40]`、简单误触发/安全/预算违规均为 0；父子上下文 A/B 28.6 秒完成，引用与安全门通过，但质量不变且输入 Token 增加 44.62%，所以净收益失败并保持权重 0。这证明发布成功、技术门通过与候选值得晋级是三个不同结论。
+- 前端公网 `GET /` 返回生产构建资产 `app.fa7a328f.js`；静态网关按 Vue 的 `/api/<path>` 约定转发到 Backend `/api/v1/<path>`。手工探测不能错误使用 `/api/v1/...`，否则网关会按设计拼成 `/api/v1/v1/...` 并得到 404。无 Token 请求 `/api/evaluations/catalog/latest` 返回业务码 `2006/无效的Token`，证明代理链已进入认证中间件。
