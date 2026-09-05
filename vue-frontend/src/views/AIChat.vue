@@ -36,17 +36,17 @@
           <input type="checkbox" id="diagnosticMode" v-model="diagnosticMode" @change="onDiagnosticModeChanged" />
           故障诊断 Harness
         </label>
-        <button class="memory-toggle-btn" :disabled="loadingMemoryPreview" @click="toggleMemoryPreview">🧠 三级记忆</button>
-        <button class="tool-runtime-toggle" :disabled="loadingToolCatalog" @click="toggleToolRuntime">🛡 受治理工具</button>
-        <button class="strategy-control-toggle" :disabled="loadingPolicyControl" @click="togglePolicyControl">🧭 策略演算</button>
-        <button class="evaluation-catalog-toggle" :disabled="loadingEvaluationCatalog" @click="toggleEvaluationCatalog">📊 评测总览</button>
+        <button class="memory-toggle-btn" :class="{ 'workspace-active': memoryPreviewOpen }" :aria-pressed="memoryPreviewOpen" :disabled="loadingMemoryPreview" @click="toggleMemoryPreview">🧠 三级记忆</button>
+        <button class="tool-runtime-toggle" :class="{ 'workspace-active': toolRuntimeOpen }" :aria-pressed="toolRuntimeOpen" :disabled="loadingToolCatalog" @click="toggleToolRuntime">🛡 受治理工具</button>
+        <button class="strategy-control-toggle" :class="{ 'workspace-active': policyControlOpen }" :aria-pressed="policyControlOpen" :disabled="loadingPolicyControl" @click="togglePolicyControl">🧭 策略演算</button>
+        <button class="evaluation-catalog-toggle" :class="{ 'workspace-active': evaluationCatalogOpen }" :aria-pressed="evaluationCatalogOpen" :disabled="loadingEvaluationCatalog" @click="toggleEvaluationCatalog">📊 评测总览</button>
         <button
           class="upload-btn"
           title="支持 Markdown/TXT、JSON/YAML key path 和 Go 顶层符号索引"
           @click="triggerFileUpload"
           :disabled="uploading"
         >📎 上传项目文档</button>
-        <button class="search-toggle-btn" @click="toggleKnowledgeSearch">🔎 证据检索</button>
+        <button class="search-toggle-btn" :class="{ 'workspace-active': knowledgeSearchOpen }" :aria-pressed="knowledgeSearchOpen" @click="toggleKnowledgeSearch">🔎 证据检索</button>
         <input
           ref="fileInput"
           type="file"
@@ -55,6 +55,12 @@
           @change="handleFileUpload"
         />
       </div>
+
+      <div
+        v-show="policyControlOpen || toolRuntimeOpen || evaluationCatalogOpen || knowledgeDocuments.length > 0 || knowledgeSearchOpen || memoryPreviewOpen || diagnosticMode"
+        class="capability-workspace"
+        aria-label="当前能力工作区"
+      >
 
       <section v-if="policyControlOpen" class="strategy-control-panel">
         <div class="strategy-control-header">
@@ -1088,6 +1094,8 @@
         </template>
       </section>
 
+      </div>
+
       <div class="chat-messages" ref="messagesRef">
         <div
           v-for="(message, index) in currentMessages"
@@ -1249,6 +1257,14 @@ export default {
     const diagnosticRunStorageKey = 'gopherai.active-diagnostic-run-v1'
     const diagnosticModeStorageKey = 'gopherai.diagnostic-mode-v1'
     let knowledgePollTimer = null
+
+    const closeUtilityWorkspaces = (keep = '') => {
+      if (keep !== 'memory') memoryPreviewOpen.value = false
+      if (keep !== 'tools') toolRuntimeOpen.value = false
+      if (keep !== 'policy') policyControlOpen.value = false
+      if (keep !== 'evaluation') evaluationCatalogOpen.value = false
+      if (keep !== 'knowledge') knowledgeSearchOpen.value = false
+    }
 
     const renderMarkdown = (text) => {
       if (!text && text !== '') return ''
@@ -1668,7 +1684,9 @@ export default {
     }
 
     const toggleMemoryPreview = async () => {
-      memoryPreviewOpen.value = !memoryPreviewOpen.value
+      const opening = !memoryPreviewOpen.value
+      closeUtilityWorkspaces(opening ? 'memory' : '')
+      memoryPreviewOpen.value = opening
       if (memoryPreviewOpen.value) await loadMemoryPreview()
     }
 
@@ -1734,7 +1752,9 @@ export default {
     }
 
     const toggleToolRuntime = async () => {
-      toolRuntimeOpen.value = !toolRuntimeOpen.value
+      const opening = !toolRuntimeOpen.value
+      closeUtilityWorkspaces(opening ? 'tools' : '')
+      toolRuntimeOpen.value = opening
       if (!toolRuntimeOpen.value || toolCatalog.value || loadingToolCatalog.value) return
       try {
         loadingToolCatalog.value = true
@@ -1813,7 +1833,9 @@ export default {
     }
 
     const togglePolicyControl = async () => {
-      policyControlOpen.value = !policyControlOpen.value
+      const opening = !policyControlOpen.value
+      closeUtilityWorkspaces(opening ? 'policy' : '')
+      policyControlOpen.value = opening
       if (!policyControlOpen.value || policySnapshot.value || loadingPolicyControl.value) return
       try {
         loadingPolicyControl.value = true
@@ -2307,7 +2329,9 @@ export default {
     }
 
     const toggleKnowledgeSearch = () => {
-      knowledgeSearchOpen.value = !knowledgeSearchOpen.value
+      const opening = !knowledgeSearchOpen.value
+      closeUtilityWorkspaces(opening ? 'knowledge' : '')
+      knowledgeSearchOpen.value = opening
       if (knowledgeSearchOpen.value && !knowledgeQuery.value.trim() && inputMessage.value.trim()) {
         knowledgeQuery.value = inputMessage.value.trim()
       }
@@ -2374,7 +2398,9 @@ export default {
     }
 
     const toggleEvaluationCatalog = async () => {
-      evaluationCatalogOpen.value = !evaluationCatalogOpen.value
+      const opening = !evaluationCatalogOpen.value
+      closeUtilityWorkspaces(opening ? 'evaluation' : '')
+      evaluationCatalogOpen.value = opening
       if (!evaluationCatalogOpen.value || evaluationCatalog.value || loadingEvaluationCatalog.value) return
       try {
         loadingEvaluationCatalog.value = true
@@ -2929,6 +2955,43 @@ export default {
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
   gap: 12px;
   flex-wrap: wrap;
+  flex: 0 0 auto;
+}
+
+.top-bar button.workspace-active {
+  outline: 3px solid rgba(64, 158, 255, 0.24);
+  outline-offset: 2px;
+  filter: saturate(1.12);
+}
+
+.capability-workspace {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 62vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding-bottom: 12px;
+}
+
+.capability-workspace:empty {
+  display: none;
+}
+
+.capability-workspace::-webkit-scrollbar {
+  width: 10px;
+}
+
+.capability-workspace::-webkit-scrollbar-thumb {
+  background: rgba(74, 67, 168, 0.42);
+  border: 2px solid transparent;
+  border-radius: 10px;
+  background-clip: padding-box;
+}
+
+.capability-workspace::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.18);
 }
 
 .memory-workbench {
@@ -4700,7 +4763,7 @@ export default {
 
 .chat-messages {
   flex: 1;
-  min-height: 0;
+  min-height: 120px;
   overflow-y: auto;
   padding: 30px;
   display: flex;
@@ -4836,6 +4899,19 @@ export default {
   display: flex;
   align-items: flex-end;
   gap: 12px;
+  flex: 0 0 auto;
+}
+
+@media (max-height: 800px) {
+  .capability-workspace {
+    max-height: 54vh;
+  }
+
+  .chat-messages {
+    min-height: 96px;
+    padding-top: 18px;
+    padding-bottom: 18px;
+  }
 }
 
 /* textarea 样式已移至 .input-wrapper textarea */
