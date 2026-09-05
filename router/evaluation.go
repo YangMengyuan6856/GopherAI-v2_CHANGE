@@ -20,6 +20,7 @@ func RegisterEvaluationRouter(group *gin.RouterGroup) {
 	prometheusRuntimeHandler := evaluationcontroller.NewDefaultPrometheusRuntimeHandler()
 	controlWebhookHandler := evaluationcontroller.NewDefaultControlWebhookHandler()
 	recommendationHandler := evaluationcontroller.NewDefaultRecommendationHandler()
+	faultCampaignHandler := evaluationcontroller.NewDefaultFaultCampaignHandler()
 	group.GET("/diagnostic/latest", handler.LatestDiagnostic)
 	group.GET("/memory/latest", memoryHandler.LatestMemory)
 	group.GET("/context/latest", contextHandler.LatestContext)
@@ -36,4 +37,6 @@ func RegisterEvaluationRouter(group *gin.RouterGroup) {
 	group.POST("/webhooks/acceptance", controlWebhookHandler.Acceptance)
 	group.GET("/controller/latest", recommendationHandler.Latest)
 	group.POST("/controller/acceptance", recommendationHandler.Acceptance)
+	group.GET("/fault-campaigns/latest", faultCampaignHandler.Latest)
+	group.POST("/fault-campaigns/acceptance", faultCampaignHandler.Acceptance)
 }

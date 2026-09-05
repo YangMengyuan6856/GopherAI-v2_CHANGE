@@ -629,6 +629,64 @@
                   <span v-for="guardrail in controllerAudit.guardrails" :key="guardrail" class="dependency-ready">{{ guardrail }}</span>
                 </div>
               </details>
+              <details v-if="faultCampaignAudit" class="fault-campaign-card">
+                <summary>
+                  查看三类 Observe-only 故障演练（{{ faultCampaignAudit.latest ? `${faultCampaignAudit.latest.summary.detected_count}/3 已检测` : '尚未运行' }}）
+                </summary>
+                <div class="metric-catalog-heading">
+                  <div>
+                    <strong>Isolated Fault Campaign · {{ faultCampaignAudit.fixture_version }}</strong>
+                    <span>{{ faultCampaignAudit.environment }} · {{ faultCampaignAudit.mode }} · 不影响线上流量</span>
+                  </div>
+                  <button :disabled="runningFaultCampaign" @click="runFaultCampaignAcceptance">
+                    {{ runningFaultCampaign ? '正在演练三类故障...' : '运行隔离故障演练' }}
+                  </button>
+                </div>
+                <p>只在隔离适配器中注入 RAG 退化、Agent 延迟和工具超时；不会停止 Redis/RabbitMQ，不会调用生产故障命令，也不会修改活动策略。</p>
+                <article v-if="activeFaultCampaign" class="fault-campaign-result">
+                  <div class="fault-campaign-summary">
+                    <div><strong>{{ activeFaultCampaign.summary.detected_count }}/{{ activeFaultCampaign.summary.scenario_count }}</strong><span>故障检测</span></div>
+                    <div><strong>{{ activeFaultCampaign.summary.recovered_count }}/{{ activeFaultCampaign.summary.scenario_count }}</strong><span>恢复识别</span></div>
+                    <div><strong>{{ activeFaultCampaign.summary.mean_mttd_seconds }}s</strong><span>平均 MTTD（逻辑窗口）</span></div>
+                    <div><strong>{{ activeFaultCampaign.summary.false_positives }}/{{ activeFaultCampaign.summary.false_positive_checks }}</strong><span>健康对照误报</span></div>
+                    <div><strong>{{ activeFaultCampaign.summary.recommendation_count }}</strong><span>只建议候选</span></div>
+                    <div><strong>{{ activeFaultCampaign.summary.applied_count }}</strong><span>实际策略变更</span></div>
+                  </div>
+                  <div class="fault-scenario-list">
+                    <article v-for="scenario in activeFaultCampaign.scenarios" :key="scenario.scenario_id">
+                      <div class="fault-scenario-heading">
+                        <div><strong>{{ scenario.name }}</strong><span>{{ faultClassLabel(scenario.fault_class) }} · {{ scenario.injected_outcome }}</span></div>
+                        <span class="dependency-ready">检测并恢复</span>
+                      </div>
+                      <div class="fault-scenario-metrics">
+                        <span>Fixed {{ scenario.fixed_threshold_detected ? '命中' : '未命中' }}</span>
+                        <span>Z-score {{ scenario.z_score_detected ? '命中' : '未命中' }}</span>
+                        <span>MTTD {{ scenario.mttd_seconds }}s</span>
+                        <span>恢复 {{ scenario.recovery_seconds }}s</span>
+                        <span>Evidence {{ scenario.evidence_sha256.slice(0, 12) }}…</span>
+                      </div>
+                      <div class="fault-timeline" aria-label="故障闭环时间轴">
+                        <div v-for="point in scenario.timeline" :key="`${scenario.scenario_id}-${point.phase}`" :class="`phase-${point.phase}`">
+                          <strong>{{ faultPhaseLabel(point.phase) }}</strong>
+                          <span>T+{{ point.offset_seconds }}s · {{ faultMetricValue(scenario.metric, point.metric_value) }}</span>
+                          <span>质量 {{ metricPercent(point.indicators.quality_rate) }} · 成功 {{ metricPercent(point.indicators.success_rate) }}</span>
+                          <span>P95/P99 {{ point.indicators.p95_latency_ms }}/{{ point.indicators.p99_latency_ms }}ms · n={{ point.indicators.population }}</span>
+                          <small v-if="point.recommendation_action !== 'none'">{{ anomalyRecommendationLabel(point.recommendation_action) }} · {{ point.weight_delta_basis / 100 }}% · Applied={{ point.applied }}</small>
+                        </div>
+                      </div>
+                    </article>
+                  </div>
+                  <div class="fault-campaign-limit">
+                    <strong>缓解成功率：未测量</strong>
+                    <span>本轮为 Observe-only，故意不执行降权；报告不会用“建议已生成”冒充“线上缓解成功”。</span>
+                    <small>Report SHA-256 {{ activeFaultCampaign.report_sha256 }}</small>
+                  </div>
+                </article>
+                <div v-else class="strategy-control-empty">尚无演练报告；点击按钮后会生成可重放、带 Hash 的不可变隔离报告。</div>
+                <div class="evaluation-decision-strip">
+                  <span v-for="guardrail in faultCampaignAudit.guardrails" :key="guardrail" class="dependency-ready">{{ guardrail }}</span>
+                </div>
+              </details>
               <div v-if="loadingAnomaly" class="strategy-control-empty">正在以“基线窗口不含当前点”的规则计算...</div>
               <article v-else-if="anomalyResult" :class="['anomaly-result', anomalyDecisionClass(anomalyResult.analysis)]">
                 <div class="evaluation-run-heading">
@@ -1478,6 +1536,10 @@ export default {
     const controllerAudit = ref(null)
     const controllerAcceptance = ref(null)
     const runningControllerAcceptance = ref(false)
+    const faultCampaignAudit = ref(null)
+    const faultCampaignResult = ref(null)
+    const runningFaultCampaign = ref(false)
+    const activeFaultCampaign = computed(() => faultCampaignResult.value || faultCampaignAudit.value?.latest || null)
     const anomalyScenarios = [
       { value: 'healthy', label: '健康窗口' },
       { value: 'quality_drop', label: 'RAG 质量下降' },
@@ -2696,14 +2758,15 @@ export default {
       if (!evaluationCatalogOpen.value || evaluationCatalog.value || loadingEvaluationCatalog.value) return
       try {
         loadingEvaluationCatalog.value = true
-        const [catalogResponse, runResponse, metricCatalogResponse, prometheusRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse] = await Promise.all([
+        const [catalogResponse, runResponse, metricCatalogResponse, prometheusRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse] = await Promise.all([
           api.get('/evaluations/catalog/latest'),
           api.get('/evaluations/unified/latest'),
           api.get('/evaluations/metrics/catalog'),
           api.get('/evaluations/metrics/runtime').catch(() => null),
           api.get('/evaluations/anomaly/production/latest').catch(() => null),
           api.get('/evaluations/webhooks/latest').catch(() => null),
-          api.get('/evaluations/controller/latest').catch(() => null)
+          api.get('/evaluations/controller/latest').catch(() => null),
+          api.get('/evaluations/fault-campaigns/latest').catch(() => null)
         ])
         evaluationCatalog.value = catalogResponse.data
         evaluationRun.value = runResponse.data
@@ -2712,6 +2775,7 @@ export default {
         productionAnomaly.value = productionAnomalyResponse?.data || null
         webhookAudit.value = webhookAuditResponse?.data || null
         controllerAudit.value = controllerAuditResponse?.data || null
+        faultCampaignAudit.value = faultCampaignAuditResponse?.data || null
       } catch (error) {
         evaluationCatalogOpen.value = false
         ElMessage.error(error.response?.data?.message || '评测数据目录暂时不可用')
@@ -2823,6 +2887,46 @@ export default {
       } finally {
         runningControllerAcceptance.value = false
       }
+    }
+
+    const loadFaultCampaignAudit = async () => {
+      const response = await api.get('/evaluations/fault-campaigns/latest')
+      faultCampaignAudit.value = response.data
+      return response.data
+    }
+
+    const runFaultCampaignAcceptance = async () => {
+      if (runningFaultCampaign.value) return
+      try {
+        runningFaultCampaign.value = true
+        const response = await api.post('/evaluations/fault-campaigns/acceptance', { scenario: 'three_failure_classes' })
+        faultCampaignResult.value = response.data
+        await loadFaultCampaignAudit()
+        const summary = response.data?.summary
+        if (summary?.detected_count === 3 && summary?.recovered_count === 3 && summary?.false_positives === 0 && summary?.applied_count === 0) {
+          ElMessage.success('三类隔离故障均被检测并识别恢复，线上策略变更为 0')
+        } else {
+          ElMessage.error('故障演练未同时满足检测、恢复、零误报和零落地门禁')
+        }
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || '三类隔离故障演练暂时不可用')
+      } finally {
+        runningFaultCampaign.value = false
+      }
+    }
+
+    const faultClassLabel = (faultClass) => ({
+      rag_degradation: 'RAG 退化', agent_latency: 'Agent 延迟', tool_failure: '工具失败'
+    }[faultClass] || faultClass)
+
+    const faultPhaseLabel = (phase) => ({
+      before: '基线', injected: '注入', detected: '检测', recommendation: '建议', probe: '恢复探针', recovered: '恢复'
+    }[phase] || phase)
+
+    const faultMetricValue = (metric, value) => {
+      if (metric === 'rag_grounded_answer_rate' || metric === 'tool_success_rate') return metricPercent(value)
+      if (metric === 'agent_p95_latency_seconds') return `${Number(value).toFixed(2)}s`
+      return Number(value).toFixed(3)
     }
 
     const loadWebhookAudit = async () => {
@@ -3153,6 +3257,10 @@ export default {
       controllerAudit,
       controllerAcceptance,
       runningControllerAcceptance,
+      faultCampaignAudit,
+      faultCampaignResult,
+      runningFaultCampaign,
+      activeFaultCampaign,
       parentContextEvaluationOpen,
       loadingParentContextEvaluation,
       parentContextEvaluation,
@@ -3307,6 +3415,11 @@ export default {
       controllerWeight,
       loadControllerAudit,
       runControllerAcceptance,
+      loadFaultCampaignAudit,
+      runFaultCampaignAcceptance,
+      faultClassLabel,
+      faultPhaseLabel,
+      faultMetricValue,
       loadProductionAnomaly,
       simulateAnomaly,
       cancelDiagnosticRun,
@@ -5254,6 +5367,134 @@ export default {
   display: flex;
   justify-content: space-between;
   gap: 8px;
+}
+
+.fault-campaign-card {
+  margin-top: 9px;
+  padding: 9px;
+  border: 1px dashed rgba(81, 94, 180, 0.42);
+  border-radius: 8px;
+  background: #f7f8ff;
+}
+
+.fault-campaign-card > summary {
+  cursor: pointer;
+  color: #4d57a8;
+  font-weight: 800;
+}
+
+.fault-campaign-card p {
+  margin: 6px 0;
+  color: #69758c;
+  font-size: 12px;
+}
+
+.fault-campaign-card button {
+  padding: 6px 9px;
+  border: 1px solid rgba(81, 94, 180, 0.35);
+  border-radius: 7px;
+  background: #fff;
+  color: #4d57a8;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.fault-campaign-result,
+.fault-scenario-list,
+.fault-scenario-list > article {
+  display: grid;
+  gap: 9px;
+}
+
+.fault-campaign-result { margin: 8px 0; }
+
+.fault-campaign-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 7px;
+}
+
+.fault-campaign-summary > div {
+  display: grid;
+  gap: 2px;
+  padding: 8px;
+  border: 1px solid rgba(81, 94, 180, 0.14);
+  border-radius: 7px;
+  background: #fff;
+}
+
+.fault-campaign-summary strong { color: #4652a4; font-size: 17px; }
+.fault-campaign-summary span { color: #69758c; font-size: 11px; }
+
+.fault-scenario-list > article {
+  padding: 9px;
+  border: 1px solid rgba(81, 94, 180, 0.18);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.fault-scenario-heading,
+.fault-scenario-heading > div,
+.fault-campaign-limit {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.fault-scenario-heading > div,
+.fault-campaign-limit { flex-direction: column; }
+
+.fault-scenario-heading span,
+.fault-scenario-metrics span,
+.fault-campaign-limit span,
+.fault-campaign-limit small {
+  color: #69758c;
+  font-size: 11px;
+}
+
+.fault-scenario-metrics {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.fault-scenario-metrics span {
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: #f0f2ff;
+}
+
+.fault-timeline {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(150px, 1fr));
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.fault-timeline > div {
+  display: grid;
+  gap: 3px;
+  min-width: 150px;
+  padding: 7px;
+  border-top: 3px solid #8790d5;
+  border-radius: 6px;
+  background: #f8f9ff;
+}
+
+.fault-timeline > div.phase-detected,
+.fault-timeline > div.phase-injected { border-top-color: #d78932; background: #fff9ee; }
+.fault-timeline > div.phase-recommendation { border-top-color: #7756c8; background: #f7f2ff; }
+.fault-timeline > div.phase-recovered { border-top-color: #36a878; background: #f0fbf6; }
+.fault-timeline span,
+.fault-timeline small { color: #69758c; font-size: 10px; }
+
+.fault-campaign-limit {
+  padding: 8px;
+  border: 1px solid #e9cf91;
+  border-radius: 7px;
+  background: #fff8df;
 }
 
 .anomaly-result {
