@@ -618,10 +618,18 @@ start_release() {
     done
     [ "$grafana_dashboard_ready" = "true" ] || { echo "Grafana did not provision the GopherAI dashboard" >&2; tail -n 80 "$release_path/grafana.log" >&2; return 1; }
     grafana_pid="$(tr -cd '0-9' < "$run_path/grafana.pid")"
-    grafana_rss_kib="$(ps -o rss= -p "$grafana_pid" | tr -d ' ' || true)"
-    [ -n "$grafana_rss_kib" ] || { echo "Grafana process exited after readiness" >&2; return 1; }
-    [ "$grafana_rss_kib" -le 204800 ] || { echo "Grafana RSS exceeded 200 MiB guard: ${grafana_rss_kib} KiB" >&2; return 1; }
-    echo "Grafana dashboard ready on private container port: gopherai-closed-loop-v1 (${grafana_rss_kib} KiB RSS)"
+    grafana_startup_rss_kib="$(ps -o rss= -p "$grafana_pid" | tr -d ' ' || true)"
+    [ -n "$grafana_startup_rss_kib" ] || { echo "Grafana process exited after readiness" >&2; return 1; }
+    [ "$grafana_startup_rss_kib" -le 225280 ] || { echo "Grafana RSS exceeded 220 MiB startup guard: ${grafana_startup_rss_kib} KiB" >&2; return 1; }
+
+    # Grafana briefly retains dashboard/plugin initialization memory after its
+    # readiness endpoint turns green. Measure the settled process separately so
+    # a harmless startup peak does not trigger rollback on the 1.6 GiB ECS.
+    sleep 20
+    grafana_stable_rss_kib="$(ps -o rss= -p "$grafana_pid" | tr -d ' ' || true)"
+    [ -n "$grafana_stable_rss_kib" ] || { echo "Grafana process exited during RSS stabilization" >&2; return 1; }
+    [ "$grafana_stable_rss_kib" -le 204800 ] || { echo "Grafana RSS exceeded 200 MiB stable-state guard: ${grafana_stable_rss_kib} KiB" >&2; return 1; }
+    echo "Grafana dashboard ready on private container port: gopherai-closed-loop-v1 (startup ${grafana_startup_rss_kib} KiB; stable ${grafana_stable_rss_kib} KiB RSS)"
   else
     echo "Grafana config is absent in historical release; skipping dashboard server"
   fi

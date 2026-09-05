@@ -53,7 +53,8 @@ available only on the private Docker network and is not published by the host;
 it uses the loopback Prometheus datasource and provisions the immutable
 `gopherai-closed-loop-v1` dashboard. Normal
 deployment validates all dashboard queries before stopping the active release,
-requires provisioning to succeed, and rejects Grafana RSS above 200 MiB.
+requires provisioning to succeed, rejects a transient startup RSS above 220 MiB,
+and requires Grafana to settle below 200 MiB after a 20-second grace period.
 Grafana drops privileges to its package user; only the copied, read-only
 dashboard/provisioning assets and the dedicated `/var/lib/gopherai-grafana`
 data directory are reachable, not the project configuration under `/root`.
