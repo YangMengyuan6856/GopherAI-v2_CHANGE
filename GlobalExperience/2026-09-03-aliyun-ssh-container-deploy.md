@@ -1433,3 +1433,10 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - Release `20260905163113-426ba08b8e80`，bundle SHA-256 `6a536fe3b7e16ba8830d7b3e9ad493de6b253a7f0fa128ef9c9886635eb309e1`。Worker 启动日志记录 `expected=11 / present_before=11 / present_after=11 / pruned=9`；随后 Redis 命名空间 Key 与 RediSearch `num_docs` 均为 11。使用同一文档主体做真实鉴权 Smoke，父子上下文返回 `47 / 6 / gopher.jobs.dlx.v1`、候选 `10 → 5`；协作 Shadow 为 KnowledgeAgent 与 DiagnosticAgent 均 succeeded、整体 complete、3 个 Claim 和 6 个引用。
 - `426ba08b` 将策略演算、受治理工具、三级记忆、评测总览和证据检索改为互斥的能力工作区，并为工作区设置独立纵向滚动和视口高度上限；聊天记录至少保留 120px，输入框固定保留布局空间。这样无需把浏览器缩放到不可读比例，长策略结果可在工作区内滚动，点击另一个能力按钮会自动收起前一个。
 - 本轮全量 `go test -p 1 ./...`、`go vet ./...`、Vue lint 与 production build 全通过。生产构建资产为 `app.f8efac65.js`；Backend/Worker/MCP/Frontend 四进程及 live/ready 门全部通过。经验：服务端数据恢复、检索正确性与浏览器可访问性必须分别验收，不能用“发布健康”代替功能 Smoke，也不能用页面缩放掩盖布局溢出。
+
+## 63. 2026-09-05 统一评测与双异常检测器发布
+
+- `3194e4f7` 增加预构建 `GopherAI-eval-runner`。它在同一次运行中校验 Full 320 Manifest 与 5 份可执行源报告的 SHA-256，生成 JSON/Markdown 双报告，明确区分 `320/320` 目录校验、`300/320=93.75%` 执行覆盖、`300/300=100%` 完成率、技术门和人工复核门。Release `20260905174658-3194e4f7350f` 后，容器内 CLI 独立冒烟通过，得到 4 类脱敏失败聚类；API 不下发逐例问题与 Case ID。
+- `92c32855` 增加固定阈值与滑动窗口 Z-score 双检测内核：最低 50 样本、30 点窗口、基线排除当前候选点、连续 2 点异常、Z 阈值 3.0，并用稳定 Incident Key 支持首次触发、重复抑制、恢复通知。检测只返回 `recommend_only` 的 `-10%` 候选权重建议，`Applied=false`，不写 active policy、不自动切流、不执行修复。
+- 首次线上 UI Smoke 发现零方差基线的突变虽然正确告警，但不可定义的 Z 值显示为 `0.00`，容易误导。`c9d0719b` 增加显式 `zero_variance=true`，页面显示 `∞` 和 `zero_variance_adverse_shift` 原因码。最终 Release `20260905193258-c9d0719b67eb`，bundle SHA-256 `0af531cce58c16be7a531e3a08d3f7dfc2ba5d0a8908a827722e0de5fb6e3c5a`，四进程与所有依赖健康门通过；真实浏览器已验证健康窗口不告警、质量下降和延迟突增双检测、低样本抑制、零方差突变保护。
+- 经验：Z-score 实现必须明确当前点是否进入基线，并单独处理零方差；不能用 JSON 的 `NaN/Inf`，也不能以 `0` 冒充有效 Z 值。验收 Fixture 必须显式标记 `deterministic_acceptance_fixture`，不得包装成生产 Prometheus 观测。M8-12 生产 recording rules、持久化事件、签名 Webhook 和 M8-17 Controller 接线仍未完成。
