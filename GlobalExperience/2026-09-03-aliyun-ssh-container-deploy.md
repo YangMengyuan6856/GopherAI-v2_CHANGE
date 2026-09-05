@@ -1380,3 +1380,9 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 首次页面实测发现无依赖策略在 JSON 中输出 `null`，Vue 对 `.length` 的读取使整个页面崩溃；`0d2cfc3c` 同时在后端强制序列化 `[]`、前端防御旧载荷，并补回归测试。跨后端/前端边界的集合字段应在契约层固定为空数组，不能把 Go nil slice 的序列化细节留给客户端猜测。
 - `5d1129e0`、`719c7180` 上线 `diagnosis_case_based` Shadow。强案例必须同时满足相似度 `>=0.85` 与当前标准诊断 Evidence 一致，输出也只可标为 advisory；弱/无匹配及 1.2 秒召回失败均保持 `diagnosis_standard`，不写反馈、不执行修复。Release `20260905091954-719c71804aff`，bundle SHA-256 `8128066391bd9c4cddf399c4105bc9f47955de267459442056701ee76262f785`，Backend/Worker/MCP/Vue 门均通过。
 - 云端页面以 Redis NOAUTH 命中 2 条 confirmed+indexed 案例并给出 100% 候选优先级；无关打印机输入稳定 no_match。Prometheus 记录 `strong/success=1` 与 `none/success=1`，标签不含用户、Trace 或案例 ID。经验：案例增强的收益必须通过“标准基线不变 + 当前证据一致 + 历史案例已确认”三重边界表达，不能把相似历史处置包装成当前根因。
+
+## 55. 2026-09-05 Bounded Planner：先证明该拆，再执行
+
+- `7cc7e6b2` 上线 `bounded-collaboration-planner-v1`。Planner 不让 LLM 自由生成 Agent 图，只读取 Diagnostic Extractor 已脱敏的结构：单故障保持一个 DiagnosticAgent；两个独立故障域，或故障诊断与项目证据核对可以独立执行且复杂度达到 70，才形成 KnowledgeAgent + DiagnosticAgent 两个公开子任务。
+- 最大 Agent、工具、迭代、Token、成本和总超时全部来自服务端 Strategy Registry；两个子任务的预算和不超过父预算，且 `may_spawn_agents=false`。客户端请求仅允许 `message`，提交 `max_agents` 等未知字段会在进入 Planner 前拒绝。复杂度分数是可回归的启发式门，不得解释为多 Agent 已经提高 30%/100% 的质量。
+- Release `20260905093545-7cc7e6b2ccc5`，bundle SHA-256 `bc8954c6543a9e3cb3b6f0fa410b0bbba6a32e59eedb74990c3700dd17703077`，四进程门通过。真实复杂输入得到 2 Agent、120 秒总预算，简单 Redis NOAUTH 得到 1 Agent、90 秒；Prometheus 各记录一次，标签不含原文或用户。工程经验：在并发执行前先单独发布/验收确定性 Plan，可以让“误触发”和“执行失败”分开归因，避免 Agent 在执行细节里掩盖规划错误。
