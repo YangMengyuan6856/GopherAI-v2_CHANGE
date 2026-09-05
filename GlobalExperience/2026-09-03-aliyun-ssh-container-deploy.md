@@ -1386,3 +1386,9 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - `7cc7e6b2` 上线 `bounded-collaboration-planner-v1`。Planner 不让 LLM 自由生成 Agent 图，只读取 Diagnostic Extractor 已脱敏的结构：单故障保持一个 DiagnosticAgent；两个独立故障域，或故障诊断与项目证据核对可以独立执行且复杂度达到 70，才形成 KnowledgeAgent + DiagnosticAgent 两个公开子任务。
 - 最大 Agent、工具、迭代、Token、成本和总超时全部来自服务端 Strategy Registry；两个子任务的预算和不超过父预算，且 `may_spawn_agents=false`。客户端请求仅允许 `message`，提交 `max_agents` 等未知字段会在进入 Planner 前拒绝。复杂度分数是可回归的启发式门，不得解释为多 Agent 已经提高 30%/100% 的质量。
 - Release `20260905093545-7cc7e6b2ccc5`，bundle SHA-256 `bc8954c6543a9e3cb3b6f0fa410b0bbba6a32e59eedb74990c3700dd17703077`，四进程门通过。真实复杂输入得到 2 Agent、120 秒总预算，简单 Redis NOAUTH 得到 1 Agent、90 秒；Prometheus 各记录一次，标签不含原文或用户。工程经验：在并发执行前先单独发布/验收确定性 Plan，可以让“误触发”和“执行失败”分开归因，避免 Agent 在执行细节里掩盖规划错误。
+
+## 56. 2026-09-05 并行执行先锁定取消、预算与顺序
+
+- `5a9ff8cf` 上线 `bounded-parallel-executor-v1` 内核。Agent 反序完成时结果仍按 Plan index 稳定输出；单任务超时只标记该任务，不取消成功兄弟；父请求取消传播两个子 Context。Go 无法强杀不合作的 goroutine，所以 Runner 合约必须响应 Context，外层总超时仍会按缺失任务返回有界结果。
+- Executor 在 Runner 前再次使用 Diagnostic Extractor 脱敏，防止调用方绕过 Planner 直接把凭据送入 Agent。输出限制 Summary、Claim、Evidence、Follow-up 数量；Evidence tenant 必须与请求一致。超出任务预算时 Claim/Evidence 全部丢弃，实际 Token/工具/迭代/成本 Usage 保留，以免“拒绝输出”反而让成本观测归零。
+- Release `20260905094729-5a9ff8cf5bf1`，bundle SHA-256 `f0bd974998af1f1fb0767d2d37d609fdb3e800146ad8f182880ae90cc5ee8198`，四进程门通过。该 Release 只有执行内核和规划页面信号澄清，没有把测试 Runner 包装成线上多 Agent；真实执行入口必须等 Evidence-aware Synthesizer 与生产 Runner 都通过后再开放 Shadow。
