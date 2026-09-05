@@ -1365,3 +1365,11 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 30 条候选评测复用同一生产执行器，加入“错误类型参数 → 两次修复 → success”和“重复动作 → NO_PROGRESS”两条门禁。当前五类通过率、审计覆盖、确定性重放、错参有界修复和重复动作熔断均为 `100%`；危险动作执行率 `0%`、未知工具执行 `0`。报告 SHA-256 为 `a5c2b01f4e13f6506dfbd4a6951d26feeb6904f145ea7a80e4cf258bfdcb21f9`，标签仍待用户人工复核，所以不是正式基线。
 - Release `20260905073107-899aada7ec6e`，bundle SHA-256 `c24303aae45b84dd36b8d1d11171a0b9319516f12d8fd3eb92e5f2d1a54fb384`，Backend/Worker/MCP/Vue 与唯一进程门全部通过。真实页面 compound 计划的 Manifest + 全服务健康两步均 success；线上评测面板显示新增两项 100% 门禁和同一报告 SHA。MySQL 两条新审计均为 `tool_agent_v1/success`，Args/User hash 长度 64、Trace ID 长度 36；Prometheus 对两个工具各记录 accepted/success 1。
 - 从 Windows PowerShell 把 here-string 直接管道送给 `ssh ... bash -s` 时，即使变量中先做 `-replace "`r", ""`，PowerShell 的 native pipeline 仍可能重新以 CRLF 编码文本，令远端 heredoc 终止符变成 `EOS\r`。取证查询主体可能已经成功，但最终退出码会是 1。可靠做法与发布脚本一致：先把 LF 文本编码为 UTF-8 base64，再让远端 `printf %s '<base64>' | base64 -d | bash`；不能因为前半段有输出就忽略失败退出码。
+
+## 53. 2026-09-05 官方文档工具、指标补漏与旧 Skill 退役哨兵
+
+- 提交 `86bdd743` 上线 `official_document_search@1.0.0`：仅允许 Go Context、Redis ACL、RabbitMQ DLX、Prometheus 告警四个固定文档 ID，不接收 URL/域名/路径；生产传输禁用代理，DNS 解析后拒绝私网/回环/链路本地/测试网段，只允许 HTTPS 同 host 有界重定向、HTML/纯文本和 256 KiB 解压后正文。真实浏览器四文档全部 success，输出规范 URL、抓取源、正文 SHA、字节数、匹配数和有界摘录。
+- 首次调用后 Prometheus 把新工具折叠为 `unknown`，原因是低基数工具白名单漏登记。`48623166` 补齐标签与防回归测试；重新发布后一次真实超时和一次成功都正确记录为 `official_document_search`，证明错误也可观测。最终 Release `20260905081443-236f66ca9933`（bundle SHA-256 `7511f4637c605e9de7952f97a8f1e4e0579edcb1c39fe612618258c5c8083172`）再次调用 Redis ACL 成功，指标 accepted/success/miss/closed 各可见。
+- 基线提交 `a4bf5146` 已按用户授权物理删除旧 Skill 代码/API/UI，不能再伪称保留了在线恢复开关。`236f66ca` 增加不执行任何旧代码的退役哨兵：旧 `/api/v1/skill/*` 稳定返回 410、`LEGACY_SKILL_RETIRED` 和新目录地址，并只累计固定 `skill_api` 标签。云端计数从 0 经一次受控探针变为 1。若需恢复只能使用 Git/发布回退，禁止为了形式门禁复活天气、计算器等无场景能力。
+- R3 全量证据已冻结到 `GlobalExperience/2026-09-05-r3-governed-tools-evidence.md`。30 条技术门仍全通过，报告内容 SHA-256 `df073ce7de9374e48f207236b52e2aa39e46b812295d0df341f83430dc64e3ed`；标签仍是 `pending_user`，所以只可称技术候选，不可称人工正式基线。
+- 页面刷新自动化曾因旧标签页处于面板状态而等待元素直至超时。此后浏览器验收应新建同源标签页，先取 DOM 状态，再以 4～5 秒 locator 超时做单步动作；不得把多个无超时的 reload/click 串成一个长操作。后端健康检查与浏览器动作应分开判断，避免将 UI 控制阻塞误判为服务宕机。
