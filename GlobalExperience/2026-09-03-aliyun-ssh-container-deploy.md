@@ -1373,3 +1373,10 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 基线提交 `a4bf5146` 已按用户授权物理删除旧 Skill 代码/API/UI，不能再伪称保留了在线恢复开关。`236f66ca` 增加不执行任何旧代码的退役哨兵：旧 `/api/v1/skill/*` 稳定返回 410、`LEGACY_SKILL_RETIRED` 和新目录地址，并只累计固定 `skill_api` 标签。云端计数从 0 经一次受控探针变为 1。若需恢复只能使用 Git/发布回退，禁止为了形式门禁复活天气、计算器等无场景能力。
 - R3 全量证据已冻结到 `GlobalExperience/2026-09-05-r3-governed-tools-evidence.md`。30 条技术门仍全通过，报告内容 SHA-256 `df073ce7de9374e48f207236b52e2aa39e46b812295d0df341f83430dc64e3ed`；标签仍是 `pending_user`，所以只可称技术候选，不可称人工正式基线。
 - 页面刷新自动化曾因旧标签页处于面板状态而等待元素直至超时。此后浏览器验收应新建同源标签页，先取 DOM 状态，再以 4～5 秒 locator 超时做单步动作；不得把多个无超时的 reload/click 串成一个长操作。后端健康检查与浏览器动作应分开判断，避免将 UI 控制阻塞误判为服务宕机。
+
+## 54. 2026-09-05 Strategy 控制面与案例策略 Shadow
+
+- `1576b975`～`0d2cfc3c` 上线 Strategy Registry、MySQL 权威/Redis 30 秒缓存的版本策略仓库和稳定加权 Selector。页面只允许已登录用户做 `SHADOW ONLY` 演算，固定显示策略来源、版本、Hash、Bucket、预算和依赖过滤，不接管实际聊天。云端主动删除精确策略缓存键后，下一次请求从 MySQL 读取并重建相同 Hash/Bucket，证明 Redis 只是可丢缓存，不是事实源。
+- 首次页面实测发现无依赖策略在 JSON 中输出 `null`，Vue 对 `.length` 的读取使整个页面崩溃；`0d2cfc3c` 同时在后端强制序列化 `[]`、前端防御旧载荷，并补回归测试。跨后端/前端边界的集合字段应在契约层固定为空数组，不能把 Go nil slice 的序列化细节留给客户端猜测。
+- `5d1129e0`、`719c7180` 上线 `diagnosis_case_based` Shadow。强案例必须同时满足相似度 `>=0.85` 与当前标准诊断 Evidence 一致，输出也只可标为 advisory；弱/无匹配及 1.2 秒召回失败均保持 `diagnosis_standard`，不写反馈、不执行修复。Release `20260905091954-719c71804aff`，bundle SHA-256 `8128066391bd9c4cddf399c4105bc9f47955de267459442056701ee76262f785`，Backend/Worker/MCP/Vue 门均通过。
+- 云端页面以 Redis NOAUTH 命中 2 条 confirmed+indexed 案例并给出 100% 候选优先级；无关打印机输入稳定 no_match。Prometheus 记录 `strong/success=1` 与 `none/success=1`，标签不含用户、Trace 或案例 ID。经验：案例增强的收益必须通过“标准基线不变 + 当前证据一致 + 历史案例已确认”三重边界表达，不能把相似历史处置包装成当前根因。
