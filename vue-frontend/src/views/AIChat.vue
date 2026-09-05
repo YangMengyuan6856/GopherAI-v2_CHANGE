@@ -39,6 +39,7 @@
         <button class="memory-toggle-btn" :disabled="loadingMemoryPreview" @click="toggleMemoryPreview">🧠 三级记忆</button>
         <button class="tool-runtime-toggle" :disabled="loadingToolCatalog" @click="toggleToolRuntime">🛡 受治理工具</button>
         <button class="strategy-control-toggle" :disabled="loadingPolicyControl" @click="togglePolicyControl">🧭 策略演算</button>
+        <button class="evaluation-catalog-toggle" :disabled="loadingEvaluationCatalog" @click="toggleEvaluationCatalog">📊 评测总览</button>
         <button
           class="upload-btn"
           title="支持 Markdown/TXT、JSON/YAML key path 和 Go 顶层符号索引"
@@ -446,6 +447,41 @@
           <div v-if="toolResult.evidence_refs?.length">证据：{{ toolResult.evidence_refs.join('；') }}</div>
           <small>缓存 {{ toolResult.stale ? '陈旧回退' : (toolResult.cached ? '新鲜命中' : '未命中') }} · 截断 {{ toolResult.truncated ? '是' : '否' }} · 原始参数与用户标识不写入审计</small>
         </article>
+      </section>
+
+      <section v-if="evaluationCatalogOpen" class="strategy-control-panel evaluation-catalog-panel">
+        <div class="strategy-control-header">
+          <div>
+            <strong>devsupport-eval-v1 · Full 320 数据目录</strong>
+            <span>固定路径、切片分母、数据版本、SHA-256、全局唯一 ID 与人工复核状态</span>
+          </div>
+          <span v-if="evaluationCatalog" :class="['evaluation-gate', evaluationCatalog.schema_passed ? 'passed' : 'failed']">
+            {{ evaluationCatalog.schema_passed ? '目录校验通过' : '目录校验失败' }}
+          </span>
+        </div>
+        <div v-if="loadingEvaluationCatalog" class="strategy-control-empty">正在重新计算六个切片的 Hash 与数量...</div>
+        <template v-else-if="evaluationCatalog">
+          <div class="diagnostic-evaluation-grid">
+            <div><strong>{{ evaluationCatalog.actual_total }} / {{ evaluationCatalog.expected_total }}</strong><span>实际 / 声明用例</span></div>
+            <div><strong>{{ evaluationCatalog.unique_ids }}</strong><span>全局唯一 ID</span></div>
+            <div><strong>{{ evaluationCatalog.sensitive_hits }}</strong><span>凭据特征命中</span></div>
+            <div><strong>{{ evaluationCatalog.slices.length }}</strong><span>冻结切片</span></div>
+          </div>
+          <div class="strategy-registry-grid evaluation-catalog-grid">
+            <article v-for="slice in evaluationCatalog.slices" :key="slice.name">
+              <div class="strategy-card-title">
+                <strong>{{ evaluationSliceLabel(slice.name) }}</strong>
+                <span :class="slice.passed ? 'dependency-ready' : 'dependency-down'">{{ slice.passed ? 'Hash/Schema 通过' : '失败' }}</span>
+              </div>
+              <p>{{ slice.actual_count }} / {{ slice.expected_count }} 条 · pending_user {{ slice.review_counts.pending_user || 0 }} · human {{ slice.review_counts.human || 0 }}</p>
+              <small>SHA {{ slice.actual_sha256.slice(0, 12) }}…</small>
+            </article>
+          </div>
+          <div class="evaluation-candidate-warning">
+            <strong>{{ evaluationCatalog.baseline_eligible ? '已具备基线资格' : '当前不可冻结为基线' }}</strong>
+            <span>{{ evaluationCatalog.human_reviewed ? '标签已完成人工复核。' : '320 条当前均为待用户复核；目录完整不等于模型质量达标。' }}</span>
+          </div>
+        </template>
       </section>
 
       <div v-if="knowledgeDocuments.length" class="knowledge-status">
@@ -1146,6 +1182,9 @@ export default {
     const answeringKnowledge = ref(false)
     const answeringKnowledgeMode = ref('')
     const knowledgeAnswer = ref(null)
+    const evaluationCatalogOpen = ref(false)
+    const loadingEvaluationCatalog = ref(false)
+    const evaluationCatalog = ref(null)
     const parentContextEvaluationOpen = ref(false)
     const loadingParentContextEvaluation = ref(false)
     const parentContextEvaluation = ref(null)
@@ -2334,6 +2373,25 @@ export default {
       }
     }
 
+    const toggleEvaluationCatalog = async () => {
+      evaluationCatalogOpen.value = !evaluationCatalogOpen.value
+      if (!evaluationCatalogOpen.value || evaluationCatalog.value || loadingEvaluationCatalog.value) return
+      try {
+        loadingEvaluationCatalog.value = true
+        const response = await api.get('/evaluations/catalog/latest')
+        evaluationCatalog.value = response.data
+      } catch (error) {
+        evaluationCatalogOpen.value = false
+        ElMessage.error(error.response?.data?.message || '评测数据目录暂时不可用')
+      } finally {
+        loadingEvaluationCatalog.value = false
+      }
+    }
+
+    const evaluationSliceLabel = (slice) => ({
+      intent: '意图识别', rag: 'RAG', diagnosis: '故障诊断', tool: '工具治理', memory: '三级记忆', insufficient_evidence: '证据不足'
+    }[slice] || slice)
+
     const evidenceForCitation = (citation) => {
       const evidence = knowledgeAnswer.value?.result?.evidence || []
       return evidence.find(item => item.id === citation.evidence_id) || {}
@@ -2583,6 +2641,9 @@ export default {
       answeringKnowledge,
       answeringKnowledgeMode,
       knowledgeAnswer,
+      evaluationCatalogOpen,
+      loadingEvaluationCatalog,
+      evaluationCatalog,
       parentContextEvaluationOpen,
       loadingParentContextEvaluation,
       parentContextEvaluation,
@@ -2713,6 +2774,8 @@ export default {
       searchKnowledge,
       answerKnowledge,
       toggleParentContextEvaluation,
+      toggleEvaluationCatalog,
+      evaluationSliceLabel,
       cancelDiagnosticRun,
       resetDiagnosticRun,
       onDiagnosticModeChanged,

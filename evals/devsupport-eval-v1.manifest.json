@@ -1,0 +1,55 @@
+{
+  "schema_version": "devsupport-eval-catalog-v1",
+  "dataset_version": "devsupport-eval-v1",
+  "total_cases": 320,
+  "slices": [
+    {
+      "name": "intent",
+      "path": "devsupport-intent-v1.jsonl",
+      "expected_count": 150,
+      "sha256": "6d3d8061feb3bacd7615c55d82c68345f2abd8a2ee72a8d111b5ed89024ae1c2",
+      "dataset_versions": ["devsupport-intent-v1"],
+      "review_policy": "explicit"
+    },
+    {
+      "name": "rag",
+      "path": "devsupport-rag-core-v2.jsonl",
+      "expected_count": 60,
+      "sha256": "c4882a694401f52b4acb002614c0e7a4f4445740cf38b2fb0c50953798376104",
+      "dataset_versions": ["devsupport-rag-core-v2"],
+      "review_policy": "explicit"
+    },
+    {
+      "name": "diagnosis",
+      "path": "devsupport-diagnostic-v1.jsonl",
+      "expected_count": 40,
+      "sha256": "521d9765c600015f85a2ca4981c6ba7e77ec57da65872b1a6039ce70c1c9adf8",
+      "dataset_versions": ["devsupport-diagnostic-v1"],
+      "review_policy": "explicit"
+    },
+    {
+      "name": "tool",
+      "path": "devsupport-tool-runtime-v1.jsonl",
+      "expected_count": 30,
+      "sha256": "a161fae816df8f981b45713e267c4ce876262796bf36456e068bbd416973aaae",
+      "dataset_versions": ["devsupport-tool-runtime-v1"],
+      "review_policy": "explicit"
+    },
+    {
+      "name": "memory",
+      "path": "devsupport-memory-v1.jsonl",
+      "expected_count": 20,
+      "sha256": "434befb1dae82735cbc2b4db26263d63543cfeb2593559f8a265437546f59f06",
+      "dataset_versions": ["devsupport-memory-v1"],
+      "review_policy": "explicit"
+    },
+    {
+      "name": "insufficient_evidence",
+      "path": "devsupport-insufficient-evidence-v1.jsonl",
+      "expected_count": 20,
+      "sha256": "5fe8fb628794bed7fdd647493bf705a456292cfd0e34b15ed12180ecdfd79e19",
+      "dataset_versions": ["devsupport-insufficient-evidence-v1"],
+      "review_policy": "explicit"
+    }
+  ]
+}

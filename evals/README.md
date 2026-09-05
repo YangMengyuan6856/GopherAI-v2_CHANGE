@@ -14,9 +14,17 @@ slice denominators do not add up to 320.
 go run ./cmd/eval-catalog -manifest evals/devsupport-eval-v1.manifest.json
 ```
 
-The full `devsupport-eval-v1` manifest is added only after all six frozen
-slices exist; until then this command and its tests are the M8-01 schema and
-validator contract, not a claim that the 320-case baseline is complete.
+`devsupport-eval-v1.manifest.json` now freezes six candidate slices totalling
+320 cases. A passing catalog check means the assets are structurally complete;
+because all labels remain `pending_user`, it is still not a reviewed baseline
+and cannot support resume claims about model quality.
+
+`devsupport-insufficient-evidence-v1.jsonl` supplies the previously separate
+20-case safety slice: missing documents, unauthorized scope, diagnostic
+uncertainty, retrieved prompt injection, and current-source conflicts have four
+cases each. Every case expects clarify/refuse/conflict rather than a fabricated
+answer. These cases are intentionally separate from RAG retrieval positives so
+safe rejection is not incorrectly scored as missed recall.
 
 ## Diagnostic core dataset
 
