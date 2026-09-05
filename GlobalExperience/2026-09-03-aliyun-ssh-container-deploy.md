@@ -1446,3 +1446,11 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 用户验收指出“低样本抑制”虽然返回了 `minimum_population_not_met`，页面却用绿色“未触发异常”、`Z=0.00` 和“基线点 0”展示。这会把“证据不足、不能判断”误读成“指标健康”。`5e31de0a` 为检测结果增加独立 `decision_status=insufficient_data`，并以契约测试锁定当前样本 `12`、最低门槛 `50`、两个检测器均 `suppressed`、不产生建议且 `Applied=false`。
 - 页面将低样本改为中性第三态：显示“数据不足 · 暂不判定”、固定阈值/Z-score“已抑制 · 未参与判定”、Z 值“未计算”，以及“当前样本 / 最低门槛 12 / 50 · 尚差 38”。异常、健康、数据不足必须是互斥状态；不能继续用单个 `anomalous bool` 推导所有 UI 语义，也不能用数值 `0` 表达尚未计算。
 - Release `20260905204908-5e31de0a0e78`，bundle SHA-256 `001645e8509ab8d75e91327719ae0e5e52def96fdc172861c01f69b9808738e3`，Backend/Worker live+ready、MCP 和前端静态网关门均通过。首次在已打开标签页点击仍看到旧文案，原因是标签页保留旧 JS 资源；重新导航/强制刷新后，真实页面已显示上述第三态。以后前端发布验收必须先 `Ctrl+F5` 或重新导航，再判断新版本是否生效；服务端健康通过不能证明浏览器已加载最新静态资源。
+
+## 65. 2026-09-06 Prometheus 指标契约必须从真实 Collector 反射审计
+
+- `8b23f725` 将 Backend 与 Index Worker 的 Collector 列表改为注册和目录发现共用的单一事实源，避免手写目录已经更新、运行时却没有指标的漂移。审计结果为 88 个业务指标族，SDD 核心契约 `46/46`、类型/标签不一致 0、重复名 0、高基数标签命中 0、保守序列上限 `25095/100000`；目录不通过时认证 API fail-closed 返回 503。
+- 所有 46 个核心指标族都用固定 fallback 标签在首次事件前暴露，因此重启后立即可被 Prometheus 发现。生产 `/metrics` Smoke 实际看到 61 个已实例化的业务族，并逐一确认 TTFT、RAG Query、Agent Transition、Memory Recall、Online Eval、Strategy State 和 Webhook 指标存在；其余非核心 Vec 仍按真实事件惰性创建，不能把“注册 88”误写成“当前活跃 88”。
+- RAG、Profile/Episodic Memory 与 Harness 生命周期复用现有业务调用点写入统一 SDD 指标；用户、租户、会话、请求、Trace、Run、Step、Call、文档/案例 ID、Prompt、Query、路径、URL、邮箱和 IP 均不得进入标签。Worker 的 status/error_code 也必须经过固定枚举，未知值统一收敛为 `unknown`。
+- Release `20260905235345-8b23f725121d`，bundle SHA-256 `8bce738c532e23d78a25e2be68aede54f1f7b6af6667b7485b9b289ace28143d`，四进程与所有依赖健康门通过；真实浏览器显示 88 个目录定义、46/46 核心契约及九个指标域。M8-12 recording rules 尚未接线，因此当前仍不能声称检测器来自生产窗口。
+- 从 PowerShell 拼接远程 Bash 且命令中包含 `$()`、`${name}` 或管道时，反斜杠不能可靠阻止 PowerShell 展开。应像部署脚本一样先把完整 Bash 片段 Base64 编码，再通过 SSH 解码执行；否则本地会把远端 `grep` 当成 PowerShell 命令。该失败只发生在只读 Smoke，未改变远程状态。
