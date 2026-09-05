@@ -79,6 +79,12 @@ func run() error {
 		return fmt.Errorf("initialize redis indexer: %w", err)
 	}
 	repository := knowledge.NewGormRepository(mysql.DB)
+	rehydration, err := knowledge.RehydrateActiveProjection(ctx, repository, indexer)
+	if err != nil {
+		return fmt.Errorf("rehydrate knowledge projection: %w", err)
+	}
+	rehydrationJSON, _ := json.Marshal(rehydration)
+	log.Printf(`{"event":"knowledge_projection_rehydration","status":"success","result":%s}`, rehydrationJSON)
 	processor, err := knowledge.NewProcessor(repository, knowledge.NewDefaultStructuredTextChunker(), indexer, configuration.RagEmbeddingModel, knowledge.SystemClock{})
 	if err != nil {
 		return err

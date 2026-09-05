@@ -24,6 +24,8 @@ const DefaultEmbeddingBatchSize = 10
 
 const embeddingCacheTTLSeconds = 7 * 24 * 60 * 60
 
+const redisExistenceBatchSize = 500
+
 var safeEnvironment = regexp.MustCompile(`[^a-zA-Z0-9_-]+`)
 
 type RedisCommandExecutor interface {
@@ -147,6 +149,33 @@ func (indexer *RedisChunkIndexer) IndexIncremental(ctx context.Context, chunks [
 		}
 	}
 	return stats, nil
+}
+
+// PresentChunkCount reports how many authoritative chunk keys still exist in
+// Redis. Redis is a rebuildable projection, so MySQL remains the source of
+// truth and callers can use this count to detect a lost or partial projection.
+func (indexer *RedisChunkIndexer) PresentChunkCount(ctx context.Context, chunks []model.KnowledgeChunk) (int, error) {
+	if indexer == nil || indexer.client == nil {
+		return 0, errors.New("redis chunk indexer is required")
+	}
+	present := 0
+	for start := 0; start < len(chunks); start += redisExistenceBatchSize {
+		end := min(start+redisExistenceBatchSize, len(chunks))
+		args := make([]any, 1, end-start+1)
+		args[0] = "EXISTS"
+		for _, chunk := range chunks[start:end] {
+			if strings.TrimSpace(chunk.ID) == "" {
+				return 0, errors.New("chunk id is required for projection verification")
+			}
+			args = append(args, indexer.keyPrefix+chunk.ID)
+		}
+		count, err := indexer.client.Do(ctx, args...).Int64()
+		if err != nil {
+			return 0, fmt.Errorf("count redis chunk projection: %w", err)
+		}
+		present += int(count)
+	}
+	return present, nil
 }
 
 func (indexer *RedisChunkIndexer) cachedVector(ctx context.Context, chunk model.KnowledgeChunk) ([]byte, bool) {

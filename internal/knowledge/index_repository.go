@@ -25,6 +25,27 @@ type DeleteWork struct {
 	Complete bool
 }
 
+// ListActiveIndexedChunks returns only the current, authoritative child
+// chunks. Parent rows enrich a retrieved child from MySQL and are not vector
+// search candidates themselves.
+func (repository *GormRepository) ListActiveIndexedChunks(ctx context.Context) ([]model.KnowledgeChunk, error) {
+	if repository == nil || repository.db == nil {
+		return nil, gorm.ErrInvalidDB
+	}
+	chunks := []model.KnowledgeChunk{}
+	err := repository.db.WithContext(ctx).
+		Table("knowledge_chunks AS chunks").
+		Select("chunks.*").
+		Joins("JOIN knowledge_documents AS documents ON documents.id = chunks.document_id AND documents.tenant_id = chunks.tenant_id").
+		Where("documents.status = ?", DocumentStatusIndexed).
+		Where("documents.current_version = chunks.document_version").
+		Where("chunks.index_status = ?", ChunkIndexStatusIndexed).
+		Where("chunks.chunk_kind = ? OR chunks.chunk_kind = '' OR chunks.chunk_kind IS NULL", ChunkKindChild).
+		Order("chunks.tenant_id ASC, chunks.user_id ASC, chunks.document_id ASC, chunks.ordinal ASC").
+		Find(&chunks).Error
+	return chunks, err
+}
+
 type IndexRepository interface {
 	ClaimIndexJob(ctx context.Context, tenantID string, jobID string, documentID string, version int) (IndexWork, error)
 	ReplaceChunks(ctx context.Context, documentID string, version int, chunks []model.KnowledgeChunk) error

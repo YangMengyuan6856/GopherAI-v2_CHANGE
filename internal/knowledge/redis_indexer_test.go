@@ -30,6 +30,15 @@ func (executor *fakeRedisExecutor) Do(ctx context.Context, args ...any) *redis.C
 		return command
 	}
 	switch args[0] {
+	case "EXISTS":
+		var count int64
+		for _, rawKey := range args[1:] {
+			if _, exists := executor.hashVectors[rawKey.(string)]; exists {
+				count++
+			}
+		}
+		command.SetVal(count)
+		return command
 	case "GET":
 		if value, exists := executor.values[args[1].(string)]; exists {
 			command.SetVal(append([]byte(nil), value...))
@@ -232,6 +241,25 @@ func TestRedisChunkIndexerDeletesExactChunkKeysInBoundedBatches(t *testing.T) {
 	first := findCommand(client.calls, "DEL")
 	if len(first) != 101 || first[1] != "gopher:test:v1:kb:chunk:chunk-0" || first[100] != "gopher:test:v1:kb:chunk:chunk-99" {
 		t.Fatalf("delete must target exact namespaced keys: %+v", first)
+	}
+}
+
+func TestRedisChunkIndexerCountsPresentAuthoritativeKeys(t *testing.T) {
+	client := &fakeRedisExecutor{hashVectors: map[string][]byte{
+		"gopher:test:v1:kb:chunk:chunk-1": {1},
+		"gopher:test:v1:kb:chunk:chunk-3": {1},
+	}}
+	indexer, err := NewRedisChunkIndexer(client, new(fakeEmbedder), "test", 2, DefaultEmbeddingBatchSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunks := []model.KnowledgeChunk{{ID: "chunk-1"}, {ID: "chunk-2"}, {ID: "chunk-3"}}
+	present, err := indexer.PresentChunkCount(context.Background(), chunks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if present != 2 || countCommand(client.calls, "EXISTS") != 1 {
+		t.Fatalf("present=%d calls=%+v", present, client.calls)
 	}
 }
 
