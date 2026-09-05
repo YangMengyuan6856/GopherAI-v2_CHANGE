@@ -14,9 +14,11 @@ import (
 func InitRouter() *gin.Engine {
 
 	r := gin.Default()
+	controlWebhookHandler := evaluationControlWebhookHandler()
 	r.NoRoute(retiredEntryPoint)
 	registerHealthRoutes(r)
 	r.GET("/metrics", gin.WrapH(observability.MetricsHandler()))
+	r.POST("/internal/v1/webhooks/control", controlWebhookHandler.Receive)
 	enterRouter := r.Group("/api/v1")
 	{
 		RegisterUserRouter(enterRouter.Group("/user"))

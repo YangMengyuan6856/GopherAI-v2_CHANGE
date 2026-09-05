@@ -627,7 +627,28 @@ func (metrics *Metrics) initializeRequiredMetricSeries() {
 	metrics.strategyState.WithLabelValues("unknown", "unknown", "healthy").Set(0)
 	metrics.controlActions.WithLabelValues("none", "suppressed").Add(0)
 	metrics.controlLoopDuration.WithLabelValues("success")
-	metrics.webhookDeliveries.WithLabelValues("anomaly", "queued").Add(0)
+	for _, eventType := range []string{"opened", "updated", "resolved", "control_action", "rollback"} {
+		for _, status := range []string{"queued", "success", "retry", "dead", "error"} {
+			metrics.webhookDeliveries.WithLabelValues(eventType, status).Add(0)
+		}
+	}
+}
+
+func (metrics *Metrics) RecordWebhookDelivery(eventType string, status string) {
+	if metrics == nil {
+		return
+	}
+	switch eventType {
+	case "opened", "updated", "resolved", "control_action", "rollback":
+	default:
+		eventType = "updated"
+	}
+	switch status {
+	case "queued", "success", "retry", "dead", "error":
+	default:
+		status = "error"
+	}
+	metrics.webhookDeliveries.WithLabelValues(eventType, status).Inc()
 }
 
 func (metrics *Metrics) RecordCaseStrategy(strength string, outcome string, duration time.Duration) {

@@ -81,6 +81,9 @@ func migration() error {
 		new(model.ToolAudit),
 		new(model.RoutingPolicy),
 		new(model.MetricWindowSnapshot),
+		new(model.ControlIncident),
+		new(model.ControlWebhookDelivery),
+		new(model.ControlWebhookReceipt),
 	)
 }
 

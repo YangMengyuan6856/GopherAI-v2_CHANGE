@@ -549,6 +549,36 @@
                   <span v-for="guardrail in productionAnomaly.guardrails" :key="guardrail" class="dependency-ready">{{ guardrail }}</span>
                 </div>
               </article>
+              <details v-if="webhookAudit" class="webhook-audit-card">
+                <summary>查看签名 Webhook 异步投递（{{ webhookAudit.delivered }} 成功 / {{ webhookAudit.dead_lettered }} Dead Letter）</summary>
+                <div class="metric-catalog-heading">
+                  <div>
+                    <strong>Control Webhook · {{ webhookAudit.endpoint_mode }}</strong>
+                    <span>{{ webhookAudit.signature }} · 最多 {{ webhookAudit.max_attempts }} 次尝试</span>
+                  </div>
+                  <button :disabled="runningWebhookAcceptance || !webhookAudit.enabled" @click="runWebhookAcceptance">
+                    {{ runningWebhookAcceptance ? '异步投递中...' : '发送签名验收事件' }}
+                  </button>
+                </div>
+                <p>该按钮发送明确标记为 Simulation 的固定事件，真实经过 MySQL 队列、HMAC-SHA256、HTTP 接收器与幂等回执；不会制造生产告警，也不会写活动策略。</p>
+                <div class="diagnostic-evaluation-grid">
+                  <div><strong>{{ webhookAudit.pending }}</strong><span>等待投递</span></div>
+                  <div><strong>{{ webhookAudit.retrying }}</strong><span>等待重试</span></div>
+                  <div><strong>{{ webhookAudit.delivered }}</strong><span>投递成功</span></div>
+                  <div><strong>{{ webhookAudit.dead_lettered }}</strong><span>Dead Letter</span></div>
+                </div>
+                <div v-if="webhookAudit.latest.length" class="webhook-delivery-list">
+                  <article v-for="delivery in webhookAudit.latest" :key="delivery.event_id">
+                    <div><strong>{{ delivery.simulation ? '验收事件' : webhookEventLabel(delivery.event_type) }}</strong><span>{{ delivery.status }} · HTTP {{ delivery.http_status || '--' }}</span></div>
+                    <div><span>尝试 {{ delivery.attempt }}/{{ webhookAudit.max_attempts }}</span><span>回执验签 {{ delivery.receipt_verified ? '通过' : '未完成' }}</span></div>
+                    <small>Event {{ delivery.event_id.slice(0, 12) }}… · Payload SHA {{ delivery.payload_sha256.slice(0, 12) }}…</small>
+                  </article>
+                </div>
+                <div v-else class="strategy-control-empty">尚无投递事件；生产检测只有在样本成熟并真实异常时才会自动入队。</div>
+                <div class="evaluation-decision-strip">
+                  <span v-for="guardrail in webhookAudit.guardrails" :key="guardrail" class="dependency-ready">{{ guardrail }}</span>
+                </div>
+              </details>
               <div v-if="loadingAnomaly" class="strategy-control-empty">正在以“基线窗口不含当前点”的规则计算...</div>
               <article v-else-if="anomalyResult" :class="['anomaly-result', anomalyDecisionClass(anomalyResult.analysis)]">
                 <div class="evaluation-run-heading">
@@ -1393,6 +1423,8 @@ export default {
     const anomalyResult = ref(null)
     const loadingProductionAnomaly = ref(false)
     const productionAnomaly = ref(null)
+    const webhookAudit = ref(null)
+    const runningWebhookAcceptance = ref(false)
     const anomalyScenarios = [
       { value: 'healthy', label: '健康窗口' },
       { value: 'quality_drop', label: 'RAG 质量下降' },
@@ -2611,18 +2643,20 @@ export default {
       if (!evaluationCatalogOpen.value || evaluationCatalog.value || loadingEvaluationCatalog.value) return
       try {
         loadingEvaluationCatalog.value = true
-        const [catalogResponse, runResponse, metricCatalogResponse, prometheusRuntimeResponse, productionAnomalyResponse] = await Promise.all([
+        const [catalogResponse, runResponse, metricCatalogResponse, prometheusRuntimeResponse, productionAnomalyResponse, webhookAuditResponse] = await Promise.all([
           api.get('/evaluations/catalog/latest'),
           api.get('/evaluations/unified/latest'),
           api.get('/evaluations/metrics/catalog'),
           api.get('/evaluations/metrics/runtime').catch(() => null),
-          api.get('/evaluations/anomaly/production/latest').catch(() => null)
+          api.get('/evaluations/anomaly/production/latest').catch(() => null),
+          api.get('/evaluations/webhooks/latest').catch(() => null)
         ])
         evaluationCatalog.value = catalogResponse.data
         evaluationRun.value = runResponse.data
         metricCatalog.value = metricCatalogResponse.data.report
         prometheusRuntime.value = prometheusRuntimeResponse?.data?.snapshot || null
         productionAnomaly.value = productionAnomalyResponse?.data || null
+        webhookAudit.value = webhookAuditResponse?.data || null
       } catch (error) {
         evaluationCatalogOpen.value = false
         ElMessage.error(error.response?.data?.message || '评测数据目录暂时不可用')
@@ -2695,6 +2729,36 @@ export default {
       if (series.metric === 'rag_grounded_answer_rate') return `${(Number(series.latest.value) * 100).toFixed(1)}%`
       if (series.metric === 'request_p95_latency_seconds') return `${Number(series.latest.value).toFixed(3)}s`
       return Number(series.latest.value).toFixed(3)
+    }
+
+    const webhookEventLabel = (eventType) => ({
+      opened: '异常开启', updated: '异常更新', resolved: '异常恢复', control_action: '控制建议', rollback: '回滚'
+    }[eventType] || eventType)
+
+    const loadWebhookAudit = async () => {
+      const response = await api.get('/evaluations/webhooks/latest')
+      webhookAudit.value = response.data
+      return response.data
+    }
+
+    const runWebhookAcceptance = async () => {
+      if (runningWebhookAcceptance.value) return
+      try {
+        runningWebhookAcceptance.value = true
+        await api.post('/evaluations/webhooks/acceptance', { scenario: 'signed_loopback_delivery' })
+        await new Promise(resolve => setTimeout(resolve, 1800))
+        const audit = await loadWebhookAudit()
+        const latest = audit.latest?.[0]
+        if (latest?.simulation && latest.status === 'delivered' && latest.receipt_verified) {
+          ElMessage.success('签名 Webhook 已异步送达，幂等回执验签通过')
+        } else {
+          ElMessage.info('验收事件已入队；可稍后重新打开本区域查看投递状态')
+        }
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || 'Webhook 验收暂时不可用')
+      } finally {
+        runningWebhookAcceptance.value = false
+      }
     }
 
     const loadProductionAnomaly = async () => {
@@ -2994,6 +3058,8 @@ export default {
       anomalyScenarios,
       loadingProductionAnomaly,
       productionAnomaly,
+      webhookAudit,
+      runningWebhookAcceptance,
       parentContextEvaluationOpen,
       loadingParentContextEvaluation,
       parentContextEvaluation,
@@ -3140,6 +3206,9 @@ export default {
       productionWindowStatusLabel,
       productionDataStatusLabel,
       productionMetricValue,
+      webhookEventLabel,
+      loadWebhookAudit,
+      runWebhookAcceptance,
       loadProductionAnomaly,
       simulateAnomaly,
       cancelDiagnosticRun,
@@ -4954,6 +5023,63 @@ export default {
   border: 1px solid rgba(64, 90, 125, 0.14);
   border-radius: 8px;
   background: #fff;
+}
+
+.webhook-audit-card {
+  margin-top: 9px;
+  padding: 9px;
+  border: 1px dashed rgba(43, 123, 157, 0.36);
+  border-radius: 8px;
+  background: #f1f9fc;
+}
+
+.webhook-audit-card > summary {
+  cursor: pointer;
+  color: #276d89;
+  font-weight: 800;
+}
+
+.webhook-audit-card p {
+  margin: 6px 0;
+  color: #69758c;
+  font-size: 12px;
+}
+
+.webhook-audit-card button {
+  padding: 6px 9px;
+  border: 1px solid rgba(43, 123, 157, 0.35);
+  border-radius: 7px;
+  background: #fff;
+  color: #276d89;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.webhook-delivery-list {
+  display: grid;
+  gap: 7px;
+  margin: 8px 0;
+}
+
+.webhook-delivery-list article {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid rgba(43, 123, 157, 0.16);
+  border-radius: 7px;
+  background: #fff;
+}
+
+.webhook-delivery-list article > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.webhook-delivery-list span,
+.webhook-delivery-list small {
+  color: #69758c;
+  font-size: 12px;
 }
 
 .anomaly-result {

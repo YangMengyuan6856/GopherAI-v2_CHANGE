@@ -79,7 +79,7 @@ func (handler *AnomalyHandler) Simulate(context *gin.Context) {
 		Limitations: []string{
 			"这是确定性验收窗口，不冒充生产 Prometheus 观测。",
 			"检测结果只生成 Recommend-only 候选，Applied 永远为 false。",
-			"生产接线仍需独立 Prometheus recording rules、持久化事件仓库和签名 Webhook Worker。",
+			"该检测 Fixture 不创建生产 Incident，也不触发生产 Webhook；签名投递有独立验收入口。",
 		},
 	})
 }

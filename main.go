@@ -5,6 +5,7 @@ import (
 	"GopherAI/common/rabbitmq"
 	"GopherAI/common/redis"
 	"GopherAI/config"
+	"GopherAI/internal/controlwebhook"
 	"GopherAI/internal/observability"
 	"GopherAI/router"
 	"context"
@@ -41,9 +42,29 @@ func main() {
 	log.Println("redis init success  ")
 	rabbitmq.InitRabbitMQ()
 	log.Println("rabbitmq init success  ")
-	go observability.RunMetricWindowSampler(context.Background(), observability.NewDefaultMetricWindowService(), 20*time.Second, time.Minute, log.Default())
+	webhookConfig, err := controlwebhook.DefaultConfig()
+	if err != nil {
+		log.Println("control webhook configuration rejected")
+		return
+	}
+	metricWindowService := observability.NewDefaultMetricWindowService()
+	go observability.RunMetricWindowSampler(context.Background(), metricWindowService, 20*time.Second, time.Minute, log.Default())
+	webhookRepository := controlwebhook.NewGormRepository(mysql.DB)
+	go controlwebhook.RunReconciler(context.Background(), metricWindowService, controlwebhook.NewReconciler(webhookRepository, observability.DefaultMetrics()), 35*time.Second, time.Minute, log.Default())
+	if webhookConfig.Enabled {
+		dispatcher, dispatcherErr := controlwebhook.NewDispatcher(webhookConfig, webhookRepository, controlwebhook.NewHTTPClient(), observability.DefaultMetrics(), log.Default())
+		if dispatcherErr != nil {
+			log.Println("control webhook dispatcher configuration rejected")
+			return
+		}
+		go func() {
+			if runErr := dispatcher.Run(context.Background()); runErr != nil {
+				log.Println("control webhook dispatcher stopped")
+			}
+		}()
+	}
 
-	err := StartServer(host, port) // 启动 HTTP 服务
+	err = StartServer(host, port) // 启动 HTTP 服务
 	if err != nil {
 		panic(err)
 	}

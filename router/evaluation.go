@@ -18,6 +18,7 @@ func RegisterEvaluationRouter(group *gin.RouterGroup) {
 	anomalyHandler := evaluationcontroller.NewAnomalyHandler()
 	metricCatalogHandler := evaluationcontroller.NewDefaultMetricCatalogHandler()
 	prometheusRuntimeHandler := evaluationcontroller.NewDefaultPrometheusRuntimeHandler()
+	controlWebhookHandler := evaluationcontroller.NewDefaultControlWebhookHandler()
 	group.GET("/diagnostic/latest", handler.LatestDiagnostic)
 	group.GET("/memory/latest", memoryHandler.LatestMemory)
 	group.GET("/context/latest", contextHandler.LatestContext)
@@ -30,4 +31,6 @@ func RegisterEvaluationRouter(group *gin.RouterGroup) {
 	group.GET("/anomaly/production/latest", anomalyHandler.ProductionLatest)
 	group.GET("/metrics/catalog", metricCatalogHandler.Latest)
 	group.GET("/metrics/runtime", prometheusRuntimeHandler.Latest)
+	group.GET("/webhooks/latest", controlWebhookHandler.Latest)
+	group.POST("/webhooks/acceptance", controlWebhookHandler.Acceptance)
 }

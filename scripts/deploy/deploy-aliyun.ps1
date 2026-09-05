@@ -518,6 +518,17 @@ start_release() {
   wait_tcp rabbitmq 5672 60 || return 1
   wait_tcp redis-vector 6379 60 || return 1
 
+  webhook_secret_path="$runtime_path/control-webhook-secret"
+  if [ ! -s "$webhook_secret_path" ]; then
+    old_umask="$(umask)"; umask 077
+    head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$webhook_secret_path"
+    umask "$old_umask"
+  fi
+  chmod 0600 "$webhook_secret_path"
+  export GOPHERAI_CONTROL_WEBHOOK_URL="${GOPHERAI_CONTROL_WEBHOOK_URL:-http://127.0.0.1:9090/internal/v1/webhooks/control}"
+  export GOPHERAI_CONTROL_WEBHOOK_SECRET_FILE="${GOPHERAI_CONTROL_WEBHOOK_SECRET_FILE:-$webhook_secret_path}"
+  export GOPHERAI_CONTROL_WEBHOOK_LOOPBACK_RECEIVER="${GOPHERAI_CONTROL_WEBHOOK_LOOPBACK_RECEIVER:-true}"
+
   cd "$release_path"; : > backend.log; nohup ./GopherAI > backend.log 2>&1 & echo "$!" > "$run_path/backend.pid"
   port="$(backend_port)"; [ -n "$port" ] || port=9090
   wait_backend_health "$port" || return 1
