@@ -31,6 +31,10 @@ func TestDefaultStrategyRegistryIsValidAndCopySafe(t *testing.T) {
 	if unchanged.Intents[0] == "tampered" {
 		t.Fatal("registry returned mutable internal metadata")
 	}
+	fallback, ok := registry.Get("direct_fallback")
+	if !ok || fallback.Dependencies == nil {
+		t.Fatal("dependency-free strategy must serialize as an empty array, not null")
+	}
 }
 
 func TestStrategyRegistryRejectsInvalidMetadataAndFallback(t *testing.T) {

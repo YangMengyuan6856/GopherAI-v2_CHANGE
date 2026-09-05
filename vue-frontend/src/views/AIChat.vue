@@ -122,7 +122,7 @@
                 </div>
                 <p>{{ strategy.version }} · 延迟 {{ strategy.latency_tier }} · 成本 {{ strategy.cost_tier }}</p>
                 <p>意图：{{ strategy.intents.join(' / ') }}</p>
-                <p>依赖：{{ strategy.dependencies.length ? strategy.dependencies.map(strategyDependencyLabel).join(' / ') : '无，可安全兜底' }}</p>
+                <p>依赖：{{ (strategy.dependencies || []).length ? strategy.dependencies.map(strategyDependencyLabel).join(' / ') : '无，可安全兜底' }}</p>
                 <p>控制权限：{{ strategy.control_level }}<template v-if="strategy.fallback"> · 降级到 {{ strategy.fallback }}</template></p>
               </article>
             </div>

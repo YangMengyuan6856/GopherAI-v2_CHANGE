@@ -56,8 +56,8 @@ func NewStrategyRegistry(items ...StrategyMetadata) (*StrategyRegistry, error) {
 		if _, exists := registry.items[item.Name]; exists {
 			return nil, fmt.Errorf("duplicate strategy %q", item.Name)
 		}
-		item.Intents = append([]string(nil), item.Intents...)
-		item.Dependencies = append([]Dependency(nil), item.Dependencies...)
+		item.Intents = append([]string{}, item.Intents...)
+		item.Dependencies = append([]Dependency{}, item.Dependencies...)
 		registry.items[item.Name] = item
 	}
 	for _, item := range registry.items {
@@ -84,8 +84,8 @@ func (registry *StrategyRegistry) Get(name string) (StrategyMetadata, bool) {
 	if !exists {
 		return StrategyMetadata{}, false
 	}
-	item.Intents = append([]string(nil), item.Intents...)
-	item.Dependencies = append([]Dependency(nil), item.Dependencies...)
+	item.Intents = append([]string{}, item.Intents...)
+	item.Dependencies = append([]Dependency{}, item.Dependencies...)
 	return item, true
 }
 
