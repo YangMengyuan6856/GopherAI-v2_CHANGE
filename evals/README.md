@@ -26,6 +26,19 @@ cases each. Every case expects clarify/refuse/conflict rather than a fabricated
 answer. These cases are intentionally separate from RAG retrieval positives so
 safe rejection is not incorrectly scored as missed recall.
 
+`cmd/deterministic-score` normalizes the current Intent, RAG, Diagnosis, Tool
+and Memory reports into one scorecard. Each critical metric carries its source
+slice, numerator, denominator, direction and absolute release target. True
+binary rates include a Wilson 95% interval; non-binomial means such as nDCG and
+step coverage are explicitly marked instead of being given a fake interval.
+The aggregate currently covers 300 executable deterministic cases; the 20-case
+insufficient-evidence slice joins after its combined groundedness/Judge scorer
+is implemented.
+
+```powershell
+go run ./cmd/deterministic-score -candidate <git-sha>
+```
+
 ## Diagnostic core dataset
 
 `devsupport-diagnostic-v1.jsonl` contains 40 sanitized, project-specific
