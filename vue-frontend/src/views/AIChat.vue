@@ -527,9 +527,10 @@
                 <div class="diagnostic-evaluation-grid">
                   <div><strong>{{ anomalyResult.analysis.fixed_threshold.status }}</strong><span>固定阈值 · 连续 {{ anomalyResult.analysis.fixed_threshold.breach_count }} 点</span></div>
                   <div><strong>{{ anomalyResult.analysis.z_score.status }}</strong><span>Z-score · 连续 {{ anomalyResult.analysis.z_score.breach_count }} 点</span></div>
-                  <div><strong>{{ Number(anomalyResult.analysis.z_score.adverse_z_score).toFixed(2) }}</strong><span>不利方向 Z 值 · 阈值 {{ anomalyResult.analysis.policy.z_score_threshold }}</span></div>
+                  <div><strong>{{ anomalyResult.analysis.z_score.zero_variance ? '∞' : Number(anomalyResult.analysis.z_score.adverse_z_score).toFixed(2) }}</strong><span>不利方向 Z 值 · 阈值 {{ anomalyResult.analysis.policy.z_score_threshold }}</span></div>
                   <div><strong>{{ anomalyResult.analysis.z_score.baseline_points }}</strong><span>基线点 · 当前点已排除 {{ anomalyResult.analysis.z_score.current_excluded ? '是' : '否' }}</span></div>
                 </div>
+                <div class="anomaly-reason-line">原因码：{{ anomalyResult.analysis.fixed_threshold.reason_code }} · {{ anomalyResult.analysis.z_score.reason_code }}</div>
                 <div class="evaluation-candidate-warning">
                   <strong>{{ anomalyRecommendationLabel(anomalyResult.analysis.recommendation.action) }}</strong>
                   <span>建议权重变化 {{ anomalyResult.analysis.recommendation.weight_delta_basis / 100 }}% · Applied={{ anomalyResult.analysis.recommendation.applied }} · {{ anomalyResult.analysis.recommendation.mode }}</span>
@@ -4691,6 +4692,12 @@ export default {
   border: 1px dashed rgba(94, 69, 173, 0.28);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.74);
+}
+
+.anomaly-reason-line {
+  color: #69758c;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
 }
 
 .anomaly-workbench summary {

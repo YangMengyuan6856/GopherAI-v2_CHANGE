@@ -53,6 +53,7 @@ type ZScoreSignal struct {
 	BaselineMean    float64 `json:"baseline_mean"`
 	BaselineStdDev  float64 `json:"baseline_stddev"`
 	AdverseZScore   float64 `json:"adverse_z_score"`
+	ZeroVariance    bool    `json:"zero_variance"`
 	CandidatePoints int     `json:"candidate_points"`
 	BreachCount     int     `json:"breach_count"`
 	CurrentExcluded bool    `json:"current_excluded"`
@@ -150,6 +151,7 @@ func AnalyzeMetricWindow(policy DetectionPolicy, observations []MetricObservatio
 			}
 		}
 		analysis.ZScore.AdverseZScore = latestZ
+		analysis.ZScore.ZeroVariance = zeroVarianceShift
 		analysis.ZScore.Anomalous = allBreached && analysis.ZScore.BreachCount >= policy.ConsecutivePoints
 		if analysis.ZScore.Anomalous {
 			analysis.ZScore.Status = "anomalous"

@@ -39,7 +39,7 @@ func TestAnomalyDetectorHandlesZeroVarianceAdverseShift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.ZScore.Anomalous || result.ZScore.BaselineStdDev > 1e-12 || result.ZScore.ReasonCode != "zero_variance_adverse_shift" {
+	if !result.ZScore.Anomalous || !result.ZScore.ZeroVariance || result.ZScore.BaselineStdDev > 1e-12 || result.ZScore.ReasonCode != "zero_variance_adverse_shift" {
 		t.Fatalf("zero-variance shift not handled safely: %+v", result.ZScore)
 	}
 }
