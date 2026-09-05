@@ -58,6 +58,10 @@ and requires Grafana to settle below 200 MiB after a 20-second grace period.
 Grafana drops privileges to its package user; only the copied, read-only
 dashboard/provisioning assets and the dedicated `/var/lib/gopherai-grafana`
 data directory are reachable, not the project configuration under `/root`.
+Suggested plugins and their network update checks are disabled because this
+dashboard uses only the bundled Prometheus data source. If Grafana itself fails
+during an atomic release, rollback restores the core application first and
+reports the dashboard as degraded instead of leaving the public frontend down.
 
 ## Options
 

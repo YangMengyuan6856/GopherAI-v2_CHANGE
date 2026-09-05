@@ -437,6 +437,19 @@ stop_legacy_matches() {
   for pid in $pids; do [ "$pid" = "$$" ] || kill "$pid" 2>/dev/null || true; done
 }
 
+stop_grafana_plugin_processes() {
+  pattern='^/var/lib/grafana/plugins-bundled/.*/gpx_grafana_'
+  pids="$(pgrep -f "$pattern" 2>/dev/null || true)"
+  [ -z "$pids" ] && return 0
+  for pid in $pids; do kill "$pid" 2>/dev/null || true; done
+  for attempt in $(seq 1 5); do
+    remaining="$(pgrep -f "$pattern" 2>/dev/null || true)"
+    [ -z "$remaining" ] && return 0
+    sleep 1
+  done
+  for pid in $remaining; do kill -9 "$pid" 2>/dev/null || true; done
+}
+
 stop_application() {
   stop_pid_file frontend; stop_pid_file mcp; stop_pid_file grafana; stop_pid_file prometheus; stop_pid_file index-worker; stop_pid_file backend
   stop_legacy_matches '^\./GopherAI$'
@@ -444,7 +457,8 @@ stop_application() {
   stop_legacy_matches '^\./gopherai-mcp -mode server$'
   stop_legacy_matches '^\./GopherAI-frontend '
   stop_legacy_matches '^prometheus .*deploy/observability/prometheus.yml'
-  stop_legacy_matches '[/]usr/share/grafana/bin/grafana server .*deploy/observability/grafana/grafana.ini'
+  stop_legacy_matches '^/usr/share/grafana/bin/grafana server '
+  stop_grafana_plugin_processes
   stop_legacy_matches 'node .*vue-cli-service.*serve'
   sleep 2
 }
@@ -533,6 +547,7 @@ backend_port() {
 
 start_release() {
   release_path="$1"
+  skip_grafana="${2:-false}"
   service mysql start >/dev/null 2>&1 || true
   for attempt in $(seq 1 30); do mysqladmin ping --silent >/dev/null 2>&1 && break; sleep 1; done
   mysqladmin ping --silent >/dev/null 2>&1 || return 1
@@ -580,7 +595,9 @@ start_release() {
     echo "Prometheus config is absent in historical release; skipping metrics server"
   fi
 
-  if [ -f "$release_path/deploy/observability/grafana/grafana.ini" ]; then
+  if [ "$skip_grafana" = "true" ]; then
+    echo "Grafana skipped while restoring the core application after a failed deployment"
+  elif [ -f "$release_path/deploy/observability/grafana/grafana.ini" ]; then
     command -v grafana >/dev/null 2>&1 || { echo "Grafana runtime is missing" >&2; return 1; }
     grafana_runtime_root=/var/lib/gopherai-grafana
     [ "$(realpath -m -- "$grafana_runtime_root")" = "/var/lib/gopherai-grafana" ] || { echo "unsafe Grafana runtime root" >&2; return 1; }
@@ -684,7 +701,9 @@ rollback_release() {
   set +e; stop_application
   restore_runtime_dir uploads
   rm -rf -- "$failed_path"; mv "$project_path" "$failed_path"; mv "$backup_path" "$project_path"
-  start_release "$project_path"; return 1
+  # A failed optional dashboard must never prevent the backend, worker, MCP and
+  # frontend from being restored. The next successful deployment re-enables it.
+  start_release "$project_path" true; return 1
 }
 
 echo "[container] stopping previous application processes"
