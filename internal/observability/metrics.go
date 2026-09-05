@@ -50,6 +50,7 @@ type Metrics struct {
 	toolCache                   *prometheus.CounterVec
 	toolValidation              *prometheus.CounterVec
 	toolCancellations           *prometheus.CounterVec
+	legacyEntryAttempts         *prometheus.CounterVec
 	gatherer                    prometheus.Gatherer
 }
 
@@ -227,6 +228,10 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 			Name: "gopherai_tool_cancellations_total",
 			Help: "Total governed tool cancellations by bounded reason.",
 		}, []string{"tool", "reason"}),
+		legacyEntryAttempts: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_legacy_entry_attempts_total",
+			Help: "Total requests to retired public entry points; only fixed route classes are exposed.",
+		}, []string{"entry"}),
 		gatherer: gatherer,
 	}
 	registerer.MustRegister(
@@ -269,6 +274,7 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 		metrics.toolCache,
 		metrics.toolValidation,
 		metrics.toolCancellations,
+		metrics.legacyEntryAttempts,
 	)
 	for _, status := range []string{"accepted", "duplicate", "rejected", "error"} {
 		metrics.documentUploads.WithLabelValues(status).Add(0)
@@ -299,7 +305,7 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 			}
 		}
 	}
-	for _, tool := range []string{"deployment_manifest_lookup", "service_health_snapshot", "bounded_log_signature", "mcp_deployment_evidence", "confirm_resolution"} {
+	for _, tool := range []string{"deployment_manifest_lookup", "service_health_snapshot", "bounded_log_signature", "mcp_deployment_evidence", "official_document_search", "confirm_resolution"} {
 		for _, state := range []string{"closed", "open", "half_open"} {
 			value := 0.0
 			if state == "closed" {
@@ -311,7 +317,20 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 			metrics.toolCache.WithLabelValues(tool, result).Add(0)
 		}
 	}
+	metrics.legacyEntryAttempts.WithLabelValues("skill_api").Add(0)
 	return metrics
+}
+
+// RecordLegacyEntryAttempt observes removed public surfaces without restoring
+// their handlers or exposing caller-controlled paths as metric labels.
+func (metrics *Metrics) RecordLegacyEntryAttempt(entry string) {
+	if metrics == nil {
+		return
+	}
+	if entry != "skill_api" {
+		entry = "unknown"
+	}
+	metrics.legacyEntryAttempts.WithLabelValues(entry).Inc()
 }
 
 func (metrics *Metrics) RecordToolValidation(tool string, result string) {
