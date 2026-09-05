@@ -32,12 +32,28 @@ The default path is:
 6. Extract into a new versioned directory before stopping the current release.
 7. Preserve the remote `config/config.toml`; move `uploads` and frontend
    `node_modules` without duplicating their disk usage.
-8. Switch `/root/GopherAI-`, start MySQL/backend/index worker/MCP/frontend with
-   PID files, and wait for ports 9090, 9091, 8081, and 8080.
+8. Switch `/root/GopherAI-`, start MySQL/backend/index worker/Prometheus/
+   Grafana/MCP/frontend with PID files, and wait for application ports plus the
+   loopback-only observability ports 9092 and 9093.
 9. Keep the previous directory for rollback. If startup fails after switching,
    restore the previous directory and runtime folders automatically.
 
 The script never deletes Docker containers or images.
+
+Prometheus and Grafana are one-time runtime dependencies. Bootstrap them before
+the first release that contains their versioned assets:
+
+```powershell
+.\scripts\deploy\bootstrap-prometheus-aliyun.ps1
+.\scripts\deploy\bootstrap-grafana-aliyun.ps1
+```
+
+Grafana OSS is pinned to `13.2.1` with an exact package SHA-256. Its port is
+available only on the private Docker network and is not published by the host;
+it uses the loopback Prometheus datasource and provisions the immutable
+`gopherai-closed-loop-v1` dashboard. Normal
+deployment validates all dashboard queries before stopping the active release,
+requires provisioning to succeed, and rejects Grafana RSS above 200 MiB.
 
 ## Options
 
@@ -61,6 +77,8 @@ after a second read-only check confirms:
 frontend http://127.0.0.1:8080/ -> 200
 backend  http://127.0.0.1:9090/ -> 404 (server reachable; no root route)
 MCP      127.0.0.1:8081         -> TCP ready
+Prometheus 127.0.0.1:9092        -> ready, 2/2 scrape targets
+Grafana  container-private :9093 -> healthy, dashboard provisioned, no host port
 public   :8080/api/...           -> proxied backend JSON
 ```
 

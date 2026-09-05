@@ -184,6 +184,12 @@ function Build-LocalLinuxArtifacts {
         "-o", (Join-Path $ArtifactDirectory "GopherAI-eval-runner"),
         "./cmd/eval-runner"
     )
+    Write-Host "[build] Grafana dashboard validator linux/amd64 CGO_ENABLED=0"
+    Invoke-Checked -FilePath $GoExecutable -Arguments @(
+        "-C", $RepoRoot, "build", "-p", "1",
+        "-o", (Join-Path $ArtifactDirectory "GopherAI-dashboard-validator"),
+        "./cmd/dashboard-validator"
+    )
 }
 
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..\..")).Path
@@ -269,7 +275,7 @@ try {
         build_strategy = $buildStrategy
         target = "linux/amd64"
         go_version = $goVersion
-        included_components = @("backend", "index-worker", "mcp", "frontend-static-gateway", "frontend-dist", "collaboration-eval", "parent-context-eval", "unified-eval-runner")
+        included_components = @("backend", "index-worker", "mcp", "frontend-static-gateway", "frontend-dist", "collaboration-eval", "parent-context-eval", "unified-eval-runner", "grafana-dashboard-validator")
         config_included = [bool]$DeployConfig
         migrations = @()
         rollback = "previous-directory"
@@ -326,6 +332,11 @@ for dependency in "${dependency_containers[@]}"; do
   [ "$(docker inspect -f '{{.State.Running}}' "$dependency")" = "true" ] || { echo "container did not start: $dependency" >&2; exit 1; }
 done
 
+if [ -n "$(docker port "$container" 9093/tcp 2>/dev/null || true)" ]; then
+  echo "Grafana port 9093 must not be published by Docker" >&2
+  exit 1
+fi
+
 echo "[remote] copying verified bundle into container"
 docker exec "$container" bash -lc "mkdir -p '$container_bundle_dir'"
 docker cp "$bundle_host_path" "$container:$container_bundle_dir/$bundle_name"
@@ -370,6 +381,7 @@ if [ "$build_in_container" = "true" ]; then
   (cd "$new_path" && go build -p 1 -o GopherAI-collaboration-eval ./cmd/collaboration-eval)
   (cd "$new_path" && go build -p 1 -o GopherAI-parent-context-eval ./cmd/parent-context-eval)
   (cd "$new_path" && go build -p 1 -o GopherAI-eval-runner ./cmd/eval-runner)
+  (cd "$new_path" && go build -p 1 -o GopherAI-dashboard-validator ./cmd/dashboard-validator)
 else
   echo "[container] installing locally built Linux binaries"
   test -f "$new_path/.deploy-bin/GopherAI"
@@ -379,6 +391,7 @@ else
   test -f "$new_path/.deploy-bin/GopherAI-collaboration-eval"
   test -f "$new_path/.deploy-bin/GopherAI-parent-context-eval"
   test -f "$new_path/.deploy-bin/GopherAI-eval-runner"
+  test -f "$new_path/.deploy-bin/GopherAI-dashboard-validator"
   cp "$new_path/.deploy-bin/GopherAI" "$new_path/GopherAI"
   cp "$new_path/.deploy-bin/GopherAI-index-worker" "$new_path/GopherAI-index-worker"
   cp "$new_path/.deploy-bin/gopherai-mcp" "$new_path/common/mcp/gopherai-mcp"
@@ -386,7 +399,8 @@ else
   cp "$new_path/.deploy-bin/GopherAI-collaboration-eval" "$new_path/GopherAI-collaboration-eval"
   cp "$new_path/.deploy-bin/GopherAI-parent-context-eval" "$new_path/GopherAI-parent-context-eval"
   cp "$new_path/.deploy-bin/GopherAI-eval-runner" "$new_path/GopherAI-eval-runner"
-  chmod 0755 "$new_path/GopherAI" "$new_path/GopherAI-index-worker" "$new_path/common/mcp/gopherai-mcp" "$new_path/GopherAI-frontend" "$new_path/GopherAI-collaboration-eval" "$new_path/GopherAI-parent-context-eval" "$new_path/GopherAI-eval-runner"
+  cp "$new_path/.deploy-bin/GopherAI-dashboard-validator" "$new_path/GopherAI-dashboard-validator"
+  chmod 0755 "$new_path/GopherAI" "$new_path/GopherAI-index-worker" "$new_path/common/mcp/gopherai-mcp" "$new_path/GopherAI-frontend" "$new_path/GopherAI-collaboration-eval" "$new_path/GopherAI-parent-context-eval" "$new_path/GopherAI-eval-runner" "$new_path/GopherAI-dashboard-validator"
   rm -rf -- "$new_path/.deploy-bin"
 fi
 
@@ -397,6 +411,12 @@ if [ -f "$new_path/deploy/observability/prometheus.yml" ]; then
   (cd "$new_path" && promtool check config deploy/observability/prometheus.yml)
   promtool check rules "$new_path/deploy/observability/recording-rules.yml"
   (cd "$new_path/deploy/observability" && promtool test rules recording-rules.test.yml)
+fi
+
+if [ -f "$new_path/deploy/observability/grafana/dashboards/gopherai-closed-loop.json" ]; then
+  command -v grafana >/dev/null 2>&1 || { echo "Grafana runtime is missing; run scripts/deploy/bootstrap-grafana-aliyun.ps1" >&2; exit 1; }
+  echo "[container] validating immutable Grafana dashboard and provisioning"
+  (cd "$new_path" && ./GopherAI-dashboard-validator -root . > grafana-dashboard-validation.json)
 fi
 
 stop_pid_file() {
@@ -418,12 +438,13 @@ stop_legacy_matches() {
 }
 
 stop_application() {
-  stop_pid_file frontend; stop_pid_file mcp; stop_pid_file prometheus; stop_pid_file index-worker; stop_pid_file backend
+  stop_pid_file frontend; stop_pid_file mcp; stop_pid_file grafana; stop_pid_file prometheus; stop_pid_file index-worker; stop_pid_file backend
   stop_legacy_matches '^\./GopherAI$'
   stop_legacy_matches '^\./GopherAI-index-worker$'
   stop_legacy_matches '^\./gopherai-mcp -mode server$'
   stop_legacy_matches '^\./GopherAI-frontend '
   stop_legacy_matches '^prometheus .*deploy/observability/prometheus.yml'
+  stop_legacy_matches '^grafana server .*deploy/observability/grafana/grafana.ini'
   stop_legacy_matches 'node .*vue-cli-service.*serve'
   sleep 2
 }
@@ -559,6 +580,39 @@ start_release() {
     echo "Prometheus config is absent in historical release; skipping metrics server"
   fi
 
+  if [ -f "$release_path/deploy/observability/grafana/grafana.ini" ]; then
+    command -v grafana >/dev/null 2>&1 || { echo "Grafana runtime is missing" >&2; return 1; }
+    mkdir -p "$runtime_path/grafana/logs" "$runtime_path/grafana/plugins"
+    grafana_admin_secret_path="$runtime_path/grafana-admin-secret"
+    grafana_signing_secret_path="$runtime_path/grafana-signing-secret"
+    for secret_path in "$grafana_admin_secret_path" "$grafana_signing_secret_path"; do
+      if [ ! -s "$secret_path" ]; then
+        old_umask="$(umask)"; umask 077
+        head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$secret_path"
+        umask "$old_umask"
+      fi
+      chmod 0600 "$secret_path"
+    done
+    cd "$release_path"; : > grafana.log
+    GF_SECURITY_ADMIN_PASSWORD="$(cat "$grafana_admin_secret_path")" GF_SECURITY_SECRET_KEY="$(cat "$grafana_signing_secret_path")" GOMEMLIMIT=180MiB GOGC=50 nohup grafana server --homepath=/usr/share/grafana --config="$release_path/deploy/observability/grafana/grafana.ini" > grafana.log 2>&1 & echo "$!" > "$run_path/grafana.pid"
+    wait_http_health "http://127.0.0.1:9093/api/health" 90 || return 1
+    grafana_deadline=$((SECONDS + 45)); grafana_dashboard_ready=false
+    while [ "$SECONDS" -lt "$grafana_deadline" ]; do
+      if curl -fsS 'http://127.0.0.1:9093/api/search?query=GopherAI' 2>/dev/null | grep -q 'gopherai-closed-loop-v1'; then
+        grafana_dashboard_ready=true; break
+      fi
+      sleep 1
+    done
+    [ "$grafana_dashboard_ready" = "true" ] || { echo "Grafana did not provision the GopherAI dashboard" >&2; tail -n 80 "$release_path/grafana.log" >&2; return 1; }
+    grafana_pid="$(tr -cd '0-9' < "$run_path/grafana.pid")"
+    grafana_rss_kib="$(ps -o rss= -p "$grafana_pid" | tr -d ' ' || true)"
+    [ -n "$grafana_rss_kib" ] || { echo "Grafana process exited after readiness" >&2; return 1; }
+    [ "$grafana_rss_kib" -le 204800 ] || { echo "Grafana RSS exceeded 200 MiB guard: ${grafana_rss_kib} KiB" >&2; return 1; }
+    echo "Grafana dashboard ready on private container port: gopherai-closed-loop-v1 (${grafana_rss_kib} KiB RSS)"
+  else
+    echo "Grafana config is absent in historical release; skipping dashboard server"
+  fi
+
   cd "$release_path/common/mcp"; : > mcp.log; nohup ./gopherai-mcp -mode server > mcp.log 2>&1 & echo "$!" > "$run_path/mcp.pid"
   if [ "$skip_frontend" != "true" ]; then
     if [ -x "$release_path/GopherAI-frontend" ] && [ -f "$release_path/vue-frontend/dist/index.html" ]; then
@@ -623,14 +677,16 @@ if ! start_release "$project_path"; then rollback_release; exit 1; fi
 
 echo "[container] release active: $release_id"
 echo "[container] bundle sha256: $expected_sha"
-sha256sum "$project_path/GopherAI" "$project_path/GopherAI-index-worker" "$project_path/common/mcp/gopherai-mcp" "$project_path/GopherAI-frontend" "$project_path/GopherAI-collaboration-eval" "$project_path/GopherAI-parent-context-eval" "$project_path/GopherAI-eval-runner" 2>/dev/null || true
-pgrep -af '^\./GopherAI$|^\./GopherAI-index-worker$|^prometheus .*deploy/observability/prometheus.yml|^\./gopherai-mcp -mode server$|^\./GopherAI-frontend |node .*vue-cli-service.*serve' || true
+sha256sum "$project_path/GopherAI" "$project_path/GopherAI-index-worker" "$project_path/common/mcp/gopherai-mcp" "$project_path/GopherAI-frontend" "$project_path/GopherAI-collaboration-eval" "$project_path/GopherAI-parent-context-eval" "$project_path/GopherAI-eval-runner" "$project_path/GopherAI-dashboard-validator" 2>/dev/null || true
+pgrep -af '^\./GopherAI$|^\./GopherAI-index-worker$|^prometheus .*deploy/observability/prometheus.yml|^grafana server .*deploy/observability/grafana/grafana.ini|^\./gopherai-mcp -mode server$|^\./GopherAI-frontend |node .*vue-cli-service.*serve' || true
 echo "[container] sanitized backend log tail"
 tail -n 30 "$project_path/backend.log" 2>/dev/null | sed -E 's#(amqp://)[^@]+@#\1***:***@#g' || true
 echo "[container] index worker log tail"
 tail -n 30 "$project_path/index-worker.log" 2>/dev/null | sed -E 's#(amqp://)[^@]+@#\1***:***@#g' || true
 echo "[container] Prometheus log tail"
 tail -n 20 "$project_path/prometheus.log" 2>/dev/null || true
+echo "[container] Grafana log tail"
+tail -n 20 "$project_path/grafana.log" 2>/dev/null || true
 echo "[container] MCP log tail"
 tail -n 20 "$project_path/common/mcp/mcp.log" 2>/dev/null || true
 if [ "$skip_frontend" != "true" ]; then echo "[container] frontend log tail"; tail -n 20 "$project_path/vue-frontend/frontend.log" 2>/dev/null || true; fi

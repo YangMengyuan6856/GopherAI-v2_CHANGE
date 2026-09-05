@@ -19,3 +19,19 @@ TSDB size ceiling.
 
 Passing these checks proves scrape/rule health only. It does not prove that a
 production window has enough samples for anomaly detection or policy advice.
+
+## Grafana dashboard
+
+`grafana/dashboards/gopherai-closed-loop.json` is the versioned source of truth
+for the business, quality, and control views. The datasource and provider are
+immutable provisioning files: Prometheus remains loopback-only, while Grafana
+is reachable only inside the private Docker network and has no published host
+port. UI edits cannot drift from Git. `GopherAI-dashboard-validator` rejects
+missing groups, undocumented panels, mutable provisioning, non-pinned
+datasources, and request/user/document/Trace dimensions in PromQL.
+
+The dashboard contains 22 query panels across three groups. Its control panels
+show recommendations and delivery outcomes, but do not claim that a suggestion
+was applied. Full Grafana access is intentionally available only through an SSH
+local port forward; the public application exposes a sanitized health and
+contract summary instead of proxying Grafana administration endpoints.

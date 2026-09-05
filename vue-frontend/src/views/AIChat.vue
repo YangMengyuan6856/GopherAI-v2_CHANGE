@@ -755,6 +755,34 @@
                 <strong>生产 Prometheus 快照暂不可用</strong>
                 <span>指标目录仍可审计，但不会把运行时不可用伪装为健康。</span>
               </div>
+              <article v-if="grafanaRuntime" :class="['prometheus-runtime-card', 'grafana-runtime-card', grafanaRuntime.status]">
+                <div class="metric-catalog-heading">
+                  <div>
+                    <strong>Grafana 可观测看板 · {{ grafanaRuntimeStatusLabel(grafanaRuntime.status) }}</strong>
+                    <span>Grafana {{ grafanaRuntime.grafana_version }} · {{ grafanaRuntime.dashboard.uid }}</span>
+                  </div>
+                  <span :class="['evaluation-gate', grafanaRuntime.status === 'ready' ? 'passed' : 'failed']">
+                    {{ grafanaRuntime.dashboard.panel_count }} 面板 · {{ grafanaRuntime.dashboard.query_count }} 查询
+                  </span>
+                </div>
+                <div class="grafana-dashboard-groups">
+                  <article v-for="group in grafanaRuntime.dashboard.groups" :key="group.title">
+                    <strong>{{ group.title }}</strong>
+                    <span>{{ group.panel_count }} 个面板</span>
+                  </article>
+                </div>
+                <div class="metric-component-strip">
+                  <span class="dependency-ready">Dashboard SHA {{ grafanaRuntime.dashboard.dashboard_sha256.slice(0, 16) }}…</span>
+                  <span class="dependency-ready">Prometheus datasource 不可编辑</span>
+                  <span class="dependency-ready">Docker 未发布 9093</span>
+                  <span class="dependency-ready">30s 刷新</span>
+                </div>
+                <p>完整 Dashboard 由 Git 中的供应文件生成，公网只展示脱敏摘要；“控制”面板显示观察和建议，不代表系统已经自动调权。</p>
+              </article>
+              <div v-else class="evaluation-candidate-warning">
+                <strong>Grafana 运行摘要暂不可用</strong>
+                <span>不会用静态 JSON 存在来冒充运行时健康；部署门会单独校验进程、Datasource 和 Dashboard UID。</span>
+              </div>
               <div class="diagnostic-evaluation-grid">
                 <div><strong>{{ metricCatalog.family_count }}</strong><span>业务指标族</span></div>
                 <div><strong>{{ metricCatalog.label_key_count }}</strong><span>受控标签键</span></div>
@@ -1527,6 +1555,7 @@ export default {
     const evaluationRun = ref(null)
     const metricCatalog = ref(null)
     const prometheusRuntime = ref(null)
+    const grafanaRuntime = ref(null)
     const loadingAnomaly = ref(false)
     const anomalyResult = ref(null)
     const loadingProductionAnomaly = ref(false)
@@ -2758,11 +2787,12 @@ export default {
       if (!evaluationCatalogOpen.value || evaluationCatalog.value || loadingEvaluationCatalog.value) return
       try {
         loadingEvaluationCatalog.value = true
-        const [catalogResponse, runResponse, metricCatalogResponse, prometheusRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse] = await Promise.all([
+        const [catalogResponse, runResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse] = await Promise.all([
           api.get('/evaluations/catalog/latest'),
           api.get('/evaluations/unified/latest'),
           api.get('/evaluations/metrics/catalog'),
           api.get('/evaluations/metrics/runtime').catch(() => null),
+          api.get('/evaluations/metrics/dashboard').catch(() => null),
           api.get('/evaluations/anomaly/production/latest').catch(() => null),
           api.get('/evaluations/webhooks/latest').catch(() => null),
           api.get('/evaluations/controller/latest').catch(() => null),
@@ -2772,6 +2802,7 @@ export default {
         evaluationRun.value = runResponse.data
         metricCatalog.value = metricCatalogResponse.data.report
         prometheusRuntime.value = prometheusRuntimeResponse?.data?.snapshot || null
+        grafanaRuntime.value = grafanaRuntimeResponse?.data?.snapshot || null
         productionAnomaly.value = productionAnomalyResponse?.data || null
         webhookAudit.value = webhookAuditResponse?.data || null
         controllerAudit.value = controllerAuditResponse?.data || null
@@ -2806,6 +2837,8 @@ export default {
     const metricTypeLabel = (type) => ({ counter: 'Counter', histogram: 'Histogram', gauge: 'Gauge' }[type] || type)
 
     const prometheusRuntimeStatusLabel = (status) => ({ ready: '运行正常', warming: '正在预热', degraded: '运行降级' }[status] || '状态未知')
+
+    const grafanaRuntimeStatusLabel = (status) => ({ ready: '运行正常', version_mismatch: '版本不匹配' }[status] || '状态未知')
 
     const recordingGroupLabel = (name) => ({
       'gopherai-scrape-and-request-5m': '抓取与请求 · 5m',
@@ -3247,6 +3280,7 @@ export default {
       evaluationRun,
       metricCatalog,
       prometheusRuntime,
+      grafanaRuntime,
       loadingAnomaly,
       anomalyResult,
       anomalyScenarios,
@@ -3398,6 +3432,7 @@ export default {
       metricDomainLabel,
       metricTypeLabel,
       prometheusRuntimeStatusLabel,
+      grafanaRuntimeStatusLabel,
       recordingGroupLabel,
       anomalyMetricLabel,
       anomalyRecommendationLabel,
@@ -5582,7 +5617,8 @@ export default {
 }
 
 .prometheus-runtime-card.degraded,
-.prometheus-runtime-card.warming {
+.prometheus-runtime-card.warming,
+.prometheus-runtime-card.version_mismatch {
   border-color: rgba(217, 137, 35, 0.35);
   background: #fff8ea;
 }
@@ -5591,6 +5627,37 @@ export default {
   margin: 0;
   color: #69758c;
   font-size: 12px;
+}
+
+.grafana-runtime-card {
+  border-color: rgba(236, 126, 46, 0.32);
+  background: linear-gradient(135deg, #fff7ee, #f5f3ff);
+}
+
+.grafana-dashboard-groups {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 7px;
+}
+
+.grafana-dashboard-groups article {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid rgba(95, 78, 170, 0.16);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.grafana-dashboard-groups span {
+  color: #69758c;
+  font-size: 12px;
+}
+
+@media (max-width: 900px) {
+  .grafana-dashboard-groups { grid-template-columns: 1fr; }
 }
 
 .metric-domain-grid {

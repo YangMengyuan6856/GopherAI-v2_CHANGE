@@ -1,0 +1,17 @@
+apiVersion: 1
+
+deleteDatasources:
+  - name: GopherAI Prometheus
+    orgId: 1
+
+datasources:
+  - name: GopherAI Prometheus
+    uid: gopherai-prometheus
+    type: prometheus
+    access: proxy
+    url: http://127.0.0.1:9092
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
+      timeInterval: 15s
