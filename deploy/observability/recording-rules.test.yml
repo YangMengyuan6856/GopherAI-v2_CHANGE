@@ -24,6 +24,11 @@ tests:
         exp_samples:
           - labels: '{__name__="gopherai:request_success_rate5m",intent="general",strategy="legacy_chat"}'
             value: 1
+      - expr: 'gopherai:strategy_request_population5m{strategy="legacy_chat"}'
+        eval_time: 10m
+        exp_samples:
+          - labels: '{__name__="gopherai:strategy_request_population5m",strategy="legacy_chat"}'
+            value: 20
 
   - name: rag empty ratio and online evaluation average
     interval: 15s

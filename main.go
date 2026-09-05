@@ -5,9 +5,12 @@ import (
 	"GopherAI/common/rabbitmq"
 	"GopherAI/common/redis"
 	"GopherAI/config"
+	"GopherAI/internal/observability"
 	"GopherAI/router"
+	"context"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -38,6 +41,7 @@ func main() {
 	log.Println("redis init success  ")
 	rabbitmq.InitRabbitMQ()
 	log.Println("rabbitmq init success  ")
+	go observability.RunMetricWindowSampler(context.Background(), observability.NewDefaultMetricWindowService(), 20*time.Second, time.Minute, log.Default())
 
 	err := StartServer(host, port) // 启动 HTTP 服务
 	if err != nil {

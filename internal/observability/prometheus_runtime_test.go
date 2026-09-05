@@ -10,7 +10,7 @@ import (
 )
 
 func TestPrometheusRuntimeSnapshotRequiresHealthyExpectedTargetsAndRules(t *testing.T) {
-	server := prometheusRuntimeServer(t, "up", 17)
+	server := prometheusRuntimeServer(t, "up", 19)
 	defer server.Close()
 	client, err := NewPrometheusRuntimeClient(server.URL, server.Client())
 	if err != nil {
@@ -21,13 +21,13 @@ func TestPrometheusRuntimeSnapshotRequiresHealthyExpectedTargetsAndRules(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.Status != "ready" || snapshot.TargetCount != 2 || snapshot.HealthyTargetCount != 2 || snapshot.GroupCount != 4 || snapshot.RuleCount != 17 || snapshot.HealthyRuleCount != 17 || snapshot.FailedRuleCount != 0 || len(snapshot.RulesSHA256) != 64 {
+	if snapshot.Status != "ready" || snapshot.TargetCount != 2 || snapshot.HealthyTargetCount != 2 || snapshot.GroupCount != 4 || snapshot.RuleCount != 19 || snapshot.HealthyRuleCount != 19 || snapshot.FailedRuleCount != 0 || len(snapshot.RulesSHA256) != 64 {
 		t.Fatalf("unexpected runtime snapshot: %+v", snapshot)
 	}
 }
 
 func TestPrometheusRuntimeSnapshotDegradesWithoutHidingFailedSignals(t *testing.T) {
-	server := prometheusRuntimeServer(t, "down", 16)
+	server := prometheusRuntimeServer(t, "down", 18)
 	defer server.Close()
 	client, err := NewPrometheusRuntimeClient(server.URL, server.Client())
 	if err != nil {
@@ -37,7 +37,7 @@ func TestPrometheusRuntimeSnapshotDegradesWithoutHidingFailedSignals(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.Status != "degraded" || snapshot.HealthyTargetCount != 0 || snapshot.RuleCount != 16 || snapshot.FailedRuleCount != 4 {
+	if snapshot.Status != "degraded" || snapshot.HealthyTargetCount != 0 || snapshot.RuleCount != 18 || snapshot.FailedRuleCount != 4 {
 		t.Fatalf("degraded runtime evidence was hidden: %+v", snapshot)
 	}
 }
@@ -55,6 +55,41 @@ func TestPrometheusRuntimeClientRejectsInvalidURLAndAPIStatus(t *testing.T) {
 	_, err := client.Snapshot(context.Background())
 	if err == nil || strings.Contains(err.Error(), "internal detail") {
 		t.Fatalf("expected sanitized API failure, got %v", err)
+	}
+}
+
+func TestPrometheusFixedMetricQueryDoesNotAcceptCallerPromQL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/api/v1/query" || request.URL.Query().Get("query") != `gopherai:rag_grounded_answer_rate15m{strategy="rag_deep"}` {
+			t.Fatalf("unexpected fixed query: %s?%s", request.URL.Path, request.URL.RawQuery)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[{"metric":{"__name__":"gopherai:rag_grounded_answer_rate15m","strategy":"rag_deep"},"value":[1788627600,"0.97"]}]}}`))
+	}))
+	defer server.Close()
+	client, err := NewPrometheusRuntimeClient(server.URL, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sample, err := client.QueryFixedMetric(context.Background(), PrometheusRAGDeepGroundedRate)
+	if err != nil || sample.Status != PrometheusMetricObserved || sample.Value != .97 || sample.ObservedAt.IsZero() {
+		t.Fatalf("unexpected fixed metric sample: %+v err=%v", sample, err)
+	}
+	if _, err := client.QueryFixedMetric(context.Background(), FixedPrometheusMetric("caller_promql")); err == nil {
+		t.Fatal("caller-controlled PromQL must be rejected before HTTP execution")
+	}
+}
+
+func TestPrometheusFixedMetricMarksNaNAsNonFinite(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[{"metric":{"__name__":"gopherai:strategy_request_duration_p95_seconds5m","strategy":"diagnosis_collaborative"},"value":[1788627600,"NaN"]}]}}`))
+	}))
+	defer server.Close()
+	client, _ := NewPrometheusRuntimeClient(server.URL, server.Client())
+	sample, err := client.QueryFixedMetric(context.Background(), PrometheusCollaborativeRequestP95)
+	if err != nil || sample.Status != PrometheusMetricNonFinite {
+		t.Fatalf("non-finite sample must be explicit: %+v err=%v", sample, err)
 	}
 }
 

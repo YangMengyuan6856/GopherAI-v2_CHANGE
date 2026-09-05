@@ -105,6 +105,13 @@ func AnalyzeMetricWindow(policy DetectionPolicy, observations []MetricObservatio
 		analysis.Recommendation.ReasonCode = "insufficient_population"
 		return analysis, nil
 	}
+	if len(ordered) < policy.ConsecutivePoints {
+		analysis.DecisionStatus = "insufficient_window"
+		analysis.Fixed.Status, analysis.Fixed.ReasonCode = "suppressed", "minimum_consecutive_window_not_met"
+		analysis.ZScore.Status, analysis.ZScore.ReasonCode = "suppressed", "minimum_consecutive_window_not_met"
+		analysis.Recommendation.ReasonCode = "insufficient_window"
+		return analysis, nil
+	}
 	tailCount := policy.ConsecutivePoints
 	if tailCount > len(ordered) {
 		tailCount = len(ordered)
@@ -288,7 +295,7 @@ func adverseZScore(value float64, mean float64, stddev float64, direction string
 	if direction == DirectionHigherIsBetter {
 		delta = mean - value
 	}
-	if delta <= 0 {
+	if delta <= 1e-12 {
 		return 0, false
 	}
 	if stddev <= 1e-12 {

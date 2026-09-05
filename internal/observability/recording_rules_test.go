@@ -74,7 +74,8 @@ func TestRecordingRulesExposeStableBoundedAggregates(t *testing.T) {
 	decodeStrictYAML(t, observabilityFile(t, "recording-rules.yml"), &config)
 	required := []string{
 		"gopherai:scrape_target_up", "gopherai:request_rate5m", "gopherai:request_success_rate5m",
-		"gopherai:request_duration_p95_seconds5m", "gopherai:agent_population10m", "gopherai:agent_success_rate10m",
+		"gopherai:request_duration_p95_seconds5m", "gopherai:strategy_request_population5m", "gopherai:strategy_request_duration_p95_seconds5m",
+		"gopherai:agent_population10m", "gopherai:agent_success_rate10m",
 		"gopherai:tool_population10m", "gopherai:tool_success_rate10m", "gopherai:tool_duration_p95_seconds10m",
 		"gopherai:rag_population15m", "gopherai:rag_grounded_answer_rate15m", "gopherai:rag_empty_rate15m",
 		"gopherai:control_action_rate15m", "gopherai:webhook_delivery_rate15m", "gopherai:online_eval_population30m",

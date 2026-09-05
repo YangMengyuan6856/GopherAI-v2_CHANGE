@@ -27,6 +27,7 @@ func RegisterEvaluationRouter(group *gin.RouterGroup) {
 	group.GET("/catalog/latest", catalogHandler.Latest)
 	group.GET("/unified/latest", unifiedHandler.Latest)
 	group.POST("/anomaly/simulate", anomalyHandler.Simulate)
+	group.GET("/anomaly/production/latest", anomalyHandler.ProductionLatest)
 	group.GET("/metrics/catalog", metricCatalogHandler.Latest)
 	group.GET("/metrics/runtime", prometheusRuntimeHandler.Latest)
 }

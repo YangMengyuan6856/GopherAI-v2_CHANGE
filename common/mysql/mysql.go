@@ -80,6 +80,7 @@ func migration() error {
 		new(model.EnvironmentMemory),
 		new(model.ToolAudit),
 		new(model.RoutingPolicy),
+		new(model.MetricWindowSnapshot),
 	)
 }
 

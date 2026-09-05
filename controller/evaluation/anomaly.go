@@ -1,6 +1,7 @@
 package evaluation
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -28,9 +29,22 @@ type AnomalySimulationResponse struct {
 	Limitations   []string                      `json:"limitations"`
 }
 
-type AnomalyHandler struct{ now func() time.Time }
+type ProductionAnomalyReader interface {
+	LatestProductionAnalysis(context.Context) (observability.ProductionAnomalySnapshot, error)
+}
 
-func NewAnomalyHandler() *AnomalyHandler { return &AnomalyHandler{now: time.Now} }
+type AnomalyHandler struct {
+	now        func() time.Time
+	production ProductionAnomalyReader
+}
+
+func NewAnomalyHandler() *AnomalyHandler {
+	return &AnomalyHandler{now: time.Now, production: observability.NewDefaultMetricWindowService()}
+}
+
+func NewAnomalyHandlerWithProduction(reader ProductionAnomalyReader) *AnomalyHandler {
+	return &AnomalyHandler{now: time.Now, production: reader}
+}
 
 func (handler *AnomalyHandler) Simulate(context *gin.Context) {
 	if handler == nil || handler.now == nil {
@@ -67,6 +81,30 @@ func (handler *AnomalyHandler) Simulate(context *gin.Context) {
 			"检测结果只生成 Recommend-only 候选，Applied 永远为 false。",
 			"生产接线仍需独立 Prometheus recording rules、持久化事件仓库和签名 Webhook Worker。",
 		},
+	})
+}
+
+func (handler *AnomalyHandler) ProductionLatest(ginContext *gin.Context) {
+	if handler == nil || handler.production == nil {
+		writeProductionAnomalyError(ginContext)
+		return
+	}
+	requestContext, cancel := context.WithTimeout(ginContext.Request.Context(), 3*time.Second)
+	defer cancel()
+	snapshot, err := handler.production.LatestProductionAnalysis(requestContext)
+	if err != nil {
+		writeProductionAnomalyError(ginContext)
+		return
+	}
+	ginContext.Header("Cache-Control", "no-store")
+	ginContext.JSON(http.StatusOK, snapshot)
+}
+
+func writeProductionAnomalyError(context *gin.Context) {
+	_, traceID := requestid.IDs(context)
+	context.JSON(http.StatusServiceUnavailable, ErrorResponse{
+		SchemaVersion: observability.ProductionAnomalySchemaVersion, Code: "PRODUCTION_ANOMALY_UNAVAILABLE",
+		Message: "生产异常窗口暂不可用", Retryable: true, TraceID: traceID,
 	})
 }
 

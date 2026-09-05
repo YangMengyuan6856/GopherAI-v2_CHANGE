@@ -509,12 +509,46 @@
             </details>
             <details class="anomaly-workbench">
               <summary>打开固定阈值 + 滑动窗口 Z-score 验收工作台</summary>
-              <p>数据源为确定性验收 Fixture，不冒充线上 Prometheus；所有结果仅生成 Recommend-only 建议。</p>
+              <p>下方五个场景是确定性 Fixture；“读取生产窗口”只读取后台定时落入 MySQL 的真实 Prometheus 聚合。两类数据不会混算，所有结果仅生成 Recommend-only 建议。</p>
               <div class="anomaly-scenario-actions">
+                <button class="production-window-button" :disabled="loadingProductionAnomaly" @click="loadProductionAnomaly">
+                  {{ loadingProductionAnomaly ? '读取中...' : '读取生产窗口' }}
+                </button>
                 <button v-for="scenario in anomalyScenarios" :key="scenario.value" :disabled="loadingAnomaly" @click="simulateAnomaly(scenario.value)">
                   {{ scenario.label }}
                 </button>
               </div>
+              <article v-if="productionAnomaly" class="production-anomaly-card">
+                <div class="evaluation-run-heading">
+                  <div>
+                    <strong>生产窗口 · {{ productionWindowStatusLabel(productionAnomaly.status) }}</strong>
+                    <span>{{ productionAnomaly.source }} · 非模拟 · 每分钟持久化</span>
+                  </div>
+                  <span>{{ productionAnomaly.rules_version || '等待首批快照' }}</span>
+                </div>
+                <div v-if="productionAnomaly.series.length" class="production-anomaly-grid">
+                  <article v-for="series in productionAnomaly.series" :key="`${series.metric}-${series.strategy}`">
+                    <div class="metric-catalog-heading">
+                      <div>
+                        <strong>{{ anomalyMetricLabel(series.metric) }} · {{ series.strategy }}</strong>
+                        <span>{{ series.window_seconds / 60 }}m 窗口 · {{ productionDataStatusLabel(series.data_status) }}</span>
+                      </div>
+                      <span :class="anomalyDecisionClass(series.analysis)">{{ series.analysis ? anomalyDecisionLabel(series.analysis.decision_status) : '尚无可分析数值' }}</span>
+                    </div>
+                    <div class="diagnostic-evaluation-grid">
+                      <div><strong>{{ productionMetricValue(series) }}</strong><span>当前聚合值</span></div>
+                      <div><strong>{{ series.latest.population }}</strong><span>当前窗口样本量</span></div>
+                      <div><strong>{{ series.history_point_count }}</strong><span>同规则版本历史点</span></div>
+                      <div><strong>{{ series.analysis?.recommendation?.applied ? '是' : '否' }}</strong><span>是否已修改线上策略</span></div>
+                    </div>
+                    <div v-if="series.analysis" class="anomaly-reason-line">{{ series.analysis.fixed_threshold.reason_code }} · {{ series.analysis.z_score.reason_code }} · {{ series.analysis.recommendation.mode }}</div>
+                  </article>
+                </div>
+                <div v-else class="strategy-control-empty">等待后台完成第一批 Prometheus 窗口快照；页面读取不会触发写入。</div>
+                <div class="evaluation-decision-strip">
+                  <span v-for="guardrail in productionAnomaly.guardrails" :key="guardrail" class="dependency-ready">{{ guardrail }}</span>
+                </div>
+              </article>
               <div v-if="loadingAnomaly" class="strategy-control-empty">正在以“基线窗口不含当前点”的规则计算...</div>
               <article v-else-if="anomalyResult" :class="['anomaly-result', anomalyDecisionClass(anomalyResult.analysis)]">
                 <div class="evaluation-run-heading">
@@ -1357,6 +1391,8 @@ export default {
     const prometheusRuntime = ref(null)
     const loadingAnomaly = ref(false)
     const anomalyResult = ref(null)
+    const loadingProductionAnomaly = ref(false)
+    const productionAnomaly = ref(null)
     const anomalyScenarios = [
       { value: 'healthy', label: '健康窗口' },
       { value: 'quality_drop', label: 'RAG 质量下降' },
@@ -2575,16 +2611,18 @@ export default {
       if (!evaluationCatalogOpen.value || evaluationCatalog.value || loadingEvaluationCatalog.value) return
       try {
         loadingEvaluationCatalog.value = true
-        const [catalogResponse, runResponse, metricCatalogResponse, prometheusRuntimeResponse] = await Promise.all([
+        const [catalogResponse, runResponse, metricCatalogResponse, prometheusRuntimeResponse, productionAnomalyResponse] = await Promise.all([
           api.get('/evaluations/catalog/latest'),
           api.get('/evaluations/unified/latest'),
           api.get('/evaluations/metrics/catalog'),
-          api.get('/evaluations/metrics/runtime').catch(() => null)
+          api.get('/evaluations/metrics/runtime').catch(() => null),
+          api.get('/evaluations/anomaly/production/latest').catch(() => null)
         ])
         evaluationCatalog.value = catalogResponse.data
         evaluationRun.value = runResponse.data
         metricCatalog.value = metricCatalogResponse.data.report
         prometheusRuntime.value = prometheusRuntimeResponse?.data?.snapshot || null
+        productionAnomaly.value = productionAnomalyResponse?.data || null
       } catch (error) {
         evaluationCatalogOpen.value = false
         ElMessage.error(error.response?.data?.message || '评测数据目录暂时不可用')
@@ -2632,16 +2670,48 @@ export default {
     }[action] || action)
 
     const anomalyDecisionLabel = (status) => ({
-      anomalous: '检测到退化', healthy: '窗口健康', insufficient_data: '数据不足 · 暂不判定'
+      anomalous: '检测到退化', healthy: '窗口健康', insufficient_data: '数据不足 · 暂不判定',
+      insufficient_window: '历史窗口不足 · 暂不判定'
     }[status] || '状态未知')
 
     const anomalyDecisionClass = (analysis) => ({
-      anomalous: 'anomaly-detected', healthy: 'anomaly-healthy', insufficient_data: 'anomaly-insufficient'
+      anomalous: 'anomaly-detected', healthy: 'anomaly-healthy', insufficient_data: 'anomaly-insufficient', insufficient_window: 'anomaly-insufficient'
     }[analysis?.decision_status] || 'anomaly-insufficient')
 
     const anomalySignalStatusLabel = (status) => ({
       suppressed: '已抑制', healthy: '健康', anomalous: '异常', warning: '告警', critical: '严重', insufficient_window: '窗口不足'
     }[status] || status)
+
+    const productionWindowStatusLabel = (status) => ({
+      ready: '窗口可判定', warming: '采样预热中', anomalous: '检测到退化'
+    }[status] || '状态未知')
+
+    const productionDataStatusLabel = (status) => ({
+      observed: '已观测', no_series: '暂无序列', no_finite_value: '暂无有限值'
+    }[status] || status)
+
+    const productionMetricValue = (series) => {
+      if (series?.data_status !== 'observed') return '--'
+      if (series.metric === 'rag_grounded_answer_rate') return `${(Number(series.latest.value) * 100).toFixed(1)}%`
+      if (series.metric === 'request_p95_latency_seconds') return `${Number(series.latest.value).toFixed(3)}s`
+      return Number(series.latest.value).toFixed(3)
+    }
+
+    const loadProductionAnomaly = async () => {
+      if (loadingProductionAnomaly.value) return
+      try {
+        loadingProductionAnomaly.value = true
+        const response = await api.get('/evaluations/anomaly/production/latest')
+        productionAnomaly.value = response.data
+        if (response.data?.status === 'anomalous') ElMessage.warning('生产窗口检测到退化，但没有修改线上策略')
+        else if (response.data?.status === 'ready') ElMessage.success('生产窗口已读取，当前没有触发降权建议')
+        else ElMessage.info('生产窗口仍在积累样本，当前保持未决')
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || '生产异常窗口暂时不可用')
+      } finally {
+        loadingProductionAnomaly.value = false
+      }
+    }
 
     const simulateAnomaly = async (scenario) => {
       if (loadingAnomaly.value) return
@@ -2922,6 +2992,8 @@ export default {
       loadingAnomaly,
       anomalyResult,
       anomalyScenarios,
+      loadingProductionAnomaly,
+      productionAnomaly,
       parentContextEvaluationOpen,
       loadingParentContextEvaluation,
       parentContextEvaluation,
@@ -3065,6 +3137,10 @@ export default {
       anomalyDecisionLabel,
       anomalyDecisionClass,
       anomalySignalStatusLabel,
+      productionWindowStatusLabel,
+      productionDataStatusLabel,
+      productionMetricValue,
+      loadProductionAnomaly,
       simulateAnomaly,
       cancelDiagnosticRun,
       resetDiagnosticRun,
@@ -4849,6 +4925,35 @@ export default {
   color: #5e45ad;
   cursor: pointer;
   font-weight: 700;
+}
+
+.anomaly-scenario-actions .production-window-button {
+  border-color: rgba(42, 137, 118, 0.45);
+  background: #e9f9f4;
+  color: #267d6b;
+}
+
+.production-anomaly-card {
+  display: grid;
+  gap: 9px;
+  margin-top: 9px;
+  padding: 10px;
+  border: 1px solid rgba(42, 137, 118, 0.3);
+  border-radius: 8px;
+  background: #f4fcf9;
+}
+
+.production-anomaly-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  gap: 8px;
+}
+
+.production-anomaly-grid > article {
+  padding: 9px;
+  border: 1px solid rgba(64, 90, 125, 0.14);
+  border-radius: 8px;
+  background: #fff;
 }
 
 .anomaly-result {

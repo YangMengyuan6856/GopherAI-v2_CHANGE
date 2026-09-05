@@ -33,6 +33,17 @@ func TestAnomalyDetectorSuppressesLowPopulation(t *testing.T) {
 	}
 }
 
+func TestAnomalyDetectorDoesNotCallSinglePointHealthy(t *testing.T) {
+	policy, _, _ := AcceptanceAnomalyScenario("healthy", time.Now())
+	result, err := AnalyzeMetricWindow(policy, []MetricObservation{{ObservedAt: time.Now().UTC(), Value: .70, Population: 100}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.DecisionStatus != "insufficient_window" || result.Fixed.Status != "suppressed" || result.Recommendation.Action != "none" || result.Recommendation.Applied {
+		t.Fatalf("single point must remain undecided: %+v", result)
+	}
+}
+
 func TestAnomalyDetectorHandlesZeroVarianceAdverseShift(t *testing.T) {
 	policy, observations, _ := AcceptanceAnomalyScenario("zero_variance_shift", time.Now())
 	result, err := AnalyzeMetricWindow(policy, observations)
@@ -41,6 +52,22 @@ func TestAnomalyDetectorHandlesZeroVarianceAdverseShift(t *testing.T) {
 	}
 	if !result.ZScore.Anomalous || !result.ZScore.ZeroVariance || result.ZScore.BaselineStdDev > 1e-12 || result.ZScore.ReasonCode != "zero_variance_adverse_shift" {
 		t.Fatalf("zero-variance shift not handled safely: %+v", result.ZScore)
+	}
+}
+
+func TestAnomalyDetectorIgnoresFloatingNoiseInZeroVarianceWindow(t *testing.T) {
+	policy := DetectionPolicy{Metric: "request_p95_latency_seconds", Strategy: "diagnosis_collaborative", Direction: DirectionLowerIsBetter, WarningThreshold: 2, CriticalThreshold: 4, MinimumPopulation: 50, WindowSize: 30, MinimumWindow: 10, ZScoreThreshold: 3, ConsecutivePoints: 2}
+	now := time.Now().UTC()
+	observations := make([]MetricObservation, 0, 12)
+	for index := 0; index < 12; index++ {
+		observations = append(observations, MetricObservation{ObservedAt: now.Add(time.Duration(index) * time.Minute), Value: 1.1, Population: 100})
+	}
+	result, err := AnalyzeMetricWindow(policy, observations)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Anomalous || result.DecisionStatus != "healthy" || result.ZScore.ZeroVariance {
+		t.Fatalf("floating-point noise must not become a zero-variance anomaly: %+v", result)
 	}
 }
 

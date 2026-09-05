@@ -8,19 +8,21 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
 
 const (
 	PrometheusRuntimeSchemaVersion = "prometheus-runtime-snapshot-v1"
-	RecordingRulesVersion          = "gopherai-recording-rules-v1"
+	RecordingRulesVersion          = "gopherai-recording-rules-v2"
 	ExpectedPrometheusTargets      = 2
 	ExpectedRecordingGroups        = 4
-	ExpectedRecordingRules         = 17
+	ExpectedRecordingRules         = 19
 	maximumPrometheusResponseBytes = 2 << 20
 )
 
@@ -66,6 +68,44 @@ type PrometheusRuntimeClient struct {
 	baseURL *url.URL
 	client  *http.Client
 	clock   func() time.Time
+}
+
+type FixedPrometheusMetric string
+
+const (
+	PrometheusRAGDeepGroundedRate     FixedPrometheusMetric = "rag_deep_grounded_rate"
+	PrometheusRAGDeepPopulation       FixedPrometheusMetric = "rag_deep_population"
+	PrometheusCollaborativeRequestP95 FixedPrometheusMetric = "diagnosis_collaborative_request_p95"
+	PrometheusCollaborativePopulation FixedPrometheusMetric = "diagnosis_collaborative_population"
+	PrometheusMetricObserved                                = "observed"
+	PrometheusMetricNoSeries                                = "no_series"
+	PrometheusMetricNonFinite                               = "non_finite"
+)
+
+type PrometheusInstantSample struct {
+	Status     string    `json:"status"`
+	Value      float64   `json:"value"`
+	ObservedAt time.Time `json:"observed_at"`
+}
+
+type fixedPrometheusQuery struct {
+	query          string
+	expectedLabels map[string]string
+}
+
+var fixedPrometheusQueries = map[FixedPrometheusMetric]fixedPrometheusQuery{
+	PrometheusRAGDeepGroundedRate: {
+		query: `gopherai:rag_grounded_answer_rate15m{strategy="rag_deep"}`, expectedLabels: map[string]string{"strategy": "rag_deep"},
+	},
+	PrometheusRAGDeepPopulation: {
+		query: `gopherai:rag_population15m{strategy="rag_deep"}`, expectedLabels: map[string]string{"strategy": "rag_deep"},
+	},
+	PrometheusCollaborativeRequestP95: {
+		query: `gopherai:strategy_request_duration_p95_seconds5m{strategy="diagnosis_collaborative"}`, expectedLabels: map[string]string{"strategy": "diagnosis_collaborative"},
+	},
+	PrometheusCollaborativePopulation: {
+		query: `gopherai:strategy_request_population5m{strategy="diagnosis_collaborative"}`, expectedLabels: map[string]string{"strategy": "diagnosis_collaborative"},
+	},
 }
 
 func NewPrometheusRuntimeClient(rawURL string, client *http.Client) (*PrometheusRuntimeClient, error) {
@@ -132,6 +172,54 @@ func (client *PrometheusRuntimeClient) Snapshot(ctx context.Context) (Prometheus
 		snapshot.Status = "degraded"
 	}
 	return snapshot, nil
+}
+
+// QueryFixedMetric evaluates one compile-time allowlisted recording-rule
+// selector. Callers cannot submit PromQL, label names or label values.
+func (client *PrometheusRuntimeClient) QueryFixedMetric(ctx context.Context, metric FixedPrometheusMetric) (PrometheusInstantSample, error) {
+	contract, allowed := fixedPrometheusQueries[metric]
+	if !allowed {
+		return PrometheusInstantSample{}, errors.New("Prometheus metric is not allowlisted")
+	}
+	var data struct {
+		ResultType string `json:"resultType"`
+		Result     []struct {
+			Metric map[string]string `json:"metric"`
+			Value  []json.RawMessage `json:"value"`
+		} `json:"result"`
+	}
+	if err := client.get(ctx, "/api/v1/query", url.Values{"query": []string{contract.query}}, &data); err != nil {
+		return PrometheusInstantSample{}, err
+	}
+	if data.ResultType != "vector" || len(data.Result) > 1 {
+		return PrometheusInstantSample{}, errors.New("Prometheus metric response violated the fixed vector contract")
+	}
+	if len(data.Result) == 0 {
+		return PrometheusInstantSample{Status: PrometheusMetricNoSeries}, nil
+	}
+	result := data.Result[0]
+	if len(result.Metric) != len(contract.expectedLabels)+1 {
+		return PrometheusInstantSample{}, errors.New("Prometheus metric labels violated the fixed contract")
+	}
+	for label, expected := range contract.expectedLabels {
+		if result.Metric[label] != expected {
+			return PrometheusInstantSample{}, errors.New("Prometheus metric labels violated the fixed contract")
+		}
+	}
+	if !strings.HasPrefix(result.Metric["__name__"], "gopherai:") || len(result.Value) != 2 {
+		return PrometheusInstantSample{}, errors.New("Prometheus metric sample violated the fixed contract")
+	}
+	var timestamp float64
+	var encodedValue string
+	if json.Unmarshal(result.Value[0], &timestamp) != nil || json.Unmarshal(result.Value[1], &encodedValue) != nil || timestamp <= 0 || math.IsNaN(timestamp) || math.IsInf(timestamp, 0) {
+		return PrometheusInstantSample{}, errors.New("Prometheus metric sample violated the fixed contract")
+	}
+	value, err := strconv.ParseFloat(encodedValue, 64)
+	observedAt := time.Unix(int64(timestamp), int64((timestamp-math.Floor(timestamp))*float64(time.Second))).UTC()
+	if err != nil || math.IsNaN(value) || math.IsInf(value, 0) {
+		return PrometheusInstantSample{Status: PrometheusMetricNonFinite, ObservedAt: observedAt}, nil
+	}
+	return PrometheusInstantSample{Status: PrometheusMetricObserved, Value: value, ObservedAt: observedAt}, nil
 }
 
 type prometheusTargetsData struct {
