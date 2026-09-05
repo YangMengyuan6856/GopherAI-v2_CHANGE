@@ -390,6 +390,15 @@ else
   rm -rf -- "$new_path/.deploy-bin"
 fi
 
+if [ -f "$new_path/deploy/observability/prometheus.yml" ]; then
+  command -v prometheus >/dev/null 2>&1 || { echo "prometheus runtime is missing; run scripts/deploy/bootstrap-prometheus-aliyun.ps1" >&2; exit 1; }
+  command -v promtool >/dev/null 2>&1 || { echo "promtool is missing; run scripts/deploy/bootstrap-prometheus-aliyun.ps1" >&2; exit 1; }
+  echo "[container] validating Prometheus scrape config and recording rules"
+  (cd "$new_path" && promtool check config deploy/observability/prometheus.yml)
+  promtool check rules "$new_path/deploy/observability/recording-rules.yml"
+  (cd "$new_path/deploy/observability" && promtool test rules recording-rules.test.yml)
+fi
+
 stop_pid_file() {
   component="$1"; pid_file="$run_path/$component.pid"
   [ -f "$pid_file" ] || return 0
@@ -409,11 +418,12 @@ stop_legacy_matches() {
 }
 
 stop_application() {
-  stop_pid_file frontend; stop_pid_file mcp; stop_pid_file index-worker; stop_pid_file backend
+  stop_pid_file frontend; stop_pid_file mcp; stop_pid_file prometheus; stop_pid_file index-worker; stop_pid_file backend
   stop_legacy_matches '^\./GopherAI$'
   stop_legacy_matches '^\./GopherAI-index-worker$'
   stop_legacy_matches '^\./gopherai-mcp -mode server$'
   stop_legacy_matches '^\./GopherAI-frontend '
+  stop_legacy_matches '^prometheus .*deploy/observability/prometheus.yml'
   stop_legacy_matches 'node .*vue-cli-service.*serve'
   sleep 2
 }
@@ -520,6 +530,24 @@ start_release() {
     echo "index worker is absent in historical release; skipping worker start"
   fi
 
+  if [ -f "$release_path/deploy/observability/prometheus.yml" ]; then
+    command -v prometheus >/dev/null 2>&1 || { echo "prometheus runtime is missing" >&2; return 1; }
+    mkdir -p "$runtime_path/prometheus-data"
+    cd "$release_path"; : > prometheus.log
+    nohup prometheus --config.file=deploy/observability/prometheus.yml --storage.tsdb.path="$runtime_path/prometheus-data" --storage.tsdb.retention.time=72h --storage.tsdb.retention.size=128MB --web.listen-address=127.0.0.1:9092 > prometheus.log 2>&1 & echo "$!" > "$run_path/prometheus.pid"
+    wait_http_health "http://127.0.0.1:9092/-/ready" 90 || return 1
+    scrape_deadline=$((SECONDS + 45)); scrape_up=0
+    while [ "$SECONDS" -lt "$scrape_deadline" ]; do
+      scrape_up="$(curl -fsS 'http://127.0.0.1:9092/api/v1/targets?state=active' 2>/dev/null | grep -o '"health":"up"' | wc -l | tr -d ' ' || true)"
+      [ "$scrape_up" = "2" ] && break
+      sleep 1
+    done
+    [ "$scrape_up" = "2" ] || { echo "Prometheus did not report both application targets up" >&2; tail -n 80 "$release_path/prometheus.log" >&2; return 1; }
+    echo "Prometheus scrape targets healthy: $scrape_up/2"
+  else
+    echo "Prometheus config is absent in historical release; skipping metrics server"
+  fi
+
   cd "$release_path/common/mcp"; : > mcp.log; nohup ./gopherai-mcp -mode server > mcp.log 2>&1 & echo "$!" > "$run_path/mcp.pid"
   if [ "$skip_frontend" != "true" ]; then
     if [ -x "$release_path/GopherAI-frontend" ] && [ -f "$release_path/vue-frontend/dist/index.html" ]; then
@@ -585,11 +613,13 @@ if ! start_release "$project_path"; then rollback_release; exit 1; fi
 echo "[container] release active: $release_id"
 echo "[container] bundle sha256: $expected_sha"
 sha256sum "$project_path/GopherAI" "$project_path/GopherAI-index-worker" "$project_path/common/mcp/gopherai-mcp" "$project_path/GopherAI-frontend" "$project_path/GopherAI-collaboration-eval" "$project_path/GopherAI-parent-context-eval" "$project_path/GopherAI-eval-runner" 2>/dev/null || true
-pgrep -af '^\./GopherAI$|^\./GopherAI-index-worker$|^\./gopherai-mcp -mode server$|^\./GopherAI-frontend |node .*vue-cli-service.*serve' || true
+pgrep -af '^\./GopherAI$|^\./GopherAI-index-worker$|^prometheus .*deploy/observability/prometheus.yml|^\./gopherai-mcp -mode server$|^\./GopherAI-frontend |node .*vue-cli-service.*serve' || true
 echo "[container] sanitized backend log tail"
 tail -n 30 "$project_path/backend.log" 2>/dev/null | sed -E 's#(amqp://)[^@]+@#\1***:***@#g' || true
 echo "[container] index worker log tail"
 tail -n 30 "$project_path/index-worker.log" 2>/dev/null | sed -E 's#(amqp://)[^@]+@#\1***:***@#g' || true
+echo "[container] Prometheus log tail"
+tail -n 20 "$project_path/prometheus.log" 2>/dev/null || true
 echo "[container] MCP log tail"
 tail -n 20 "$project_path/common/mcp/mcp.log" 2>/dev/null || true
 if [ "$skip_frontend" != "true" ]; then echo "[container] frontend log tail"; tail -n 20 "$project_path/vue-frontend/frontend.log" 2>/dev/null || true; fi

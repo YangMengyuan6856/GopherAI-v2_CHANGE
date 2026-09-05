@@ -550,6 +550,39 @@
                 </div>
                 <span :class="['evaluation-gate', metricCatalog.passed ? 'passed' : 'failed']">{{ metricCatalog.passed ? '目录审计通过' : '目录审计失败' }}</span>
               </div>
+              <article v-if="prometheusRuntime" :class="['prometheus-runtime-card', prometheusRuntime.status]">
+                <div class="metric-catalog-heading">
+                  <div>
+                    <strong>生产 Prometheus · {{ prometheusRuntimeStatusLabel(prometheusRuntime.status) }}</strong>
+                    <span>{{ prometheusRuntime.rules_version }} · SHA {{ prometheusRuntime.rules_sha256.slice(0, 16) }}…</span>
+                  </div>
+                  <span :class="['evaluation-gate', prometheusRuntime.status === 'ready' ? 'passed' : 'failed']">{{ prometheusRuntime.healthy_target_count }} / {{ prometheusRuntime.expected_targets }} Targets Up</span>
+                </div>
+                <div class="diagnostic-evaluation-grid">
+                  <div><strong>{{ prometheusRuntime.target_count }} / {{ prometheusRuntime.expected_targets }}</strong><span>实际 / 预期抓取目标</span></div>
+                  <div><strong>{{ prometheusRuntime.group_count }} / {{ prometheusRuntime.expected_groups }}</strong><span>Recording Groups</span></div>
+                  <div><strong>{{ prometheusRuntime.rule_count }} / {{ prometheusRuntime.expected_rules }}</strong><span>聚合规则</span></div>
+                  <div><strong>{{ prometheusRuntime.failed_rule_count }}</strong><span>失败规则</span></div>
+                </div>
+                <div class="metric-component-strip">
+                  <span v-for="target in prometheusRuntime.targets" :key="target.job" :class="target.health === 'up' ? 'dependency-ready' : 'dependency-down'">
+                    {{ target.component === 'index_worker' ? 'Index Worker' : 'Backend' }} {{ target.health === 'up' ? 'Up' : 'Down' }}
+                  </span>
+                  <span class="dependency-ready">72h / 128MB 双保留上限</span>
+                  <span class="dependency-ready">loopback :9092</span>
+                </div>
+                <div class="metric-domain-grid prometheus-rule-grid">
+                  <article v-for="group in prometheusRuntime.groups" :key="group.name">
+                    <strong>{{ recordingGroupLabel(group.name) }}</strong>
+                    <span>{{ group.healthy_rule_count }} / {{ group.rule_count }} 健康 · {{ group.interval_seconds }}s 执行</span>
+                  </article>
+                </div>
+                <p>这里读取真实 Prometheus HTTP API；它证明抓取与聚合规则正常，不代表当前业务样本量已经达到异常判定门槛。</p>
+              </article>
+              <div v-else class="evaluation-candidate-warning">
+                <strong>生产 Prometheus 快照暂不可用</strong>
+                <span>指标目录仍可审计，但不会把运行时不可用伪装为健康。</span>
+              </div>
               <div class="diagnostic-evaluation-grid">
                 <div><strong>{{ metricCatalog.family_count }}</strong><span>业务指标族</span></div>
                 <div><strong>{{ metricCatalog.label_key_count }}</strong><span>受控标签键</span></div>
@@ -1321,6 +1354,7 @@ export default {
     const evaluationCatalog = ref(null)
     const evaluationRun = ref(null)
     const metricCatalog = ref(null)
+    const prometheusRuntime = ref(null)
     const loadingAnomaly = ref(false)
     const anomalyResult = ref(null)
     const anomalyScenarios = [
@@ -2541,14 +2575,16 @@ export default {
       if (!evaluationCatalogOpen.value || evaluationCatalog.value || loadingEvaluationCatalog.value) return
       try {
         loadingEvaluationCatalog.value = true
-        const [catalogResponse, runResponse, metricCatalogResponse] = await Promise.all([
+        const [catalogResponse, runResponse, metricCatalogResponse, prometheusRuntimeResponse] = await Promise.all([
           api.get('/evaluations/catalog/latest'),
           api.get('/evaluations/unified/latest'),
-          api.get('/evaluations/metrics/catalog')
+          api.get('/evaluations/metrics/catalog'),
+          api.get('/evaluations/metrics/runtime').catch(() => null)
         ])
         evaluationCatalog.value = catalogResponse.data
         evaluationRun.value = runResponse.data
         metricCatalog.value = metricCatalogResponse.data.report
+        prometheusRuntime.value = prometheusRuntimeResponse?.data?.snapshot || null
       } catch (error) {
         evaluationCatalogOpen.value = false
         ElMessage.error(error.response?.data?.message || '评测数据目录暂时不可用')
@@ -2577,6 +2613,15 @@ export default {
     }[domain] || domain)
 
     const metricTypeLabel = (type) => ({ counter: 'Counter', histogram: 'Histogram', gauge: 'Gauge' }[type] || type)
+
+    const prometheusRuntimeStatusLabel = (status) => ({ ready: '运行正常', warming: '正在预热', degraded: '运行降级' }[status] || '状态未知')
+
+    const recordingGroupLabel = (name) => ({
+      'gopherai-scrape-and-request-5m': '抓取与请求 · 5m',
+      'gopherai-agent-tool-10m': 'Agent 与工具 · 10m',
+      'gopherai-rag-quality-control-15m': 'RAG 与控制 · 15m',
+      'gopherai-evaluation-feedback-30m': '评测与反馈 · 30m'
+    }[name] || name)
 
     const anomalyMetricLabel = (metric) => ({
       rag_grounded_answer_rate: 'RAG 有依据回答率', request_p95_latency_seconds: '请求 P95 延迟'
@@ -2873,6 +2918,7 @@ export default {
       evaluationCatalog,
       evaluationRun,
       metricCatalog,
+      prometheusRuntime,
       loadingAnomaly,
       anomalyResult,
       anomalyScenarios,
@@ -3012,6 +3058,8 @@ export default {
       evaluationFailureLabel,
       metricDomainLabel,
       metricTypeLabel,
+      prometheusRuntimeStatusLabel,
+      recordingGroupLabel,
       anomalyMetricLabel,
       anomalyRecommendationLabel,
       anomalyDecisionLabel,
@@ -4875,6 +4923,28 @@ export default {
   flex-wrap: wrap;
   gap: 7px;
   margin: 8px 0;
+}
+
+.prometheus-runtime-card {
+  display: grid;
+  gap: 7px;
+  margin: 9px 0;
+  padding: 9px;
+  border: 1px solid rgba(52, 168, 121, 0.28);
+  border-radius: 8px;
+  background: #f0fbf6;
+}
+
+.prometheus-runtime-card.degraded,
+.prometheus-runtime-card.warming {
+  border-color: rgba(217, 137, 35, 0.35);
+  background: #fff8ea;
+}
+
+.prometheus-runtime-card > p {
+  margin: 0;
+  color: #69758c;
+  font-size: 12px;
 }
 
 .metric-domain-grid {

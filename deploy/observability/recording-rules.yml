@@ -1,0 +1,63 @@
+groups:
+  - name: gopherai-scrape-and-request-5m
+    interval: 15s
+    rules:
+      - record: gopherai:scrape_target_up
+        expr: max by (job, component) (up{job=~"gopherai-backend|gopherai-index-worker"})
+
+      - record: gopherai:request_rate5m
+        expr: sum by (intent, strategy, status) (rate(gopherai_requests_total[5m]))
+
+      - record: gopherai:request_success_rate5m
+        expr: sum by (intent, strategy) (rate(gopherai_requests_total{status="success"}[5m])) / clamp_min(sum by (intent, strategy) (rate(gopherai_requests_total[5m])), 0.000001)
+
+      - record: gopherai:request_duration_p95_seconds5m
+        expr: histogram_quantile(0.95, sum by (le, intent, strategy) (rate(gopherai_request_duration_seconds_bucket[5m])))
+
+  - name: gopherai-agent-tool-10m
+    interval: 15s
+    rules:
+      - record: gopherai:agent_population10m
+        expr: sum by (agent, strategy) (increase(gopherai_agent_runs_total[10m]))
+
+      - record: gopherai:agent_success_rate10m
+        expr: sum by (agent, strategy) (rate(gopherai_agent_runs_total{status="success"}[10m])) / clamp_min(sum by (agent, strategy) (rate(gopherai_agent_runs_total[10m])), 0.000001)
+
+      - record: gopherai:tool_population10m
+        expr: sum by (tool, strategy) (increase(gopherai_tool_calls_total[10m]))
+
+      - record: gopherai:tool_success_rate10m
+        expr: sum by (tool, strategy) (rate(gopherai_tool_calls_total{status="success"}[10m])) / clamp_min(sum by (tool, strategy) (rate(gopherai_tool_calls_total[10m])), 0.000001)
+
+      - record: gopherai:tool_duration_p95_seconds10m
+        expr: histogram_quantile(0.95, sum by (le, tool, strategy) (rate(gopherai_tool_duration_seconds_bucket[10m])))
+
+  - name: gopherai-rag-quality-control-15m
+    interval: 15s
+    rules:
+      - record: gopherai:rag_population15m
+        expr: sum by (strategy) (increase(gopherai_rag_queries_total[15m]))
+
+      - record: gopherai:rag_grounded_answer_rate15m
+        expr: sum by (strategy) (rate(gopherai_rag_queries_total{status="answered"}[15m])) / clamp_min(sum by (strategy) (rate(gopherai_rag_queries_total[15m])), 0.000001)
+
+      - record: gopherai:rag_empty_rate15m
+        expr: sum by (strategy) (rate(gopherai_rag_empty_total[15m])) / clamp_min(sum by (strategy) (rate(gopherai_rag_queries_total[15m])), 0.000001)
+
+      - record: gopherai:control_action_rate15m
+        expr: sum by (action, result) (rate(gopherai_control_actions_total[15m]))
+
+      - record: gopherai:webhook_delivery_rate15m
+        expr: sum by (event_type, status) (rate(gopherai_webhook_deliveries_total[15m]))
+
+  - name: gopherai-evaluation-feedback-30m
+    interval: 30s
+    rules:
+      - record: gopherai:online_eval_population30m
+        expr: sum by (strategy, dimension) (increase(gopherai_online_eval_score_count[30m]))
+
+      - record: gopherai:online_eval_score_avg30m
+        expr: sum by (strategy, dimension) (increase(gopherai_online_eval_score_sum[30m])) / clamp_min(sum by (strategy, dimension) (increase(gopherai_online_eval_score_count[30m])), 1)
+
+      - record: gopherai:feedback_accept_rate30m
+        expr: sum by (strategy, type) (rate(gopherai_feedback_total{result="accepted"}[30m])) / clamp_min(sum by (strategy, type) (rate(gopherai_feedback_total[30m])), 0.000001)

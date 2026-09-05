@@ -1,0 +1,49 @@
+rule_files:
+  - recording-rules.yml
+
+evaluation_interval: 15s
+
+tests:
+  - name: healthy targets and successful request aggregation
+    interval: 15s
+    input_series:
+      - series: 'up{job="gopherai-backend",component="backend"}'
+        values: '1x41'
+      - series: 'up{job="gopherai-index-worker",component="index_worker"}'
+        values: '1x41'
+      - series: 'gopherai_requests_total{intent="general",strategy="legacy_chat",status="success"}'
+        values: '0+1x40'
+    promql_expr_test:
+      - expr: 'gopherai:scrape_target_up{job="gopherai-backend",component="backend"}'
+        eval_time: 10m
+        exp_samples:
+          - labels: '{__name__="gopherai:scrape_target_up",job="gopherai-backend",component="backend"}'
+            value: 1
+      - expr: 'gopherai:request_success_rate5m{intent="general",strategy="legacy_chat"}'
+        eval_time: 10m
+        exp_samples:
+          - labels: '{__name__="gopherai:request_success_rate5m",intent="general",strategy="legacy_chat"}'
+            value: 1
+
+  - name: rag empty ratio and online evaluation average
+    interval: 15s
+    input_series:
+      - series: 'gopherai_rag_queries_total{strategy="rag_fast",status="insufficient"}'
+        values: '0+1x120'
+      - series: 'gopherai_rag_empty_total{strategy="rag_fast",reason="insufficient"}'
+        values: '0+1x120'
+      - series: 'gopherai_online_eval_score_sum{strategy="rag_fast",dimension="quality"}'
+        values: '0+0.5x120'
+      - series: 'gopherai_online_eval_score_count{strategy="rag_fast",dimension="quality"}'
+        values: '0+1x120'
+    promql_expr_test:
+      - expr: 'gopherai:rag_empty_rate15m{strategy="rag_fast"}'
+        eval_time: 30m
+        exp_samples:
+          - labels: '{__name__="gopherai:rag_empty_rate15m",strategy="rag_fast"}'
+            value: 1
+      - expr: 'gopherai:online_eval_score_avg30m{strategy="rag_fast",dimension="quality"}'
+        eval_time: 30m
+        exp_samples:
+          - labels: '{__name__="gopherai:online_eval_score_avg30m",strategy="rag_fast",dimension="quality"}'
+            value: 0.5
