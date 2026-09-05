@@ -548,7 +548,44 @@
           >
             {{ answeringKnowledge && answeringKnowledgeMode === 'parent' ? '父子检索回答中...' : '父子上下文回答' }}
           </button>
+          <button class="parent-evaluation-btn" :disabled="loadingParentContextEvaluation" @click="toggleParentContextEvaluation">
+            {{ parentContextEvaluationOpen ? '收起父子 A/B' : (loadingParentContextEvaluation ? '读取 A/B 中...' : '查看父子 A/B 净收益') }}
+          </button>
         </div>
+        <section v-if="parentContextEvaluationOpen" class="diagnostic-evaluation parent-context-evaluation">
+          <div v-if="loadingParentContextEvaluation" class="diagnostic-evaluation-loading">正在读取不含逐例问题的成对评测汇总...</div>
+          <template v-else-if="parentContextEvaluation">
+            <div class="diagnostic-evaluation-title">
+              <div>
+                <strong>rag_fast vs rag_parent_context 成对 A/B</strong>
+                <span>{{ parentContextEvaluation.metrics.case_count }} 条 · 同题、同模型、同 TopK</span>
+              </div>
+              <span :class="['evaluation-gate', parentContextEvaluation.technical_gates_passed ? 'passed' : 'failed']">
+                {{ parentContextEvaluation.technical_gates_passed ? '技术门通过' : '技术门未通过' }}
+              </span>
+            </div>
+            <div class="diagnostic-evaluation-grid">
+              <div><strong>{{ metricPercent(parentContextEvaluation.metrics.baseline_mean_quality) }}</strong><span>rag_fast 平均质量</span></div>
+              <div><strong>{{ metricPercent(parentContextEvaluation.metrics.candidate_mean_quality) }}</strong><span>parent-context 平均质量</span></div>
+              <div><strong>{{ metricPercent(parentContextEvaluation.metrics.target_mean_quality_delta) }}</strong><span>目标切片质量差</span></div>
+              <div><strong>[{{ metricPercent(parentContextEvaluation.metrics.target_quality_delta_ci95_lower) }}, {{ metricPercent(parentContextEvaluation.metrics.target_quality_delta_ci95_upper) }}]</strong><span>质量差 95% paired CI</span></div>
+              <div><strong>{{ Number(parentContextEvaluation.metrics.baseline_mean_document_diversity).toFixed(2) }} / {{ Number(parentContextEvaluation.metrics.candidate_mean_document_diversity).toFixed(2) }}</strong><span>平均来源文档数</span></div>
+              <div><strong>{{ metricPercent(parentContextEvaluation.metrics.input_token_overhead_rate) }}</strong><span>输入 Token 增幅</span></div>
+              <div><strong>{{ parentContextEvaluation.metrics.baseline_p95_latency_ms }} / {{ parentContextEvaluation.metrics.candidate_p95_latency_ms }} ms</strong><span>P95 基线 / 候选</span></div>
+              <div><strong>{{ parentContextEvaluation.metrics.baseline_p99_latency_ms }} / {{ parentContextEvaluation.metrics.candidate_p99_latency_ms }} ms</strong><span>P99 基线 / 候选</span></div>
+              <div><strong>{{ metricPercent(parentContextEvaluation.metrics.child_citation_integrity_rate) }}</strong><span>Child 引用完整率</span></div>
+              <div><strong>{{ metricPercent(parentContextEvaluation.metrics.target_parent_context_availability) }}</strong><span>目标样本 Parent 可用率</span></div>
+            </div>
+            <div class="evaluation-candidate-warning">
+              <strong>默认权重仍为 {{ parentContextEvaluation.recommended_default_weight }}%</strong>
+              <span>{{ parentContextEvaluation.human_reviewed ? '标签已人工复核' : '20 条标签仍待人工复核' }}；{{ parentContextEvaluation.net_benefit_passed ? '当前样本净收益门通过' : '当前样本尚未证明净收益' }}；没有人工批准不会切流。</span>
+            </div>
+            <details v-if="parentContextEvaluation.gate_failures?.length" class="strategy-registry-details">
+              <summary>查看技术门未通过原因（{{ parentContextEvaluation.gate_failures.length }}）</summary>
+              <div class="strategy-control-notice">{{ parentContextEvaluation.gate_failures.join(' · ') }}</div>
+            </details>
+          </template>
+        </section>
         <section v-if="knowledgeAnswer" :class="['knowledge-answer', { insufficient: !knowledgeAnswer.result.resolved }]">
           <div class="knowledge-answer-header">
             <strong>{{ knowledgeAnswer.result.resolved ? '✅ 证据门通过' : '⚠️ 证据不足' }}</strong>
@@ -1109,6 +1146,9 @@ export default {
     const answeringKnowledge = ref(false)
     const answeringKnowledgeMode = ref('')
     const knowledgeAnswer = ref(null)
+    const parentContextEvaluationOpen = ref(false)
+    const loadingParentContextEvaluation = ref(false)
+    const parentContextEvaluation = ref(null)
     const diagnosticMode = ref(false)
     const activeDiagnosticRun = ref(null)
     const diagnosticRecovered = ref(false)
@@ -2279,6 +2319,21 @@ export default {
       }
     }
 
+    const toggleParentContextEvaluation = async () => {
+      parentContextEvaluationOpen.value = !parentContextEvaluationOpen.value
+      if (!parentContextEvaluationOpen.value || parentContextEvaluation.value || loadingParentContextEvaluation.value) return
+      try {
+        loadingParentContextEvaluation.value = true
+        const response = await api.get('/evaluations/parent-context/latest')
+        parentContextEvaluation.value = response.data
+      } catch (error) {
+        parentContextEvaluationOpen.value = false
+        ElMessage.error(error.response?.data?.message || '父子上下文成对评测报告暂时不可用')
+      } finally {
+        loadingParentContextEvaluation.value = false
+      }
+    }
+
     const evidenceForCitation = (citation) => {
       const evidence = knowledgeAnswer.value?.result?.evidence || []
       return evidence.find(item => item.id === citation.evidence_id) || {}
@@ -2528,6 +2583,9 @@ export default {
       answeringKnowledge,
       answeringKnowledgeMode,
       knowledgeAnswer,
+      parentContextEvaluationOpen,
+      loadingParentContextEvaluation,
+      parentContextEvaluation,
       diagnosticMode,
       activeDiagnosticRun,
       diagnosticRecovered,
@@ -2654,6 +2712,7 @@ export default {
       toggleKnowledgeSearch,
       searchKnowledge,
       answerKnowledge,
+      toggleParentContextEvaluation,
       cancelDiagnosticRun,
       resetDiagnosticRun,
       onDiagnosticModeChanged,

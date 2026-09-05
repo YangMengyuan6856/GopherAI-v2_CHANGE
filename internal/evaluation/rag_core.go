@@ -48,14 +48,19 @@ type RAGCase struct {
 }
 
 type FixtureChunk struct {
-	ID              string `json:"id"`
-	Document        string `json:"document"`
-	Section         string `json:"section"`
-	LineStart       int    `json:"line_start"`
-	LineEnd         int    `json:"line_end"`
-	Content         string `json:"content"`
-	DocumentVersion int    `json:"document_version,omitempty"`
-	Status          string `json:"status,omitempty"`
+	ID                string `json:"id"`
+	Document          string `json:"document"`
+	Section           string `json:"section"`
+	LineStart         int    `json:"line_start"`
+	LineEnd           int    `json:"line_end"`
+	Content           string `json:"content"`
+	DocumentVersion   int    `json:"document_version,omitempty"`
+	Status            string `json:"status,omitempty"`
+	ParentEvidenceID  string `json:"parent_evidence_id,omitempty"`
+	ParentContext     string `json:"parent_context,omitempty"`
+	ParentSection     string `json:"parent_section,omitempty"`
+	ParentLineStart   int    `json:"parent_line_start,omitempty"`
+	ParentLineEnd     int    `json:"parent_line_end,omitempty"`
 }
 
 type RAGFixture struct {

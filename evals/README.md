@@ -60,6 +60,28 @@ Both v1 and v2 labels remain `pending_user`. A passing technical report is not
 eligible to become an interview baseline until the corresponding labels are
 reviewed and changed to `human`.
 
+## Parent-context paired evaluation
+
+`devsupport-parent-context-ab-v1.jsonl` compares `rag_fast@rag-fast-v1` with
+`rag_parent_context@rag-parent-context-v1` on the same 20 questions, model and
+TopK. Ten target cases require cross-document or section-aware synthesis; ten
+single-fact guard cases detect regressions. The isolated fixture is
+`fixtures/kb-parent-context-fixture-v1.json` and cannot enter a user's index.
+
+Run the prebuilt Linux evaluator inside the application container:
+
+```bash
+cd /root/GopherAI-
+./GopherAI-parent-context-eval -candidate <git-sha>
+```
+
+The report records paired answer quality, distinct source-document counts,
+input/output tokens, P95/P99 latency, Child-only citation integrity and fixed
+seed paired-bootstrap 95% confidence intervals. Technical safety and execution
+gates are separate from the net-benefit gate. All labels remain
+`reviewed_by=pending_user`; the candidate's default traffic weight is therefore
+hard-coded to zero even if the observed net-benefit gate passes.
+
 ## Profile-memory safety dataset
 
 `devsupport-memory-v1.jsonl` is a deterministic 20-case contract suite for the
