@@ -217,7 +217,7 @@ func (repository *GormRepository) ClaimAvailable(ctx context.Context, now time.T
 			return gorm.ErrRecordNotFound
 		}
 		leaseUntil := now.Add(lease)
-		result := tx.Model(&model.ControlWebhookDelivery{}).Where("event_id = ?", row.EventID).Updates(map[string]any{
+		result = tx.Model(&model.ControlWebhookDelivery{}).Where("event_id = ?", row.EventID).Updates(map[string]any{
 			"status": StatusProcessing, "attempt": row.Attempt + 1, "lease_until": leaseUntil, "updated_at": now,
 		})
 		if result.Error != nil {
