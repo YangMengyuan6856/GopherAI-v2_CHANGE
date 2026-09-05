@@ -160,6 +160,12 @@ function Build-LocalLinuxArtifacts {
         "-o", (Join-Path $ArtifactDirectory "GopherAI-index-worker"),
         "./cmd/index-worker"
     )
+    Write-Host "[build] static frontend gateway linux/amd64 CGO_ENABLED=0"
+    Invoke-Checked -FilePath $GoExecutable -Arguments @(
+        "-C", $RepoRoot, "build", "-p", "1",
+        "-o", (Join-Path $ArtifactDirectory "GopherAI-frontend"),
+        "./cmd/frontend-gateway"
+    )
 }
 
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..\..")).Path
@@ -215,6 +221,15 @@ try {
         Invoke-Checked -FilePath $goExecutable -Arguments @("-C", (Join-Path $repoRoot "common\mcp"), "test", "-p", "1", "./...")
     }
 
+    if (-not $SkipFrontend) {
+        Require-Command "npm"
+        Write-Host "[build] Vue production assets (local, never on the 1.6 GiB ECS)"
+        Invoke-Checked -FilePath "npm" -Arguments @("run", "build") -WorkingDirectory (Join-Path $repoRoot "vue-frontend")
+        if (-not (Test-Path -LiteralPath (Join-Path $repoRoot "vue-frontend\dist\index.html"))) {
+            throw "Vue production build did not create dist/index.html."
+        }
+    }
+
     if ($BuildInContainer) {
         Write-Warning "Container build can exhaust the 1.6 GiB ECS; use only as an explicit fallback."
         $buildStrategy = "container"
@@ -236,7 +251,7 @@ try {
         build_strategy = $buildStrategy
         target = "linux/amd64"
         go_version = $goVersion
-        included_components = @("backend", "index-worker", "mcp", "frontend-source")
+        included_components = @("backend", "index-worker", "mcp", "frontend-static-gateway", "frontend-dist")
         config_included = [bool]$DeployConfig
         migrations = @()
         rollback = "previous-directory"
@@ -248,7 +263,7 @@ try {
     $tarArgs = @(
         "-czf", $bundlePath,
 		"--exclude=.git", "--exclude=.claude", "--exclude=.codex-tmp", "--exclude=uploads",
-        "--exclude=vue-frontend/node_modules", "--exclude=vue-frontend/dist",
+        "--exclude=vue-frontend/node_modules",
         "--exclude=backend.log", "--exclude=index-worker.log", "--exclude=mcp.log", "--exclude=frontend.log"
     )
     if (-not $DeployConfig) { $tarArgs += "--exclude=config/config.toml" }
@@ -329,19 +344,22 @@ if [ "$deploy_config" != "true" ] && [ -f "$project_path/config/config.toml" ]; 
 fi
 
 if [ "$build_in_container" = "true" ]; then
-  echo "[container] building backend, index worker and MCP with -p 1"
+  echo "[container] building backend, index worker, MCP and frontend gateway with -p 1"
   (cd "$new_path" && go build -p 1 -o GopherAI main.go pprof_server.go)
   (cd "$new_path" && go build -p 1 -o GopherAI-index-worker ./cmd/index-worker)
   (cd "$new_path/common/mcp" && go build -p 1 -o gopherai-mcp .)
+  (cd "$new_path" && go build -p 1 -o GopherAI-frontend ./cmd/frontend-gateway)
 else
   echo "[container] installing locally built Linux binaries"
   test -f "$new_path/.deploy-bin/GopherAI"
   test -f "$new_path/.deploy-bin/GopherAI-index-worker"
   test -f "$new_path/.deploy-bin/gopherai-mcp"
+  test -f "$new_path/.deploy-bin/GopherAI-frontend"
   cp "$new_path/.deploy-bin/GopherAI" "$new_path/GopherAI"
   cp "$new_path/.deploy-bin/GopherAI-index-worker" "$new_path/GopherAI-index-worker"
   cp "$new_path/.deploy-bin/gopherai-mcp" "$new_path/common/mcp/gopherai-mcp"
-  chmod 0755 "$new_path/GopherAI" "$new_path/GopherAI-index-worker" "$new_path/common/mcp/gopherai-mcp"
+  cp "$new_path/.deploy-bin/GopherAI-frontend" "$new_path/GopherAI-frontend"
+  chmod 0755 "$new_path/GopherAI" "$new_path/GopherAI-index-worker" "$new_path/common/mcp/gopherai-mcp" "$new_path/GopherAI-frontend"
   rm -rf -- "$new_path/.deploy-bin"
 fi
 
@@ -368,6 +386,7 @@ stop_application() {
   stop_legacy_matches '^\./GopherAI$'
   stop_legacy_matches '^\./GopherAI-index-worker$'
   stop_legacy_matches '^\./gopherai-mcp -mode server$'
+  stop_legacy_matches '^\./GopherAI-frontend '
   stop_legacy_matches 'node .*vue-cli-service.*serve'
   sleep 2
 }
@@ -431,18 +450,19 @@ wait_frontend_ready() {
   port="$1"; timeout_seconds="$2"; log_file="$project_path/vue-frontend/frontend.log"
   deadline=$((SECONDS + timeout_seconds)); last_code="000"
   while [ "$SECONDS" -lt "$deadline" ]; do
-    if [ -f "$log_file" ] && grep -q 'Compiled successfully' "$log_file"; then
-      if command -v curl >/dev/null 2>&1; then
-        last_code="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 3 "http://127.0.0.1:$port/" 2>/dev/null || true)"
-        [ "$last_code" = "200" ] && { echo "frontend compile and HTTP check passed"; return 0; }
-      elif (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
-        exec 3>&- 3<&-; echo "frontend compile and TCP check passed"; return 0
+    if command -v curl >/dev/null 2>&1; then
+      last_code="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 3 "http://127.0.0.1:$port/" 2>/dev/null || true)"
+      [ "$last_code" = "200" ] && { echo "frontend static gateway HTTP check passed"; return 0; }
+    elif (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
+      exec 3>&- 3<&-; echo "frontend static gateway TCP check passed"; return 0
+    fi
+    if [ -f "$run_path/frontend.pid" ]; then
+      frontend_pid="$(tr -cd '0-9' < "$run_path/frontend.pid")"
+      if [ -n "$frontend_pid" ] && ! kill -0 "$frontend_pid" 2>/dev/null; then
+        echo "frontend process exited before readiness" >&2; tail -n 80 "$log_file" >&2; return 1
       fi
     fi
-    if grep -Eq 'Failed to compile|ERROR in ' "$log_file" 2>/dev/null; then
-      echo "frontend compilation failed" >&2; tail -n 80 "$log_file" >&2; return 1
-    fi
-    sleep 2
+    sleep 1
   done
   echo "frontend readiness timeout on port $port (last HTTP $last_code)" >&2
   tail -n 80 "$log_file" >&2 2>/dev/null || true
@@ -475,8 +495,14 @@ start_release() {
 
   cd "$release_path/common/mcp"; : > mcp.log; nohup ./gopherai-mcp -mode server > mcp.log 2>&1 & echo "$!" > "$run_path/mcp.pid"
   if [ "$skip_frontend" != "true" ]; then
-    [ -d "$release_path/vue-frontend/node_modules" ] || { echo "frontend node_modules is missing" >&2; return 1; }
-    cd "$release_path/vue-frontend"; : > frontend.log; nohup npm run serve > frontend.log 2>&1 & echo "$!" > "$run_path/frontend.pid"
+    if [ -x "$release_path/GopherAI-frontend" ] && [ -f "$release_path/vue-frontend/dist/index.html" ]; then
+      cd "$release_path"; : > vue-frontend/frontend.log
+      nohup ./GopherAI-frontend -listen :8080 -backend "http://127.0.0.1:$port" -dist vue-frontend/dist > vue-frontend/frontend.log 2>&1 & echo "$!" > "$run_path/frontend.pid"
+    else
+      echo "frontend gateway is absent in historical release; using legacy Vue development server"
+      [ -d "$release_path/vue-frontend/node_modules" ] || { echo "frontend node_modules is missing" >&2; return 1; }
+      cd "$release_path/vue-frontend"; : > frontend.log; nohup npm run serve > frontend.log 2>&1 & echo "$!" > "$run_path/frontend.pid"
+    fi
   fi
 
   wait_tcp 127.0.0.1 8081 60 || return 1
@@ -515,7 +541,7 @@ restore_runtime_dir() {
 rollback_release() {
   echo "[container] deployment failed; restoring previous release" >&2
   set +e; stop_application
-  restore_runtime_dir uploads; restore_runtime_dir vue-frontend/node_modules
+  restore_runtime_dir uploads
   rm -rf -- "$failed_path"; mv "$project_path" "$failed_path"; mv "$backup_path" "$project_path"
   start_release "$project_path"; return 1
 }
@@ -524,15 +550,15 @@ echo "[container] stopping previous application processes"
 stop_application
 if [ -d "$project_path" ]; then [ ! -e "$backup_path" ] || { echo "backup exists: $backup_path" >&2; exit 1; }; mv "$project_path" "$backup_path"; fi
 mv "$new_path" "$project_path"
-if [ -d "$backup_path" ]; then move_runtime_dir uploads; move_runtime_dir vue-frontend/node_modules; fi
+if [ -d "$backup_path" ]; then move_runtime_dir uploads; fi
 
 echo "[container] starting release"
 if ! start_release "$project_path"; then rollback_release; exit 1; fi
 
 echo "[container] release active: $release_id"
 echo "[container] bundle sha256: $expected_sha"
-sha256sum "$project_path/GopherAI" "$project_path/GopherAI-index-worker" "$project_path/common/mcp/gopherai-mcp"
-pgrep -af '^\./GopherAI$|^\./GopherAI-index-worker$|^\./gopherai-mcp -mode server$|node .*vue-cli-service.*serve' || true
+sha256sum "$project_path/GopherAI" "$project_path/GopherAI-index-worker" "$project_path/common/mcp/gopherai-mcp" "$project_path/GopherAI-frontend" 2>/dev/null || true
+pgrep -af '^\./GopherAI$|^\./GopherAI-index-worker$|^\./gopherai-mcp -mode server$|^\./GopherAI-frontend |node .*vue-cli-service.*serve' || true
 echo "[container] sanitized backend log tail"
 tail -n 30 "$project_path/backend.log" 2>/dev/null | sed -E 's#(amqp://)[^@]+@#\1***:***@#g' || true
 echo "[container] index worker log tail"
