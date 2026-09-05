@@ -547,6 +547,7 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 	}
 	for _, strategy := range []string{"rag_fast", "rag_deep"} {
 		for _, status := range []string{"answered", "insufficient", "verifier_rejected", "rejected", "error"} {
+			metrics.ragQueries.WithLabelValues(strategy, status).Add(0)
 			for _, enhancement := range []string{"skipped", "completed", "partial_fallback"} {
 				metrics.ragStrategyRequests.WithLabelValues(strategy, status, enhancement).Add(0)
 			}
@@ -579,6 +580,10 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 func (metrics *Metrics) initializeRequiredMetricSeries() {
 	metrics.requests.WithLabelValues("unknown", "unknown", "error").Add(0)
 	metrics.requestDuration.WithLabelValues("unknown", "unknown")
+	for _, status := range []string{"success", "error"} {
+		metrics.requests.WithLabelValues("troubleshooting", "diagnosis_collaborative", status).Add(0)
+	}
+	metrics.requestDuration.WithLabelValues("troubleshooting", "diagnosis_collaborative")
 	metrics.ttft.WithLabelValues("unknown")
 	metrics.modelCalls.WithLabelValues("other", "other", "error").Add(0)
 	metrics.modelTokens.WithLabelValues("other", "other", "input").Add(0)

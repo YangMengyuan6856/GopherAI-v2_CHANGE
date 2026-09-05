@@ -159,6 +159,55 @@ func TestRAGStrategyMetricsUseBoundedLabels(t *testing.T) {
 	}
 }
 
+func TestMonitoredWindowSeriesExistBeforeFirstEvent(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	NewMetrics(registry, registry)
+	for _, expectation := range []struct {
+		name   string
+		labels map[string]string
+	}{
+		{name: "gopherai_rag_queries_total", labels: map[string]string{"strategy": "rag_deep", "status": "answered"}},
+		{name: "gopherai_requests_total", labels: map[string]string{"intent": "troubleshooting", "strategy": "diagnosis_collaborative", "status": "success"}},
+	} {
+		if !gatheredMetricHasLabels(t, registry, expectation.name, expectation.labels) {
+			t.Fatalf("monitored zero baseline missing: %s %v", expectation.name, expectation.labels)
+		}
+	}
+}
+
+func gatheredMetricHasLabels(t *testing.T, gatherer prometheus.Gatherer, name string, labels map[string]string) bool {
+	t.Helper()
+	families, err := gatherer.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, family := range families {
+		if family.GetName() != name {
+			continue
+		}
+		for _, metric := range family.Metric {
+			matched := true
+			for expectedName, expectedValue := range labels {
+				found := false
+				for _, pair := range metric.Label {
+					if pair.GetName() == expectedName && pair.GetValue() == expectedValue {
+						found = true
+						break
+					}
+				}
+				if !found {
+					matched = false
+					break
+				}
+			}
+			if matched {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func TestCaseRecallMetricsUseBoundedLabels(t *testing.T) {
 	registry := prometheus.NewRegistry()
 	metrics := NewMetrics(registry, registry)
