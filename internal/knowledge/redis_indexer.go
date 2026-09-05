@@ -3,7 +3,9 @@ package knowledge
 import (
 	"GopherAI/model"
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -20,6 +22,8 @@ import (
 // documents, whose chunk count commonly exceeds one request.
 const DefaultEmbeddingBatchSize = 10
 
+const embeddingCacheTTLSeconds = 7 * 24 * 60 * 60
+
 var safeEnvironment = regexp.MustCompile(`[^a-zA-Z0-9_-]+`)
 
 type RedisCommandExecutor interface {
@@ -27,13 +31,14 @@ type RedisCommandExecutor interface {
 }
 
 type RedisChunkIndexer struct {
-	client     RedisCommandExecutor
-	embedder   embedding.Embedder
-	indexName  string
-	keyPrefix  string
-	dimension  int
-	batchSize  int
-	indexReady bool
+	client      RedisCommandExecutor
+	embedder    embedding.Embedder
+	indexName   string
+	keyPrefix   string
+	cachePrefix string
+	dimension   int
+	batchSize   int
+	indexReady  bool
 }
 
 func NewRedisChunkIndexer(client RedisCommandExecutor, embedder embedding.Embedder, environment string, dimension int, batchSize int) (*RedisChunkIndexer, error) {
@@ -47,60 +52,147 @@ func NewRedisChunkIndexer(client RedisCommandExecutor, embedder embedding.Embedd
 	base := fmt.Sprintf("gopher:%s:v1:kb", environment)
 	return &RedisChunkIndexer{
 		client: client, embedder: embedder, dimension: dimension, batchSize: batchSize,
-		indexName: base + ":chunks:idx", keyPrefix: base + ":chunk:",
+		indexName: base + ":chunks:idx", keyPrefix: base + ":chunk:", cachePrefix: base + ":embedding-cache:",
 	}, nil
 }
 
 func (indexer *RedisChunkIndexer) Index(ctx context.Context, chunks []model.KnowledgeChunk) error {
+	_, err := indexer.IndexIncremental(ctx, chunks)
+	return err
+}
+
+type VectorIndexStats struct {
+	EmbeddedChunks int
+	ReusedVectors  int
+	CacheHits      int
+	PreviousHits   int
+}
+
+func (indexer *RedisChunkIndexer) IndexIncremental(ctx context.Context, chunks []model.KnowledgeChunk) (VectorIndexStats, error) {
+	stats := VectorIndexStats{}
 	if len(chunks) == 0 {
-		return errors.New("cannot index an empty chunk set")
+		return stats, errors.New("cannot index an empty chunk set")
 	}
 	if err := indexer.ensureIndex(ctx); err != nil {
-		return err
+		return stats, err
 	}
-	for start := 0; start < len(chunks); start += indexer.batchSize {
-		end := min(start+indexer.batchSize, len(chunks))
+	vectors := make([][]byte, len(chunks))
+	missing := make([]int, 0, len(chunks))
+	for index, chunk := range chunks {
+		if vector, ok := indexer.cachedVector(ctx, chunk); ok {
+			vectors[index] = vector
+			stats.ReusedVectors++
+			stats.CacheHits++
+			continue
+		}
+		if vector, ok := indexer.previousVector(ctx, chunk.EmbeddingSourceChunkID); ok {
+			vectors[index] = vector
+			stats.ReusedVectors++
+			stats.PreviousHits++
+			indexer.rememberVector(ctx, chunk, vector)
+			continue
+		}
+		missing = append(missing, index)
+	}
+	for start := 0; start < len(missing); start += indexer.batchSize {
+		end := min(start+indexer.batchSize, len(missing))
 		texts := make([]string, 0, end-start)
-		for _, chunk := range chunks[start:end] {
-			texts = append(texts, chunk.Content)
+		for _, index := range missing[start:end] {
+			texts = append(texts, chunks[index].Content)
 		}
-		vectors, err := indexer.embedder.EmbedStrings(ctx, texts)
+		embeddings, err := indexer.embedder.EmbedStrings(ctx, texts)
 		if err != nil {
-			return fmt.Errorf("embed chunk batch: %w", err)
+			return stats, fmt.Errorf("embed chunk batch: %w", err)
 		}
-		if len(vectors) != len(texts) {
-			return fmt.Errorf("embedding count mismatch: got %d want %d", len(vectors), len(texts))
+		if len(embeddings) != len(texts) {
+			return stats, fmt.Errorf("embedding count mismatch: got %d want %d", len(embeddings), len(texts))
 		}
-		for offset, vector := range vectors {
+		for offset, vector := range embeddings {
 			if len(vector) != indexer.dimension {
-				return fmt.Errorf("embedding dimension mismatch: got %d want %d", len(vector), indexer.dimension)
+				return stats, fmt.Errorf("embedding dimension mismatch: got %d want %d", len(vector), indexer.dimension)
 			}
-			chunk := chunks[start+offset]
-			if err := indexer.client.Do(ctx, "HSET", indexer.keyPrefix+chunk.ID,
-				"tenant_id", chunk.TenantID,
-				"user_id", chunk.UserID,
-				"document_id", chunk.DocumentID,
-				"document_version", chunk.DocumentVersion,
-				"ordinal", chunk.Ordinal,
-				"section_path", chunk.SectionPath,
-				"line_start", chunk.LineStart,
-				"line_end", chunk.LineEnd,
-				"content", chunk.Content,
-				"content_hash", chunk.ContentHash,
-				"parent_chunk_id", chunk.ParentChunkID,
-				"source_kind", chunk.SourceKind,
-				"source_revision", chunk.SourceRevision,
-				"authority", chunk.Authority,
-				"effective_at", unixTimeOrZero(chunk.EffectiveAt),
-				"expired_at", unixTimeOrZero(chunk.ExpiredAt),
-				"supersedes_version", chunk.SupersedesVersion,
-				"vector", float32Bytes(vector),
-			).Err(); err != nil {
-				return fmt.Errorf("write redis chunk %s: %w", chunk.ID, err)
-			}
+			chunkIndex := missing[start+offset]
+			vectors[chunkIndex] = float32Bytes(vector)
+			stats.EmbeddedChunks++
+			indexer.rememberVector(ctx, chunks[chunkIndex], vectors[chunkIndex])
 		}
 	}
-	return nil
+	for index, chunk := range chunks {
+		if len(vectors[index]) != indexer.dimension*4 {
+			return stats, fmt.Errorf("indexed vector size mismatch: got %d want %d", len(vectors[index]), indexer.dimension*4)
+		}
+		if err := indexer.client.Do(ctx, "HSET", indexer.keyPrefix+chunk.ID,
+			"tenant_id", chunk.TenantID,
+			"user_id", chunk.UserID,
+			"document_id", chunk.DocumentID,
+			"document_version", chunk.DocumentVersion,
+			"ordinal", chunk.Ordinal,
+			"section_path", chunk.SectionPath,
+			"line_start", chunk.LineStart,
+			"line_end", chunk.LineEnd,
+			"content", chunk.Content,
+			"content_hash", chunk.ContentHash,
+			"logical_key", chunk.LogicalKey,
+			"parent_chunk_id", chunk.ParentChunkID,
+			"source_kind", chunk.SourceKind,
+			"source_revision", chunk.SourceRevision,
+			"authority", chunk.Authority,
+			"effective_at", unixTimeOrZero(chunk.EffectiveAt),
+			"expired_at", unixTimeOrZero(chunk.ExpiredAt),
+			"supersedes_version", chunk.SupersedesVersion,
+			"vector", vectors[index],
+		).Err(); err != nil {
+			return stats, fmt.Errorf("write redis chunk %s: %w", chunk.ID, err)
+		}
+	}
+	return stats, nil
+}
+
+func (indexer *RedisChunkIndexer) cachedVector(ctx context.Context, chunk model.KnowledgeChunk) ([]byte, bool) {
+	if strings.TrimSpace(chunk.ContentHash) == "" || strings.TrimSpace(chunk.EmbeddingVersion) == "" {
+		return nil, false
+	}
+	return indexer.readVector(ctx, "GET", indexer.embeddingCacheKey(chunk))
+}
+
+func (indexer *RedisChunkIndexer) previousVector(ctx context.Context, sourceChunkID string) ([]byte, bool) {
+	if strings.TrimSpace(sourceChunkID) == "" {
+		return nil, false
+	}
+	return indexer.readVector(ctx, "HGET", indexer.keyPrefix+sourceChunkID, "vector")
+}
+
+func (indexer *RedisChunkIndexer) readVector(ctx context.Context, command string, args ...any) ([]byte, bool) {
+	commandArgs := append([]any{command}, args...)
+	result, err := indexer.client.Do(ctx, commandArgs...).Result()
+	if err != nil {
+		return nil, false
+	}
+	var value []byte
+	switch typed := result.(type) {
+	case []byte:
+		value = typed
+	case string:
+		value = []byte(typed)
+	default:
+		return nil, false
+	}
+	if len(value) != indexer.dimension*4 {
+		return nil, false
+	}
+	return append([]byte(nil), value...), true
+}
+
+func (indexer *RedisChunkIndexer) rememberVector(ctx context.Context, chunk model.KnowledgeChunk, vector []byte) {
+	if strings.TrimSpace(chunk.ContentHash) == "" || strings.TrimSpace(chunk.EmbeddingVersion) == "" || len(vector) != indexer.dimension*4 {
+		return
+	}
+	_ = indexer.client.Do(ctx, "SET", indexer.embeddingCacheKey(chunk), vector, "EX", embeddingCacheTTLSeconds).Err()
+}
+
+func (indexer *RedisChunkIndexer) embeddingCacheKey(chunk model.KnowledgeChunk) string {
+	digest := sha256.Sum256([]byte(chunk.TenantID + "\x00" + chunk.UserID + "\x00" + chunk.EmbeddingVersion + "\x00" + chunk.ContentHash))
+	return indexer.cachePrefix + hex.EncodeToString(digest[:])
 }
 
 func (indexer *RedisChunkIndexer) Delete(ctx context.Context, chunkIDs []string) error {

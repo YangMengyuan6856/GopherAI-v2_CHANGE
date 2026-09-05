@@ -36,6 +36,10 @@ type ChunkIndexer interface {
 	Delete(ctx context.Context, chunkIDs []string) error
 }
 
+type IncrementalChunkIndexer interface {
+	IndexIncremental(ctx context.Context, chunks []model.KnowledgeChunk) (VectorIndexStats, error)
+}
+
 type Processor struct {
 	repository       IndexRepository
 	parserChunker    ParserChunker
@@ -135,12 +139,24 @@ func (processor *Processor) processIndex(ctx context.Context, envelope jobqueue.
 		applyVersionSourceToChunk(&chunk, sourceVersion)
 		chunks = append(chunks, chunk)
 	}
+	assignLogicalChunkKeys(work.Version.ParserVersion, chunks)
+	revisionStats := analyzeRevision(work.PreviousChunks, chunks, work.Version.ParserVersion)
 	if err := processor.repository.ReplaceChunks(ctx, work.Document.ID, work.Version.Version, chunks); err != nil {
 		return processor.fail(ctx, work, ErrorCodeChunkPersist, true, err)
 	}
-	if err := processor.indexer.Index(ctx, chunks); err != nil {
-		return processor.fail(ctx, work, ErrorCodeRedisIndex, true, err)
+	vectorStats := VectorIndexStats{EmbeddedChunks: len(chunks)}
+	var indexError error
+	if incrementalIndexer, supportsIncremental := processor.indexer.(IncrementalChunkIndexer); supportsIncremental {
+		vectorStats, indexError = incrementalIndexer.IndexIncremental(ctx, chunks)
+	} else {
+		indexError = processor.indexer.Index(ctx, chunks)
 	}
+	if indexError != nil {
+		return processor.fail(ctx, work, ErrorCodeRedisIndex, true, indexError)
+	}
+	revisionStats.EmbeddedChunks = vectorStats.EmbeddedChunks
+	revisionStats.ReusedVectors = vectorStats.ReusedVectors
+	applyRevisionStats(&work.Version, revisionStats)
 	if err := processor.repository.CompleteIndex(ctx, work, processor.embeddingVersion, processor.clock.Now()); err != nil {
 		return processor.fail(ctx, work, ErrorCodeIndexCompletion, true, err)
 	}

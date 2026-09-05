@@ -498,6 +498,16 @@
               <div class="document-version-line">
                 活动版本 v{{ document.current_version }} · {{ document.content_type || '未知格式' }}
               </div>
+              <div v-if="document.index_stats" class="document-index-stats">
+                <strong>增量索引 {{ document.index_stats.version }}</strong>
+                <span>总计 {{ document.index_stats.chunk_count }}</span>
+                <span>未变 {{ document.index_stats.unchanged_chunks }}</span>
+                <span>新增 {{ document.index_stats.added_chunks }}</span>
+                <span>修改 {{ document.index_stats.modified_chunks }}</span>
+                <span>删除 {{ document.index_stats.deleted_chunks }}</span>
+                <span>复用向量 {{ document.index_stats.reused_vectors }}</span>
+                <span>重算 Embedding {{ document.index_stats.embedded_chunks }}</span>
+              </div>
               <div v-if="document.last_error_code" class="document-error-code">
                 稳定失败码：{{ document.last_error_code }}；失败候选不会替换活动版本
               </div>
@@ -3477,6 +3487,20 @@ export default {
   margin-top: 5px;
   color: #708399;
   font-size: 11px;
+}
+
+.document-index-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 9px;
+  margin-top: 6px;
+  color: #5e7187;
+  font-size: 11px;
+}
+
+.document-index-stats strong {
+  flex-basis: 100%;
+  color: #38536f;
 }
 
 .document-error-code {

@@ -99,15 +99,16 @@ type AcceptResult struct {
 }
 
 type DocumentSummary struct {
-	ID             string    `json:"id"`
-	DisplayName    string    `json:"display_name"`
-	MimeType       string    `json:"mime_type"`
-	CurrentVersion int       `json:"current_version"`
-	Status         string    `json:"status"`
-	SizeBytes      int64     `json:"size_bytes"`
-	LastErrorCode  string    `json:"last_error_code,omitempty"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID             string              `json:"id"`
+	DisplayName    string              `json:"display_name"`
+	MimeType       string              `json:"mime_type"`
+	CurrentVersion int                 `json:"current_version"`
+	Status         string              `json:"status"`
+	SizeBytes      int64               `json:"size_bytes"`
+	LastErrorCode  string              `json:"last_error_code,omitempty"`
+	IndexStats     *RevisionIndexStats `json:"index_stats,omitempty"`
+	CreatedAt      time.Time           `json:"created_at"`
+	UpdatedAt      time.Time           `json:"updated_at"`
 }
 
 type JobSummary struct {
@@ -549,11 +550,20 @@ func (service *Service) Job(ctx context.Context, tenantID string, jobID string) 
 }
 
 func summarizeDocument(document model.KnowledgeDocument) DocumentSummary {
-	return DocumentSummary{
+	summary := DocumentSummary{
 		ID: document.ID, DisplayName: document.DisplayName, MimeType: document.MimeType,
 		CurrentVersion: document.CurrentVersion, Status: document.Status, SizeBytes: document.SizeBytes,
 		LastErrorCode: document.LastErrorCode, CreatedAt: document.CreatedAt, UpdatedAt: document.UpdatedAt,
 	}
+	if document.IndexStatsVersion != "" {
+		summary.IndexStats = &RevisionIndexStats{
+			Version: document.IndexStatsVersion, ChunkCount: document.IndexChunkCount,
+			AddedChunks: document.IndexAddedChunks, ModifiedChunks: document.IndexModifiedChunks,
+			DeletedChunks: document.IndexDeletedChunks, UnchangedChunks: document.IndexUnchangedChunks,
+			EmbeddedChunks: document.IndexEmbeddedChunks, ReusedVectors: document.IndexReusedVectors,
+		}
+	}
+	return summary
 }
 
 func summarizeJob(job *model.KnowledgeJob) JobSummary {

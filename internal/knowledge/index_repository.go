@@ -11,10 +11,11 @@ import (
 )
 
 type IndexWork struct {
-	Document model.KnowledgeDocument
-	Version  model.KnowledgeDocumentVersion
-	Job      model.KnowledgeJob
-	Complete bool
+	Document       model.KnowledgeDocument
+	Version        model.KnowledgeDocumentVersion
+	Job            model.KnowledgeJob
+	PreviousChunks []model.KnowledgeChunk
+	Complete       bool
 }
 
 type DeleteWork struct {
@@ -126,6 +127,12 @@ func (repository *GormRepository) ClaimIndexJob(ctx context.Context, tenantID st
 			First(&work.Version).Error; err != nil {
 			return err
 		}
+		if work.Document.Status == DocumentStatusIndexed && work.Document.CurrentVersion > 0 && work.Document.CurrentVersion != version {
+			if err := transaction.Where("document_id = ? AND document_version = ? AND index_status = ?", documentID, work.Document.CurrentVersion, ChunkIndexStatusIndexed).
+				Order("ordinal ASC").Find(&work.PreviousChunks).Error; err != nil {
+				return err
+			}
+		}
 		work.Job.Status = JobStatusProcessing
 		work.Job.Attempt++
 		work.Job.LastErrorCode = ""
@@ -178,7 +185,13 @@ func (repository *GormRepository) CompleteIndex(ctx context.Context, work IndexW
 		}
 		if err := transaction.Model(&model.KnowledgeDocumentVersion{}).
 			Where("document_id = ? AND version = ?", work.Document.ID, work.Version.Version).
-			Updates(map[string]any{"status": DocumentStatusIndexed, "embedding_version": embeddingVersion, "indexed_at": completedAt}).Error; err != nil {
+			Updates(map[string]any{
+				"status": DocumentStatusIndexed, "embedding_version": embeddingVersion, "indexed_at": completedAt,
+				"index_stats_version": work.Version.IndexStatsVersion, "index_chunk_count": work.Version.IndexChunkCount,
+				"index_added_chunks": work.Version.IndexAddedChunks, "index_modified_chunks": work.Version.IndexModifiedChunks,
+				"index_deleted_chunks": work.Version.IndexDeletedChunks, "index_unchanged_chunks": work.Version.IndexUnchangedChunks,
+				"index_embedded_chunks": work.Version.IndexEmbeddedChunks, "index_reused_vectors": work.Version.IndexReusedVectors,
+			}).Error; err != nil {
 			return err
 		}
 		if work.Version.Version >= activeDocument.CurrentVersion {
@@ -282,14 +295,22 @@ func documentCompletionUpdates(work IndexWork) map[string]any {
 		sizeBytes = work.Document.SizeBytes
 	}
 	return map[string]any{
-		"current_version": work.Version.Version,
-		"status":          DocumentStatusIndexed,
-		"display_name":    displayName,
-		"mime_type":       mimeType,
-		"size_bytes":      sizeBytes,
-		"content_hash":    work.Version.ContentHash,
-		"storage_path":    work.Version.StoragePath,
-		"last_error_code": "",
+		"current_version":        work.Version.Version,
+		"status":                 DocumentStatusIndexed,
+		"display_name":           displayName,
+		"mime_type":              mimeType,
+		"size_bytes":             sizeBytes,
+		"content_hash":           work.Version.ContentHash,
+		"storage_path":           work.Version.StoragePath,
+		"index_stats_version":    work.Version.IndexStatsVersion,
+		"index_chunk_count":      work.Version.IndexChunkCount,
+		"index_added_chunks":     work.Version.IndexAddedChunks,
+		"index_modified_chunks":  work.Version.IndexModifiedChunks,
+		"index_deleted_chunks":   work.Version.IndexDeletedChunks,
+		"index_unchanged_chunks": work.Version.IndexUnchangedChunks,
+		"index_embedded_chunks":  work.Version.IndexEmbeddedChunks,
+		"index_reused_vectors":   work.Version.IndexReusedVectors,
+		"last_error_code":        "",
 	}
 }
 

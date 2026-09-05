@@ -24,6 +24,7 @@ type processorRepository struct {
 	replaceCalls        int
 	replaceError        error
 	completionError     error
+	completionWork      IndexWork
 	deleteCompleteCalls int
 	deleteRetryCode     string
 	deleteFailureCode   string
@@ -39,8 +40,9 @@ func (repository *processorRepository) ReplaceChunks(_ context.Context, _ string
 	return repository.replaceError
 }
 
-func (repository *processorRepository) CompleteIndex(context.Context, IndexWork, string, time.Time) error {
+func (repository *processorRepository) CompleteIndex(_ context.Context, work IndexWork, _ string, _ time.Time) error {
 	repository.completeCalls++
+	repository.completionWork = work
 	return repository.completionError
 }
 
@@ -82,6 +84,16 @@ type processorIndexer struct {
 	chunks     []model.KnowledgeChunk
 	deletedIDs []string
 	err        error
+}
+
+type processorIncrementalIndexer struct {
+	processorIndexer
+	stats VectorIndexStats
+}
+
+func (indexer *processorIncrementalIndexer) IndexIncremental(_ context.Context, chunks []model.KnowledgeChunk) (VectorIndexStats, error) {
+	indexer.chunks = append([]model.KnowledgeChunk(nil), chunks...)
+	return indexer.stats, indexer.err
 }
 
 func (indexer *processorIndexer) Index(_ context.Context, chunks []model.KnowledgeChunk) error {
@@ -149,6 +161,45 @@ func TestProcessorPersistsStructuredKeyPathMetadata(t *testing.T) {
 	metadata := make(map[string]any)
 	if err := json.Unmarshal([]byte(chunk.MetadataJSON), &metadata); err != nil || metadata["section_path"] != "service > retry" {
 		t.Fatalf("structured metadata JSON is incomplete: %s err=%v", chunk.MetadataJSON, err)
+	}
+}
+
+func TestProcessorPersistsRevisionDiffAndVectorReuseStats(t *testing.T) {
+	content := []byte("# Config\nDefault retry: 7\n")
+	storagePath := filepath.Join(t.TempDir(), "v2.md")
+	if err := os.WriteFile(storagePath, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	chunker := NewDefaultStructuredTextChunker()
+	drafts, err := chunker.ParseAndChunk("runbook.md", content)
+	if err != nil || len(drafts) != 1 {
+		t.Fatalf("prepare prior revision: drafts=%+v err=%v", drafts, err)
+	}
+	work := indexWorkFixture(storagePath)
+	work.Document.Status = DocumentStatusIndexed
+	work.Document.CurrentVersion = 1
+	work.Version.Version = 2
+	work.Version.ParserVersion = ParserVersionV1
+	work.PreviousChunks = []model.KnowledgeChunk{{
+		ID: "chunk-v1", Ordinal: drafts[0].Ordinal, SectionPath: drafts[0].SectionPath,
+		ContentHash: drafts[0].ContentHash, EmbeddingVersion: "embedding-v1", IndexStatus: ChunkIndexStatusIndexed,
+	}}
+	repository := &processorRepository{work: work}
+	indexer := &processorIncrementalIndexer{stats: VectorIndexStats{ReusedVectors: 1, PreviousHits: 1}}
+	processor, err := NewProcessor(repository, chunker, indexer, "embedding-v1", fixedClock{value: time.Date(2026, 9, 5, 2, 3, 4, 0, time.UTC)})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := processor.Process(context.Background(), indexEnvelopeForVersion(t, 2)); err != nil {
+		t.Fatal(err)
+	}
+	if len(indexer.chunks) != 1 || indexer.chunks[0].EmbeddingSourceChunkID != "chunk-v1" || indexer.chunks[0].LogicalKey == "" {
+		t.Fatalf("incremental index request lost stable identity or reuse source: %+v", indexer.chunks)
+	}
+	version := repository.completionWork.Version
+	if version.IndexStatsVersion != RevisionIndexStatsVersion || version.IndexChunkCount != 1 || version.IndexUnchangedChunks != 1 || version.IndexReusedVectors != 1 || version.IndexEmbeddedChunks != 0 {
+		t.Fatalf("revision stats were not carried into atomic completion: %+v", version)
 	}
 }
 
@@ -331,14 +382,18 @@ func indexWorkFixture(storagePath string) IndexWork {
 }
 
 func indexEnvelope(t *testing.T) jobqueue.Envelope {
+	return indexEnvelopeForVersion(t, 1)
+}
+
+func indexEnvelopeForVersion(t *testing.T, version int) jobqueue.Envelope {
 	t.Helper()
-	payload, err := json.Marshal(indexPayload{JobID: "job-1", DocumentID: "document-1", Version: 1})
+	payload, err := json.Marshal(indexPayload{JobID: "job-1", DocumentID: "document-1", Version: version})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return jobqueue.Envelope{
 		SchemaVersion: "1", EventID: "event-1", EventType: DocumentIndexEventType,
-		TenantID: "tenant-a", AggregateID: "document-1", AggregateVersion: 1, Payload: payload,
+		TenantID: "tenant-a", AggregateID: "document-1", AggregateVersion: version, Payload: payload,
 	}
 }
 

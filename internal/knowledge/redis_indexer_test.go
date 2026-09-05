@@ -17,7 +17,9 @@ type redisCommandCall struct {
 }
 
 type fakeRedisExecutor struct {
-	calls []redisCommandCall
+	calls       []redisCommandCall
+	values      map[string][]byte
+	hashVectors map[string][]byte
 }
 
 func (executor *fakeRedisExecutor) Do(ctx context.Context, args ...any) *redis.Cmd {
@@ -26,6 +28,37 @@ func (executor *fakeRedisExecutor) Do(ctx context.Context, args ...any) *redis.C
 	if args[0] == "FT.INFO" && countCommand(executor.calls, "FT.CREATE") == 0 {
 		command.SetErr(errors.New("Unknown index name"))
 		return command
+	}
+	switch args[0] {
+	case "GET":
+		if value, exists := executor.values[args[1].(string)]; exists {
+			command.SetVal(append([]byte(nil), value...))
+		} else {
+			command.SetErr(redis.Nil)
+		}
+		return command
+	case "HGET":
+		if value, exists := executor.hashVectors[args[1].(string)]; exists {
+			command.SetVal(append([]byte(nil), value...))
+		} else {
+			command.SetErr(redis.Nil)
+		}
+		return command
+	case "SET":
+		if executor.values == nil {
+			executor.values = make(map[string][]byte)
+		}
+		executor.values[args[1].(string)] = append([]byte(nil), args[2].([]byte)...)
+	case "HSET":
+		if executor.hashVectors == nil {
+			executor.hashVectors = make(map[string][]byte)
+		}
+		for index := 2; index+1 < len(args); index += 2 {
+			if args[index] == "vector" {
+				executor.hashVectors[args[1].(string)] = append([]byte(nil), args[index+1].([]byte)...)
+				break
+			}
+		}
 	}
 	command.SetVal("OK")
 	return command
@@ -118,6 +151,65 @@ func TestRedisChunkIndexerKeepsEmbeddingRequestsWithinProviderLimit(t *testing.T
 	}
 	if countCommand(client.calls, "HSET") != len(chunks) {
 		t.Fatalf("expected %d indexed chunks, got %d", len(chunks), countCommand(client.calls, "HSET"))
+	}
+}
+
+func TestRedisChunkIndexerReusesTenantScopedEmbeddingCache(t *testing.T) {
+	client := new(fakeRedisExecutor)
+	embedder := &fakeEmbedder{vectors: [][]float64{{0.25, -0.5}}}
+	indexer, err := NewRedisChunkIndexer(client, embedder, "test", 2, DefaultEmbeddingBatchSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := model.KnowledgeChunk{
+		ID: "chunk-v1", TenantID: "tenant-a", UserID: "user-a", Content: "same content",
+		ContentHash: "same-hash", EmbeddingVersion: "embedding-v1",
+	}
+	firstStats, err := indexer.IndexIncremental(context.Background(), []model.KnowledgeChunk{first})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := first
+	second.ID = "chunk-v2"
+	secondStats, err := indexer.IndexIncremental(context.Background(), []model.KnowledgeChunk{second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstStats.EmbeddedChunks != 1 || firstStats.ReusedVectors != 0 || secondStats.CacheHits != 1 || secondStats.EmbeddedChunks != 0 {
+		t.Fatalf("unexpected incremental cache stats: first=%+v second=%+v", firstStats, secondStats)
+	}
+	if len(embedder.texts) != 1 || countCommand(client.calls, "SET") != 1 || countCommand(client.calls, "HSET") != 2 {
+		t.Fatalf("unchanged content should be embedded once: texts=%v calls=%+v", embedder.texts, client.calls)
+	}
+}
+
+func TestRedisChunkIndexerFallsBackToPreviousChunkVector(t *testing.T) {
+	client := new(fakeRedisExecutor)
+	embedder := &fakeEmbedder{vectors: [][]float64{{0.25, -0.5}}}
+	indexer, err := NewRedisChunkIndexer(client, embedder, "test", 2, DefaultEmbeddingBatchSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldChunk := model.KnowledgeChunk{
+		ID: "chunk-v1", TenantID: "tenant-a", UserID: "user-a", Content: "same content",
+		ContentHash: "same-hash", EmbeddingVersion: "embedding-v1",
+	}
+	if _, err := indexer.IndexIncremental(context.Background(), []model.KnowledgeChunk{oldChunk}); err != nil {
+		t.Fatal(err)
+	}
+	client.values = nil // simulate deployment before the content-addressed cache existed
+	newChunk := oldChunk
+	newChunk.ID = "chunk-v2"
+	newChunk.EmbeddingSourceChunkID = oldChunk.ID
+	stats, err := indexer.IndexIncremental(context.Background(), []model.KnowledgeChunk{newChunk})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.PreviousHits != 1 || stats.ReusedVectors != 1 || stats.EmbeddedChunks != 0 {
+		t.Fatalf("expected previous authoritative chunk vector reuse, got %+v", stats)
+	}
+	if len(embedder.texts) != 1 {
+		t.Fatalf("fallback reuse unexpectedly called embedder again: %v", embedder.texts)
 	}
 }
 
