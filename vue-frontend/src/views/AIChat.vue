@@ -188,10 +188,10 @@
                 <span>总超时 {{ collaborationPlan.budget.total_timeout_ms / 1000 }} 秒</span>
               </div>
               <div class="collaboration-signal-list">
-                <span :class="collaborationPlan.signals.has_independent_failure_scopes ? 'signal-on' : 'signal-off'">独立故障域</span>
-                <span :class="collaborationPlan.signals.has_knowledge_verification ? 'signal-on' : 'signal-off'">需要项目证据核对</span>
-                <span :class="collaborationPlan.signals.has_evidence_conflict ? 'signal-on' : 'signal-off'">存在证据冲突</span>
-                <span :class="collaborationPlan.signals.has_high_impact_marker ? 'signal-on' : 'signal-off'">高影响标记</span>
+                <span :class="collaborationPlan.signals.has_independent_failure_scopes ? 'signal-on' : 'signal-off'">独立故障域：{{ collaborationPlan.signals.has_independent_failure_scopes ? '是' : '否' }}</span>
+                <span :class="collaborationPlan.signals.has_knowledge_verification ? 'signal-on' : 'signal-off'">项目证据核对：{{ collaborationPlan.signals.has_knowledge_verification ? '是' : '否' }}</span>
+                <span :class="collaborationPlan.signals.has_evidence_conflict ? 'signal-on' : 'signal-off'">证据冲突：{{ collaborationPlan.signals.has_evidence_conflict ? '是' : '否' }}</span>
+                <span :class="collaborationPlan.signals.has_high_impact_marker ? 'signal-on' : 'signal-off'">高影响标记：{{ collaborationPlan.signals.has_high_impact_marker ? '是' : '否' }}</span>
               </div>
               <div class="collaboration-task-grid">
                 <article v-for="task in collaborationPlan.tasks" :key="task.task_id">
