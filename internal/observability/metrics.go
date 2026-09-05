@@ -35,6 +35,8 @@ type Metrics struct {
 	caseMemoryRecalls           *prometheus.CounterVec
 	caseMemoryRecallDuration    *prometheus.HistogramVec
 	caseMemoryRecallResults     *prometheus.HistogramVec
+	caseStrategyRuns            *prometheus.CounterVec
+	caseStrategyDuration        *prometheus.HistogramVec
 	profileMemoryRecalls        *prometheus.CounterVec
 	profileMemoryRecallDuration *prometheus.HistogramVec
 	profileMemoryRecallResults  *prometheus.HistogramVec
@@ -165,6 +167,15 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 			Help:    "Number of user-confirmed historical cases returned by recall.",
 			Buckets: []float64{0, 1, 2, 3},
 		}, []string{"status"}),
+		caseStrategyRuns: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_case_strategy_runs_total",
+			Help: "Total diagnosis_case_based shadow runs by bounded match strength and outcome.",
+		}, []string{"strength", "outcome"}),
+		caseStrategyDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "gopherai_case_strategy_duration_seconds",
+			Help:    "End-to-end diagnosis_case_based shadow duration in seconds.",
+			Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2},
+		}, []string{"outcome"}),
 		profileMemoryRecalls: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "gopherai_profile_memory_recalls_total",
 			Help: "Total governed profile-memory recalls by bounded outcome.",
@@ -269,6 +280,8 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 		metrics.caseMemoryRecalls,
 		metrics.caseMemoryRecallDuration,
 		metrics.caseMemoryRecallResults,
+		metrics.caseStrategyRuns,
+		metrics.caseStrategyDuration,
 		metrics.profileMemoryRecalls,
 		metrics.profileMemoryRecallDuration,
 		metrics.profileMemoryRecallResults,
@@ -310,6 +323,11 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 		metrics.caseMemoryRecalls.WithLabelValues(status).Add(0)
 		metrics.profileMemoryRecalls.WithLabelValues(status).Add(0)
 	}
+	for _, strength := range []string{"strong", "weak", "none"} {
+		for _, outcome := range []string{"success", "fallback", "error", "cancelled"} {
+			metrics.caseStrategyRuns.WithLabelValues(strength, outcome).Add(0)
+		}
+	}
 	for _, strategy := range []string{"rag_fast", "rag_deep"} {
 		for _, status := range []string{"answered", "insufficient", "verifier_rejected", "rejected", "error"} {
 			for _, enhancement := range []string{"skipped", "completed", "partial_fallback"} {
@@ -336,6 +354,27 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 		}
 	}
 	return metrics
+}
+
+func (metrics *Metrics) RecordCaseStrategy(strength string, outcome string, duration time.Duration) {
+	if metrics == nil {
+		return
+	}
+	switch strength {
+	case "strong", "weak", "none":
+	default:
+		strength = "none"
+	}
+	switch outcome {
+	case "success", "fallback", "error", "cancelled":
+	default:
+		outcome = "error"
+	}
+	if duration < 0 {
+		duration = 0
+	}
+	metrics.caseStrategyRuns.WithLabelValues(strength, outcome).Inc()
+	metrics.caseStrategyDuration.WithLabelValues(outcome).Observe(duration.Seconds())
 }
 
 func (metrics *Metrics) RecordPolicyLoad(source string, result string) {

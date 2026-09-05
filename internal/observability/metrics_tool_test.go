@@ -59,3 +59,16 @@ func TestRoutingPolicyMetricsUseFixedLowCardinalityLabels(t *testing.T) {
 		t.Fatalf("untrusted strategy labels or weights escaped bounds: %v", weight)
 	}
 }
+
+func TestCaseStrategyMetricsUseFixedLowCardinalityLabels(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	metrics := NewMetrics(registry, registry)
+	metrics.RecordCaseStrategy("strong", "success", 25)
+	metrics.RecordCaseStrategy("caller-strength", "caller-outcome", 50)
+	if count := testutil.ToFloat64(metrics.caseStrategyRuns.WithLabelValues("strong", "success")); count != 1 {
+		t.Fatalf("expected strong case strategy count 1, got %v", count)
+	}
+	if count := testutil.ToFloat64(metrics.caseStrategyRuns.WithLabelValues("none", "error")); count != 1 {
+		t.Fatalf("untrusted case strategy labels escaped bounds: %v", count)
+	}
+}
