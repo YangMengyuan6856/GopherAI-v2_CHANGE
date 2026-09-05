@@ -507,6 +507,38 @@
                 </span>
               </div>
             </details>
+            <details class="anomaly-workbench">
+              <summary>打开固定阈值 + 滑动窗口 Z-score 验收工作台</summary>
+              <p>数据源为确定性验收 Fixture，不冒充线上 Prometheus；所有结果仅生成 Recommend-only 建议。</p>
+              <div class="anomaly-scenario-actions">
+                <button v-for="scenario in anomalyScenarios" :key="scenario.value" :disabled="loadingAnomaly" @click="simulateAnomaly(scenario.value)">
+                  {{ scenario.label }}
+                </button>
+              </div>
+              <div v-if="loadingAnomaly" class="strategy-control-empty">正在以“基线窗口不含当前点”的规则计算...</div>
+              <article v-else-if="anomalyResult" :class="['anomaly-result', anomalyResult.analysis.anomalous ? 'anomaly-detected' : 'anomaly-healthy']">
+                <div class="evaluation-run-heading">
+                  <div>
+                    <strong>{{ anomalyMetricLabel(anomalyResult.analysis.policy.metric) }} · {{ anomalyResult.analysis.policy.strategy }}</strong>
+                    <span>{{ anomalyResult.simulation ? '验收模拟' : '生产观测' }} · {{ anomalyResult.source }}</span>
+                  </div>
+                  <span>{{ anomalyResult.analysis.anomalous ? '检测到退化' : '未触发异常' }}</span>
+                </div>
+                <div class="diagnostic-evaluation-grid">
+                  <div><strong>{{ anomalyResult.analysis.fixed_threshold.status }}</strong><span>固定阈值 · 连续 {{ anomalyResult.analysis.fixed_threshold.breach_count }} 点</span></div>
+                  <div><strong>{{ anomalyResult.analysis.z_score.status }}</strong><span>Z-score · 连续 {{ anomalyResult.analysis.z_score.breach_count }} 点</span></div>
+                  <div><strong>{{ Number(anomalyResult.analysis.z_score.adverse_z_score).toFixed(2) }}</strong><span>不利方向 Z 值 · 阈值 {{ anomalyResult.analysis.policy.z_score_threshold }}</span></div>
+                  <div><strong>{{ anomalyResult.analysis.z_score.baseline_points }}</strong><span>基线点 · 当前点已排除 {{ anomalyResult.analysis.z_score.current_excluded ? '是' : '否' }}</span></div>
+                </div>
+                <div class="evaluation-candidate-warning">
+                  <strong>{{ anomalyRecommendationLabel(anomalyResult.analysis.recommendation.action) }}</strong>
+                  <span>建议权重变化 {{ anomalyResult.analysis.recommendation.weight_delta_basis / 100 }}% · Applied={{ anomalyResult.analysis.recommendation.applied }} · {{ anomalyResult.analysis.recommendation.mode }}</span>
+                </div>
+                <div class="evaluation-decision-strip">
+                  <span v-for="guardrail in anomalyResult.analysis.guardrails" :key="guardrail" class="dependency-ready">{{ guardrail }}</span>
+                </div>
+              </article>
+            </details>
           </article>
 
           <div class="evaluation-catalog-heading">
@@ -1240,6 +1272,15 @@ export default {
     const loadingEvaluationCatalog = ref(false)
     const evaluationCatalog = ref(null)
     const evaluationRun = ref(null)
+    const loadingAnomaly = ref(false)
+    const anomalyResult = ref(null)
+    const anomalyScenarios = [
+      { value: 'healthy', label: '健康窗口' },
+      { value: 'quality_drop', label: 'RAG 质量下降' },
+      { value: 'latency_spike', label: 'Agent 延迟突增' },
+      { value: 'low_sample', label: '低样本抑制' },
+      { value: 'zero_variance_shift', label: '零方差突变' }
+    ]
     const parentContextEvaluationOpen = ref(false)
     const loadingParentContextEvaluation = ref(false)
     const parentContextEvaluation = ref(null)
@@ -2479,6 +2520,35 @@ export default {
       runtime_error: '运行错误', unsafe_action: '危险动作', nondeterministic_replay: '重放不一致'
     }[code] || code)
 
+    const anomalyMetricLabel = (metric) => ({
+      rag_grounded_answer_rate: 'RAG 有依据回答率', request_p95_latency_seconds: '请求 P95 延迟'
+    }[metric] || metric)
+
+    const anomalyRecommendationLabel = (action) => ({
+      none: '不产生策略建议', reduce_candidate_weight: '建议候选策略降权（未执行）'
+    }[action] || action)
+
+    const simulateAnomaly = async (scenario) => {
+      if (loadingAnomaly.value) return
+      try {
+        loadingAnomaly.value = true
+        anomalyResult.value = null
+        const response = await api.post('/evaluations/anomaly/simulate', { scenario })
+        anomalyResult.value = response.data
+        if (response.data?.analysis?.anomalous) {
+          ElMessage.warning('检测到退化，但只生成建议，没有修改线上策略')
+        } else if (response.data?.analysis?.fixed_threshold?.status === 'suppressed') {
+          ElMessage.info('样本量不足，检测器按门禁抑制告警')
+        } else {
+          ElMessage.success('窗口健康，不产生策略建议')
+        }
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || '异常检测验收暂时不可用')
+      } finally {
+        loadingAnomaly.value = false
+      }
+    }
+
     const evidenceForCitation = (citation) => {
       const evidence = knowledgeAnswer.value?.result?.evidence || []
       return evidence.find(item => item.id === citation.evidence_id) || {}
@@ -2732,6 +2802,9 @@ export default {
       loadingEvaluationCatalog,
       evaluationCatalog,
       evaluationRun,
+      loadingAnomaly,
+      anomalyResult,
+      anomalyScenarios,
       parentContextEvaluationOpen,
       loadingParentContextEvaluation,
       parentContextEvaluation,
@@ -2866,6 +2939,9 @@ export default {
       evaluationSliceLabel,
       evaluationStatusLabel,
       evaluationFailureLabel,
+      anomalyMetricLabel,
+      anomalyRecommendationLabel,
+      simulateAnomaly,
       cancelDiagnosticRun,
       resetDiagnosticRun,
       onDiagnosticModeChanged,
@@ -4608,6 +4684,59 @@ export default {
 
 .evaluation-catalog-heading {
   margin: 4px 0 8px;
+}
+
+.anomaly-workbench {
+  padding: 9px;
+  border: 1px dashed rgba(94, 69, 173, 0.28);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.anomaly-workbench summary {
+  cursor: pointer;
+  color: #5e45ad;
+  font-weight: 800;
+}
+
+.anomaly-workbench > p {
+  margin: 8px 0;
+  color: #69758c;
+  font-size: 12px;
+}
+
+.anomaly-scenario-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.anomaly-scenario-actions button {
+  padding: 6px 9px;
+  border: 1px solid rgba(94, 69, 173, 0.24);
+  border-radius: 7px;
+  background: #fff;
+  color: #5e45ad;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.anomaly-result {
+  display: grid;
+  gap: 9px;
+  margin-top: 9px;
+  padding: 10px;
+  border-radius: 8px;
+}
+
+.anomaly-result.anomaly-detected {
+  border: 1px solid rgba(217, 137, 35, 0.35);
+  background: #fff8ea;
+}
+
+.anomaly-result.anomaly-healthy {
+  border: 1px solid rgba(52, 168, 121, 0.28);
+  background: #f0fbf6;
 }
 
 @media (max-width: 760px) {
