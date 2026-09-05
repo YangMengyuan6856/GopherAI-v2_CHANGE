@@ -54,6 +54,9 @@ it uses the loopback Prometheus datasource and provisions the immutable
 `gopherai-closed-loop-v1` dashboard. Normal
 deployment validates all dashboard queries before stopping the active release,
 requires provisioning to succeed, and rejects Grafana RSS above 200 MiB.
+Grafana drops privileges to its package user; only the copied, read-only
+dashboard/provisioning assets and the dedicated `/var/lib/gopherai-grafana`
+data directory are reachable, not the project configuration under `/root`.
 
 ## Options
 

@@ -249,7 +249,7 @@ func validateGrafanaProvider(path string) error {
 		return errors.New("Grafana dashboard provisioning violated the fixed contract")
 	}
 	provider := provision.Providers[0]
-	if provider.Type != "file" || !provider.DisableDeletion || provider.AllowUIUpdates || provider.Options.Path != "/root/GopherAI-/deploy/observability/grafana/dashboards" {
+	if provider.Type != "file" || !provider.DisableDeletion || provider.AllowUIUpdates || provider.Options.Path != "/var/lib/gopherai-grafana/dashboards" {
 		return errors.New("Grafana dashboard provider must use immutable release assets")
 	}
 	return nil

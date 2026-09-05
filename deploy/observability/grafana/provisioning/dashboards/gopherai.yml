@@ -10,5 +10,5 @@ providers:
     allowUiUpdates: false
     updateIntervalSeconds: 30
     options:
-      path: /root/GopherAI-/deploy/observability/grafana/dashboards
+      path: /var/lib/gopherai-grafana/dashboards
       foldersFromFilesStructure: false

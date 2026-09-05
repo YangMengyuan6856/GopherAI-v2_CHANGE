@@ -444,7 +444,7 @@ stop_application() {
   stop_legacy_matches '^\./gopherai-mcp -mode server$'
   stop_legacy_matches '^\./GopherAI-frontend '
   stop_legacy_matches '^prometheus .*deploy/observability/prometheus.yml'
-  stop_legacy_matches '^grafana server .*deploy/observability/grafana/grafana.ini'
+  stop_legacy_matches '[/]usr/share/grafana/bin/grafana server .*deploy/observability/grafana/grafana.ini'
   stop_legacy_matches 'node .*vue-cli-service.*serve'
   sleep 2
 }
@@ -582,7 +582,15 @@ start_release() {
 
   if [ -f "$release_path/deploy/observability/grafana/grafana.ini" ]; then
     command -v grafana >/dev/null 2>&1 || { echo "Grafana runtime is missing" >&2; return 1; }
-    mkdir -p "$runtime_path/grafana/logs" "$runtime_path/grafana/plugins"
+    grafana_runtime_root=/var/lib/gopherai-grafana
+    [ "$(realpath -m -- "$grafana_runtime_root")" = "/var/lib/gopherai-grafana" ] || { echo "unsafe Grafana runtime root" >&2; return 1; }
+    install -d -o grafana -g grafana -m 0750 "$grafana_runtime_root/data" "$grafana_runtime_root/logs" "$grafana_runtime_root/plugins"
+    install -d -o root -g root -m 0755 "$grafana_runtime_root/provisioning/datasources" "$grafana_runtime_root/provisioning/dashboards" "$grafana_runtime_root/provisioning/plugins" "$grafana_runtime_root/provisioning/alerting" "$grafana_runtime_root/dashboards"
+    find "$grafana_runtime_root/provisioning" "$grafana_runtime_root/dashboards" -type f -delete
+    install -o root -g root -m 0444 "$release_path/deploy/observability/grafana/grafana.ini" "$grafana_runtime_root/grafana.ini"
+    install -o root -g root -m 0444 "$release_path/deploy/observability/grafana/provisioning/datasources/gopherai-prometheus.yml" "$grafana_runtime_root/provisioning/datasources/gopherai-prometheus.yml"
+    install -o root -g root -m 0444 "$release_path/deploy/observability/grafana/provisioning/dashboards/gopherai.yml" "$grafana_runtime_root/provisioning/dashboards/gopherai.yml"
+    install -o root -g root -m 0444 "$release_path/deploy/observability/grafana/dashboards/gopherai-closed-loop.json" "$grafana_runtime_root/dashboards/gopherai-closed-loop.json"
     grafana_admin_secret_path="$runtime_path/grafana-admin-secret"
     grafana_signing_secret_path="$runtime_path/grafana-signing-secret"
     for secret_path in "$grafana_admin_secret_path" "$grafana_signing_secret_path"; do
@@ -594,7 +602,12 @@ start_release() {
       chmod 0600 "$secret_path"
     done
     cd "$release_path"; : > grafana.log
-    GF_SECURITY_ADMIN_PASSWORD="$(cat "$grafana_admin_secret_path")" GF_SECURITY_SECRET_KEY="$(cat "$grafana_signing_secret_path")" GOMEMLIMIT=180MiB GOGC=50 nohup grafana server --homepath=/usr/share/grafana --config="$release_path/deploy/observability/grafana/grafana.ini" > grafana.log 2>&1 & echo "$!" > "$run_path/grafana.pid"
+    if grep -q '/root/GopherAI-' "$release_path/deploy/observability/grafana/provisioning/dashboards/gopherai.yml"; then
+      echo "Grafana rollback compatibility mode: running legacy root-scoped provisioning"
+      GF_SECURITY_ADMIN_PASSWORD="$(cat "$grafana_admin_secret_path")" GF_SECURITY_SECRET_KEY="$(cat "$grafana_signing_secret_path")" GOMEMLIMIT=170MiB GOGC=40 nohup grafana server --homepath=/usr/share/grafana --config="$release_path/deploy/observability/grafana/grafana.ini" > grafana.log 2>&1 & echo "$!" > "$run_path/grafana.pid"
+    else
+      GF_SECURITY_ADMIN_PASSWORD="$(cat "$grafana_admin_secret_path")" GF_SECURITY_SECRET_KEY="$(cat "$grafana_signing_secret_path")" GOMEMLIMIT=170MiB GOGC=40 nohup setpriv --reuid=grafana --regid=grafana --init-groups grafana server --homepath=/usr/share/grafana --config="$grafana_runtime_root/grafana.ini" > grafana.log 2>&1 & echo "$!" > "$run_path/grafana.pid"
+    fi
     wait_http_health "http://127.0.0.1:9093/api/health" 90 || return 1
     grafana_deadline=$((SECONDS + 45)); grafana_dashboard_ready=false
     while [ "$SECONDS" -lt "$grafana_deadline" ]; do
@@ -678,7 +691,7 @@ if ! start_release "$project_path"; then rollback_release; exit 1; fi
 echo "[container] release active: $release_id"
 echo "[container] bundle sha256: $expected_sha"
 sha256sum "$project_path/GopherAI" "$project_path/GopherAI-index-worker" "$project_path/common/mcp/gopherai-mcp" "$project_path/GopherAI-frontend" "$project_path/GopherAI-collaboration-eval" "$project_path/GopherAI-parent-context-eval" "$project_path/GopherAI-eval-runner" "$project_path/GopherAI-dashboard-validator" 2>/dev/null || true
-pgrep -af '^\./GopherAI$|^\./GopherAI-index-worker$|^prometheus .*deploy/observability/prometheus.yml|^grafana server .*deploy/observability/grafana/grafana.ini|^\./gopherai-mcp -mode server$|^\./GopherAI-frontend |node .*vue-cli-service.*serve' || true
+pgrep -af '^\./GopherAI$|^\./GopherAI-index-worker$|^prometheus .*deploy/observability/prometheus.yml|[/]usr/share/grafana/bin/grafana server .*deploy/observability/grafana/grafana.ini|^\./gopherai-mcp -mode server$|^\./GopherAI-frontend |node .*vue-cli-service.*serve' || true
 echo "[container] sanitized backend log tail"
 tail -n 30 "$project_path/backend.log" 2>/dev/null | sed -E 's#(amqp://)[^@]+@#\1***:***@#g' || true
 echo "[container] index worker log tail"
