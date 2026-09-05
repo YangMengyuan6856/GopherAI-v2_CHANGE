@@ -1470,3 +1470,10 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 首次真实 Smoke 暴露 Prometheus Counter 的首事件陷阱：如果时序在第一次增量时才出现，`increase(counter[15m])` 没有零值基线，会把第一次请求算成 0。`373cd807` 在注册时预初始化所有受监控的 RAG strategy/status 组合，并为协作诊断请求与耗时建立零值基线；测试直接反射 Registry，锁定首次业务事件前精确标签组合已经存在。
 - Release `20260906023245-373cd807d71c`，bundle SHA-256 `13e112f9a43f6a44b6cb466f65833ca5c3a3ab16a48ecd61f7deb13faf514ac5`，Prometheus 规则升级为 4 组 19 条，config/rules/unit-test 三重门和四进程健康门通过。真实公网页面执行一次复杂跨文档 `rag_deep` 后，回答得到 `47 / 6 / gopher.jobs.dlx.v1` 与两条引用；Prometheus 15 分钟 population 约为 1，下一次 MySQL 分钟采样显示 `100.0% / 1`，页面正确保持“数据不足 · 暂不判定”和“是否已修改线上策略：否”。
 - 工程经验：生产窗口接线不能只测“第 N 次请求”；必须在进程重启后先证明零值时序存在，再发第一条真实请求，并依次核对业务结果、原始 Counter、recording rule、持久化快照和控制边界。Prometheus `increase` 会做区间外推，样本量可能是略高于整数的浮点数；当前决策层保守向下取整，避免把不足 50 的窗口误判为达到门槛。
+
+## 68. 2026-09-06 签名 Webhook 的异步、幂等与模拟隔离
+
+- `75027741` 完成 M8-15：生产异常先按稳定 Incident Key 在 MySQL 去重，支持 opened/updated/resolved、15 分钟更新冷却和连续两个健康窗口恢复；再写同库持久投递队列，由独立 Worker 异步发送。这里采用同库事务式 Outbox，而不是额外增加 RabbitMQ 双写，原因是告警与 Incident 状态需要原子提交，同时必须与聊天链路、RabbitMQ 短暂故障解耦。Dead Letter 保存在可审计队列表中，首版不允许自动重放。
+- Webhook 签名为 HMAC-SHA256 v1，签名输入固定为 `timestamp + "." + body`。接收端同时校验 5 分钟时间窗、Header 中的 Event ID/type、严格固定 Schema、Payload SHA 和幂等回执；重定向关闭，最多 3 次尝试，429/5xx/网络超时可重试，其他 4xx 直接 Dead Letter。密钥只从 `/root/GopherAI_Runtime/control-webhook-secret` 读取，线上实测权限/长度为 `0600/64`，日志和 API 均不返回密钥内容。
+- 显式“发送签名验收事件”只生成标记为 Simulation 的固定数据，但会真实经过 MySQL 队列、后台 Worker、HMAC HTTP 和接收端幂等回执。Release `20260906032732-f49cca0f6444`，bundle SHA-256 `3be00da9139a28c31c62a972d53ac5e5542f3e76f62630a3b363c82cfc4a6b03`；真实页面显示 `delivered / HTTP 200 / attempt 1/3 / receipt verified`、Dead Letter 0。随后 `/metrics` 中所有生产 `gopherai_webhook_deliveries_total` 仍为 0，证明 Simulation 不会伪造生产告警证据。loopback Receiver 只是 staging 验收夹具，不能包装为已经对接外部告警平台。
+- 首次修复把空队列查询从 `First` 改为 `Find` 时误写了重复短变量声明，PowerShell 命令链又在 `go test` 失败后继续执行，导致一个不可编译的中间提交 `db068930` 被推送；`f49cca0f` 立即修复并重新执行测试、构建和云端发布。以后任何“验证后提交”命令都必须在每个关键步骤后显式检查 `$LASTEXITCODE` 并退出，不能依赖分号串联的最终退出码；空队列轮询用 `RowsAffected` 表达正常无任务，避免 GORM 每秒输出 `record not found` 和本地源码路径。
