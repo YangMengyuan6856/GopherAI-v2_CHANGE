@@ -112,6 +112,51 @@
               因依赖或状态不可用已过滤：{{ policySimulation.selection.filtered_strategies.join('、') }}
             </div>
           </article>
+          <section class="case-shadow-console">
+            <div class="strategy-result-heading">
+              <div>
+                <strong>历史案例增强演算</strong>
+                <p>仅比较已由用户确认的历史故障；强匹配也只是候选优先级，不会修改基线诊断或执行修复。</p>
+              </div>
+              <span class="shadow-only-badge">diagnosis_case_based · SHADOW</span>
+            </div>
+            <div class="case-shadow-input">
+              <textarea
+                v-model="caseShadowMessage"
+                rows="2"
+                maxlength="4000"
+                placeholder="例如：Redis 返回 NOAUTH Authentication required，应用容器无法连接缓存。"
+              ></textarea>
+              <button :disabled="runningCaseShadow || !caseShadowMessage.trim()" @click="runCaseShadow">
+                {{ runningCaseShadow ? '演算中...' : '运行案例 Shadow' }}
+              </button>
+            </div>
+            <article v-if="caseShadowResult" class="case-shadow-result">
+              <div class="strategy-result-grid">
+                <span>匹配强度 {{ caseStrengthLabel(caseShadowResult.case_strength) }}</span>
+                <span>案例记忆 {{ caseMemoryStatusLabel(caseShadowResult.case_memory_status) }}</span>
+                <span>原因 {{ caseReasonLabel(caseShadowResult.reason_code) }}</span>
+                <span>基线假设 {{ caseShadowResult.baseline?.hypotheses?.length || 0 }} 条（保持不变）</span>
+              </div>
+              <div v-if="caseShadowResult.priority_recommendation" class="case-priority-recommendation">
+                <strong>候选优先检查：{{ caseShadowResult.priority_recommendation.hypothesis_id }}</strong>
+                <span>相似度 {{ metricPercent(caseShadowResult.priority_recommendation.similarity) }} · 仅建议，不自动确认根因</span>
+                <span>历史根因：{{ caseShadowResult.priority_recommendation.historical_root_cause }}</span>
+                <span>历史处置：{{ caseShadowResult.priority_recommendation.historical_resolution }}</span>
+              </div>
+              <div v-else class="strategy-control-empty">没有达到“强案例 + 基线假设一致”的双门槛，继续采用 diagnosis_standard。</div>
+              <details v-if="caseShadowResult.cases?.length" class="strategy-registry-details">
+                <summary>查看命中的已确认案例（{{ caseShadowResult.cases.length }}）</summary>
+                <div class="strategy-registry-grid">
+                  <article v-for="item in caseShadowResult.cases" :key="item.incident_id">
+                    <strong>{{ item.incident_id }} · 相似度 {{ metricPercent(item.score) }}</strong>
+                    <p>{{ item.symptom }}</p>
+                    <p>根因：{{ item.root_cause }}</p>
+                  </article>
+                </div>
+              </details>
+            </article>
+          </section>
           <details class="strategy-registry-details">
             <summary>查看 7 个策略的元数据与治理边界</summary>
             <div class="strategy-registry-grid">
@@ -895,6 +940,9 @@ export default {
     const selectedStrategyIntent = ref('troubleshooting')
     const simulatingPolicy = ref(false)
     const policySimulation = ref(null)
+    const caseShadowMessage = ref('Redis 返回 NOAUTH Authentication required，应用容器无法连接缓存。')
+    const runningCaseShadow = ref(false)
+    const caseShadowResult = ref(null)
     const strategyIntentOptions = [
       { value: 'troubleshooting', label: '故障诊断' },
       { value: 'project_qa', label: '项目知识问答' },
@@ -1504,6 +1552,22 @@ export default {
       }
     }
 
+    const runCaseShadow = async () => {
+      if (!caseShadowMessage.value.trim()) return
+      try {
+        runningCaseShadow.value = true
+        caseShadowResult.value = null
+        const response = await api.post('/agent-runs/diagnostics/case-shadow', { message: caseShadowMessage.value.trim() })
+        caseShadowResult.value = response.data
+        if (response.data.case_strength === 'strong') ElMessage.success('命中强案例候选；仍保持 Shadow，不影响线上诊断')
+        else ElMessage.info('未达到强匹配门槛，保持标准诊断')
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || '案例增强演算暂时不可用')
+      } finally {
+        runningCaseShadow.value = false
+      }
+    }
+
     const policySourceLabel = (source) => ({ redis: 'Redis 缓存', mysql: 'MySQL 权威源' }[source] || source)
     const shortPolicyHash = (hash) => hash ? `${hash.slice(0, 10)}…${hash.slice(-6)}` : 'unknown'
     const strategyIntentLabel = (intent) => ({ troubleshooting: '故障诊断', project_qa: '项目知识问答', general: '通用问答' }[intent] || intent)
@@ -1514,6 +1578,16 @@ export default {
     }[reason] || reason)
     const strategyDependencyLabel = (dependency) => ({ model: '回答模型', vector: '向量检索', tool: '受治理工具', case_memory: '案例记忆' }[dependency] || dependency)
     const strategyStateLabel = (state) => ({ active: '可参与演算', shadow: '仅影子候选', disabled: '禁用' }[state] || state)
+    const caseStrengthLabel = (strength) => ({ strong: '强匹配', weak: '弱匹配，仅参考', none: '无匹配' }[strength] || strength)
+    const caseMemoryStatusLabel = (status) => ({ hit: '命中', no_match: '未命中', unavailable: '不可用，已降级' }[status] || status)
+    const caseReasonLabel = (reason) => ({
+      strong_case_prioritization_candidate: '强案例与基线假设一致',
+      case_match_advisory_only: '相似度不足，仅作参考',
+      strong_case_without_baseline_hypothesis: '强案例未获基线证据支持',
+      case_no_match: '没有可用的确认案例',
+      case_recall_unavailable: '案例召回异常，已降级',
+      case_payload_invalid: '案例载荷校验失败，已降级'
+    }[reason] || reason)
 
     const diagnosticStateLabel = (state) => ({
       RECEIVED: '已接收',
@@ -2187,6 +2261,9 @@ export default {
       selectedStrategyIntent,
       simulatingPolicy,
       policySimulation,
+      caseShadowMessage,
+      runningCaseShadow,
+      caseShadowResult,
       strategyIntentOptions,
       profileMemories,
       profileDrafts,
@@ -2228,12 +2305,16 @@ export default {
       toggleToolEvaluation,
       togglePolicyControl,
       simulatePolicy,
+      runCaseShadow,
       policySourceLabel,
       shortPolicyHash,
       strategyIntentLabel,
       strategyReasonLabel,
       strategyDependencyLabel,
       strategyStateLabel,
+      caseStrengthLabel,
+      caseMemoryStatusLabel,
+      caseReasonLabel,
       toggleDiagnosticEvaluation,
       toggleContextCompression,
       formattedFacts,
@@ -3678,6 +3759,85 @@ export default {
 
 .strategy-control-empty {
   color: #778197;
+}
+
+.case-shadow-console {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px dashed rgba(104, 72, 200, 0.34);
+  border-radius: 11px;
+  background: rgba(244, 240, 255, 0.72);
+}
+
+.case-shadow-console .strategy-result-heading > div {
+  display: grid;
+  gap: 3px;
+}
+
+.case-shadow-console p {
+  margin: 0;
+  color: #6f7890;
+  font-weight: 500;
+}
+
+.case-shadow-input {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto;
+  gap: 9px;
+  margin-top: 10px;
+}
+
+.case-shadow-input textarea {
+  resize: vertical;
+  min-height: 52px;
+  padding: 9px;
+  border: 1px solid rgba(92, 80, 155, 0.24);
+  border-radius: 8px;
+  color: #465069;
+  font: inherit;
+}
+
+.case-shadow-input button {
+  padding: 0 13px;
+  border: none;
+  border-radius: 8px;
+  background: #6547bd;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.case-shadow-input button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.case-shadow-result {
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.case-priority-recommendation {
+  display: grid;
+  gap: 5px;
+  margin-top: 9px;
+  padding: 9px;
+  border-left: 4px solid #2a9d71;
+  border-radius: 6px;
+  background: #effaf6;
+  color: #3f5860;
+}
+
+@media (max-width: 760px) {
+  .case-shadow-input {
+    grid-template-columns: 1fr;
+  }
+
+  .case-shadow-input button {
+    min-height: 38px;
+  }
 }
 
 .tool-runtime-panel {
