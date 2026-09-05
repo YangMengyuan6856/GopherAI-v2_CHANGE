@@ -51,6 +51,8 @@ type Metrics struct {
 	toolValidation              *prometheus.CounterVec
 	toolCancellations           *prometheus.CounterVec
 	legacyEntryAttempts         *prometheus.CounterVec
+	policyLoads                 *prometheus.CounterVec
+	strategyWeights             *prometheus.GaugeVec
 	gatherer                    prometheus.Gatherer
 }
 
@@ -232,6 +234,14 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 			Name: "gopherai_legacy_entry_attempts_total",
 			Help: "Total requests to retired public entry points; only fixed route classes are exposed.",
 		}, []string{"entry"}),
+		policyLoads: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gopherai_policy_loads_total",
+			Help: "Total active routing policy loads by bounded source and outcome.",
+		}, []string{"source", "result"}),
+		strategyWeights: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "gopherai_strategy_weight",
+			Help: "Configured strategy weight in basis points for the bounded active policy version.",
+		}, []string{"strategy", "policy_version_short"}),
 		gatherer: gatherer,
 	}
 	registerer.MustRegister(
@@ -275,6 +285,8 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 		metrics.toolValidation,
 		metrics.toolCancellations,
 		metrics.legacyEntryAttempts,
+		metrics.policyLoads,
+		metrics.strategyWeights,
 	)
 	for _, status := range []string{"accepted", "duplicate", "rejected", "error"} {
 		metrics.documentUploads.WithLabelValues(status).Add(0)
@@ -318,7 +330,58 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 		}
 	}
 	metrics.legacyEntryAttempts.WithLabelValues("skill_api").Add(0)
+	for _, source := range []string{"redis", "mysql"} {
+		for _, result := range []string{"success", "cache_degraded", "invalid", "error"} {
+			metrics.policyLoads.WithLabelValues(source, result).Add(0)
+		}
+	}
 	return metrics
+}
+
+func (metrics *Metrics) RecordPolicyLoad(source string, result string) {
+	if metrics == nil {
+		return
+	}
+	if source != "redis" && source != "mysql" {
+		source = "mysql"
+	}
+	switch result {
+	case "success", "cache_degraded", "invalid", "error":
+	default:
+		result = "error"
+	}
+	metrics.policyLoads.WithLabelValues(source, result).Inc()
+}
+
+func (metrics *Metrics) SetStrategyWeight(policyVersion string, strategy string, weightBasis int) {
+	if metrics == nil {
+		return
+	}
+	strategy = boundedRoutingStrategy(strategy)
+	policyVersion = boundedRoutingPolicyVersion(policyVersion)
+	if weightBasis < 0 {
+		weightBasis = 0
+	}
+	if weightBasis > 10_000 {
+		weightBasis = 10_000
+	}
+	metrics.strategyWeights.WithLabelValues(strategy, policyVersion).Set(float64(weightBasis))
+}
+
+func boundedRoutingStrategy(value string) string {
+	switch value {
+	case "legacy_chat", "rag_fast", "rag_deep", "diagnosis_standard", "diagnosis_case_based", "diagnosis_collaborative", "direct_fallback":
+		return value
+	default:
+		return "unknown"
+	}
+}
+
+func boundedRoutingPolicyVersion(value string) string {
+	if value == "routing-policy-v1" {
+		return value
+	}
+	return "other"
 }
 
 // RecordLegacyEntryAttempt observes removed public surfaces without restoring

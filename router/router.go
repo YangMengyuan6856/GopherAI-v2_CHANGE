@@ -57,6 +57,11 @@ func InitRouter() *gin.Engine {
 		ToolGroup.Use(requestid.Attach(), jwt.Auth())
 		RegisterToolRuntimeRouter(ToolGroup)
 	}
+	{
+		PolicyGroup := enterRouter.Group("/policies")
+		PolicyGroup.Use(requestid.Attach(), jwt.Auth())
+		RegisterPolicyRouter(PolicyGroup)
+	}
 
 	{
 		FileGroup := enterRouter.Group("/file")

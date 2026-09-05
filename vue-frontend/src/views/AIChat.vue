@@ -38,6 +38,7 @@
         </label>
         <button class="memory-toggle-btn" :disabled="loadingMemoryPreview" @click="toggleMemoryPreview">🧠 三级记忆</button>
         <button class="tool-runtime-toggle" :disabled="loadingToolCatalog" @click="toggleToolRuntime">🛡 受治理工具</button>
+        <button class="strategy-control-toggle" :disabled="loadingPolicyControl" @click="togglePolicyControl">🧭 策略演算</button>
         <button
           class="upload-btn"
           title="支持 Markdown/TXT、JSON/YAML key path 和 Go 顶层符号索引"
@@ -53,6 +54,82 @@
           @change="handleFileUpload"
         />
       </div>
+
+      <section v-if="policyControlOpen" class="strategy-control-panel">
+        <div class="strategy-control-header">
+          <div>
+            <strong>Strategy Registry · 固定分桶演算</strong>
+            <span>MySQL 权威策略 → Redis 短缓存 → 依赖健康过滤 → 稳定 Bucket → 有界预算</span>
+          </div>
+          <span class="shadow-only-badge">SHADOW ONLY · 不切流</span>
+        </div>
+        <div v-if="loadingPolicyControl" class="strategy-control-empty">正在读取当前生效策略...</div>
+        <template v-else-if="policySnapshot">
+          <div class="strategy-policy-identity">
+            <span>策略 {{ policySnapshot.policy.version }}</span>
+            <span>环境 {{ policySnapshot.policy.environment }}</span>
+            <span>权威状态 {{ policySnapshot.policy.status }}</span>
+            <span>本次读取 {{ policySourceLabel(policySnapshot.policy.source) }}</span>
+            <span :class="policySnapshot.policy.cache_degraded ? 'policy-warning' : 'policy-ok'">
+              {{ policySnapshot.policy.cache_degraded ? 'Redis 异常，已回退 MySQL' : '缓存链路正常' }}
+            </span>
+            <span>Hash {{ shortPolicyHash(policySnapshot.policy.hash) }}</span>
+          </div>
+          <div class="strategy-control-notice">{{ policySnapshot.notice }} 下方结果只是“如果允许新策略接管，会怎样选”的可解释预演。</div>
+          <div class="strategy-simulator">
+            <div class="strategy-intent-actions">
+              <button
+                v-for="option in strategyIntentOptions"
+                :key="option.value"
+                :class="{ active: selectedStrategyIntent === option.value }"
+                :disabled="simulatingPolicy"
+                @click="simulatePolicy(option.value)"
+              >{{ option.label }}</button>
+            </div>
+            <span v-if="!policySimulation" class="strategy-control-empty">选择一个场景，验证同一登录用户的分桶是否稳定。</span>
+          </div>
+          <article v-if="policySimulation" class="strategy-simulation-result">
+            <div class="strategy-result-heading">
+              <strong>演算选择：{{ policySimulation.selection.decision.strategy_name }}@{{ policySimulation.selection.decision.strategy_version }}</strong>
+              <span>Bucket {{ policySimulation.selection.decision.experiment_bucket }} / 0000–9999</span>
+            </div>
+            <div class="strategy-result-grid">
+              <span>意图 {{ strategyIntentLabel(policySimulation.intent) }}</span>
+              <span>原因 {{ strategyReasonLabel(policySimulation.selection.decision.reason_code) }}</span>
+              <span>策略来源 {{ policySourceLabel(policySimulation.selection.policy_source) }}</span>
+              <span>最大 Agent {{ policySimulation.selection.decision.budgets.max_agents }}</span>
+              <span>最大工具调用 {{ policySimulation.selection.decision.budgets.max_tool_calls }}</span>
+              <span>最大迭代 {{ policySimulation.selection.decision.budgets.max_iterations }}</span>
+            </div>
+            <div class="strategy-dependencies">
+              <span
+                v-for="(available, dependency) in policySimulation.dependencies"
+                :key="dependency"
+                :class="available ? 'dependency-ready' : 'dependency-down'"
+              >{{ strategyDependencyLabel(dependency) }} {{ available ? 'Ready' : 'Unavailable' }}</span>
+            </div>
+            <div v-if="policySimulation.selection.filtered_strategies?.length" class="policy-warning">
+              因依赖或状态不可用已过滤：{{ policySimulation.selection.filtered_strategies.join('、') }}
+            </div>
+          </article>
+          <details class="strategy-registry-details">
+            <summary>查看 7 个策略的元数据与治理边界</summary>
+            <div class="strategy-registry-grid">
+              <article v-for="strategy in policySnapshot.registry" :key="strategy.name">
+                <div class="strategy-result-heading">
+                  <strong>{{ strategy.name }}</strong>
+                  <span :class="`strategy-state-${strategy.state}`">{{ strategyStateLabel(strategy.state) }}</span>
+                </div>
+                <p>{{ strategy.version }} · 延迟 {{ strategy.latency_tier }} · 成本 {{ strategy.cost_tier }}</p>
+                <p>意图：{{ strategy.intents.join(' / ') }}</p>
+                <p>依赖：{{ strategy.dependencies.length ? strategy.dependencies.map(strategyDependencyLabel).join(' / ') : '无，可安全兜底' }}</p>
+                <p>控制权限：{{ strategy.control_level }}<template v-if="strategy.fallback"> · 降级到 {{ strategy.fallback }}</template></p>
+              </article>
+            </div>
+          </details>
+        </template>
+        <div v-else class="strategy-control-empty">当前策略暂时不可读取。</div>
+      </section>
 
       <section v-if="toolRuntimeOpen" class="tool-runtime-panel">
         <div class="tool-runtime-header">
@@ -812,6 +889,17 @@ export default {
     const toolEvaluationOpen = ref(false)
     const loadingToolEvaluation = ref(false)
     const toolEvaluation = ref(null)
+    const policyControlOpen = ref(false)
+    const loadingPolicyControl = ref(false)
+    const policySnapshot = ref(null)
+    const selectedStrategyIntent = ref('troubleshooting')
+    const simulatingPolicy = ref(false)
+    const policySimulation = ref(null)
+    const strategyIntentOptions = [
+      { value: 'troubleshooting', label: '故障诊断' },
+      { value: 'project_qa', label: '项目知识问答' },
+      { value: 'general', label: '通用问答' }
+    ]
     const profileMemories = ref(null)
     const profileDrafts = ref({})
     const profileMemoryBusy = ref('')
@@ -1385,6 +1473,47 @@ export default {
         loadingMemoryEvaluation.value = false
       }
     }
+
+    const togglePolicyControl = async () => {
+      policyControlOpen.value = !policyControlOpen.value
+      if (!policyControlOpen.value || policySnapshot.value || loadingPolicyControl.value) return
+      try {
+        loadingPolicyControl.value = true
+        const response = await api.get('/policies/active')
+        policySnapshot.value = response.data
+      } catch (error) {
+        policyControlOpen.value = false
+        ElMessage.error(error.response?.data?.message || '当前策略暂时不可读取')
+      } finally {
+        loadingPolicyControl.value = false
+      }
+    }
+
+    const simulatePolicy = async (intent) => {
+      try {
+        selectedStrategyIntent.value = intent
+        simulatingPolicy.value = true
+        policySimulation.value = null
+        const response = await api.post('/policies/simulate', { intent })
+        policySimulation.value = response.data
+        ElMessage.success('Shadow 演算完成，真实对话流量未改变')
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || '策略演算暂时不可用')
+      } finally {
+        simulatingPolicy.value = false
+      }
+    }
+
+    const policySourceLabel = (source) => ({ redis: 'Redis 缓存', mysql: 'MySQL 权威源' }[source] || source)
+    const shortPolicyHash = (hash) => hash ? `${hash.slice(0, 10)}…${hash.slice(-6)}` : 'unknown'
+    const strategyIntentLabel = (intent) => ({ troubleshooting: '故障诊断', project_qa: '项目知识问答', general: '通用问答' }[intent] || intent)
+    const strategyReasonLabel = (reason) => ({
+      stable_weighted_selection: '稳定权重命中',
+      dependency_filtered_selection: '过滤异常依赖后命中',
+      dependency_fallback: '依赖异常安全降级'
+    }[reason] || reason)
+    const strategyDependencyLabel = (dependency) => ({ model: '回答模型', vector: '向量检索', tool: '受治理工具', case_memory: '案例记忆' }[dependency] || dependency)
+    const strategyStateLabel = (state) => ({ active: '可参与演算', shadow: '仅影子候选', disabled: '禁用' }[state] || state)
 
     const diagnosticStateLabel = (state) => ({
       RECEIVED: '已接收',
@@ -2052,6 +2181,13 @@ export default {
       toolEvaluationOpen,
       loadingToolEvaluation,
       toolEvaluation,
+      policyControlOpen,
+      loadingPolicyControl,
+      policySnapshot,
+      selectedStrategyIntent,
+      simulatingPolicy,
+      policySimulation,
+      strategyIntentOptions,
       profileMemories,
       profileDrafts,
       profileMemoryBusy,
@@ -2090,6 +2226,14 @@ export default {
       formatToolData,
       runToolAgent,
       toggleToolEvaluation,
+      togglePolicyControl,
+      simulatePolicy,
+      policySourceLabel,
+      shortPolicyHash,
+      strategyIntentLabel,
+      strategyReasonLabel,
+      strategyDependencyLabel,
+      strategyStateLabel,
       toggleDiagnosticEvaluation,
       toggleContextCompression,
       formattedFacts,
@@ -3346,6 +3490,194 @@ export default {
 .tool-runtime-toggle:disabled {
   cursor: wait;
   opacity: 0.65;
+}
+
+.strategy-control-toggle {
+  padding: 8px 12px;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #6848c8 0%, #3e78c7 100%);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.strategy-control-toggle:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.strategy-control-panel {
+  margin: 12px 20px 0;
+  padding: 15px;
+  border: 1px solid rgba(103, 73, 190, 0.22);
+  border-radius: 14px;
+  background: linear-gradient(145deg, rgba(249, 247, 255, 0.98), rgba(237, 246, 255, 0.98));
+  box-shadow: 0 8px 24px rgba(70, 72, 150, 0.1);
+  color: #465069;
+  font-size: 12px;
+}
+
+.strategy-control-header,
+.strategy-result-heading,
+.strategy-policy-identity,
+.strategy-dependencies {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.strategy-control-header {
+  justify-content: space-between;
+}
+
+.strategy-control-header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.strategy-control-header span:not(.shadow-only-badge) {
+  color: #6f7890;
+}
+
+.shadow-only-badge {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #ebe2ff;
+  color: #613fb1;
+  font-weight: 800;
+}
+
+.strategy-policy-identity {
+  margin-top: 12px;
+}
+
+.strategy-policy-identity > span,
+.strategy-dependencies > span {
+  padding: 5px 8px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.strategy-control-notice {
+  margin-top: 10px;
+  padding: 9px 11px;
+  border-left: 4px solid #7255bd;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.strategy-simulator {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 11px;
+}
+
+.strategy-intent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.strategy-intent-actions button {
+  padding: 7px 11px;
+  border: 1px solid rgba(104, 72, 200, 0.25);
+  border-radius: 8px;
+  background: #fff;
+  color: #5e4a9d;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.strategy-intent-actions button.active {
+  background: #6547bd;
+  color: #fff;
+}
+
+.strategy-simulation-result {
+  margin-top: 10px;
+  padding: 11px;
+  border: 1px solid rgba(73, 127, 190, 0.22);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.strategy-result-heading {
+  justify-content: space-between;
+}
+
+.strategy-result-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+  gap: 7px;
+  margin-top: 9px;
+}
+
+.strategy-result-grid > span {
+  padding: 7px 8px;
+  border-radius: 7px;
+  background: #f0f5ff;
+}
+
+.strategy-dependencies {
+  margin-top: 9px;
+}
+
+.dependency-ready,
+.policy-ok,
+.strategy-state-active {
+  color: #16704c;
+  font-weight: 700;
+}
+
+.dependency-down,
+.policy-warning,
+.strategy-state-disabled {
+  color: #a24b3d;
+  font-weight: 700;
+}
+
+.strategy-state-shadow {
+  color: #7b58b1;
+  font-weight: 700;
+}
+
+.strategy-registry-details {
+  margin-top: 11px;
+}
+
+.strategy-registry-details summary {
+  cursor: pointer;
+  color: #5d4a99;
+  font-weight: 700;
+}
+
+.strategy-registry-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.strategy-registry-grid article {
+  padding: 9px;
+  border: 1px solid rgba(92, 80, 155, 0.14);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.strategy-registry-grid p {
+  margin: 5px 0 0;
+  word-break: break-word;
+}
+
+.strategy-control-empty {
+  color: #778197;
 }
 
 .tool-runtime-panel {

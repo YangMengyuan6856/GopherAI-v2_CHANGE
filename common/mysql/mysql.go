@@ -79,6 +79,7 @@ func migration() error {
 		new(model.ResolvedIncident),
 		new(model.EnvironmentMemory),
 		new(model.ToolAudit),
+		new(model.RoutingPolicy),
 	)
 }
 
