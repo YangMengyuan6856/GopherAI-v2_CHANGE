@@ -1485,3 +1485,11 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - Release `20260906041602-f7ea078fe457`，bundle SHA-256 `b5780c43c2d5ed666b4f84fdf8b67b293f4dc46558d9babb0c08b663024cb480`，迁移、Prometheus 19 条规则、Backend/Worker/MCP/Frontend 和 2/2 targets 全部通过。真实浏览器的双门禁 Simulation 产生 1 条 blocked 与 1 条 recommended：合格 Fixture 只提出 `rag_fast 100%→90%`、`direct_fallback 0→10%`，两条均 `Applied=false`；验收前后 active policy 仍为 `routing-policy-v1`、Hash `696c55fd8da7…`。
 - 生产周期日志连续返回 `examined=0/recommended=0/blocked=0`。验收完成后，MySQL 审计为 blocked/recommended 各 1 条且 applied 均为 0；`gopherai_control_actions_total` 所有组合仍为 0，`gopherai_control_loop_duration_seconds_count{result="no_anomaly"}` 为 35。Simulation 可以真实验证审计和护栏，但必须与生产指标隔离，不能用它证明线上发生过异常或自动优化。
 - 浏览器能力工作区中的异常工作台与只建议控制器是嵌套 `details`。自动 Smoke 必须先滚动并展开外层“固定阈值 + Z-score 工作台”，再滚到内层控制器；外层闭合时，DOM 仍可能返回隐藏子节点的几何信息，直接按该坐标点击会命中后续面板。应先用 `elementsFromPoint` 或可见 DOM 校准实际命中元素，不能把“节点存在”误判为“用户可点击”。
+
+## 70. 2026-09-06 三类 Observe-only 故障演练必须隔离生产副作用
+
+- `cd5d82c0` 上线 M8-19。RAG 场景真实调用生产 Evidence Gate 并稳定得到 `RAG_NO_EVIDENCE`；Agent 场景使用生产 Parallel Executor 和 1ms 子任务超时得到 `AGENT_TASK_TIMEOUT`；工具场景使用生产 Tool Runtime、阻塞隔离 Adapter 和 10ms 运行时超时得到 `TOOL_TIMEOUT`。它们复用真实边界和错误码，但故障只存在于进程内测试 Adapter/Runner，不停止 Redis/RabbitMQ、不调用生产命令、不向真实工具或模型发送流量。
+- 每个场景用确定性 30 点健康基线、两个注入点和两个恢复点驱动与生产相同的固定阈值及排除当前点 Z-score 检测器，报告固定为 before/injected/detected/recommendation/probe/recovered 六阶段。每阶段同步保留质量、成功率、P95/P99、Token、成本和样本数，避免只用一条 Z-score 或权重变化冒充闭环证据。
+- Release `20260906052750-cd5d82c0a614`，bundle SHA-256 `726b583766dc18c3a51d66aeaa2a148e64dd9a4b01c67f54e4d4105f77da63d6`；迁移、19 条 Prometheus 规则、Backend/Worker/MCP/Frontend 和 2/2 targets 均通过。真实浏览器执行后得到检测 `3/3`、恢复识别 `3/3`、健康对照误报 `0/3`、平均 MTTD `60s`、只建议候选 `3`、实际策略变化 `0`，并显示报告 SHA-256 `cf17865241801e5427f54d9732ebf3270c6716ba1094c7189f6fa5dfa0752ec5`。
+- MySQL 只新增一条 `simulation=1/applied=0` 的不可变演练报告；活动策略仍为 `routing-policy-v1`、Hash `696c55fd8da7…`，生产 `gopherai_control_actions_total` 所有 action/result 组合保持 0。Observe-only 没有执行降权，因此“缓解成功率”必须明确显示为 `not_measured_observe_only`，不能把检测成功或建议生成包装成线上收益。
+- 新前端发布后，已打开标签页的普通刷新可能继续持有旧资产。真实验收应使用标签页导航到带 release 查询参数的同源 URL，或强制刷新，再从新的 DOM 确认入口出现。打开长面板时先展开外层异常工作台，再在 `.capability-workspace` 内滚动到故障演练；后台路由日志应同时出现 acceptance POST 和 latest GET，才能证明按钮确实调用了新版本服务。
