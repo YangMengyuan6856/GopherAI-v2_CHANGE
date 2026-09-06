@@ -1287,6 +1287,31 @@
                           <span class="dependency-ready">批准门不全则阻断</span>
                           <span class="dependency-ready">本阶段不影响线上流量</span>
                         </div>
+                        <details class="evolution-control-acceptance">
+                          <summary>查看控制状态机验收（{{ evolutionControlAcceptance ? `${evolutionControlAcceptance.passed_count}/${evolutionControlAcceptance.case_count}` : '尚未运行' }}）</summary>
+                          <div class="metric-catalog-heading">
+                            <div>
+                              <strong>CAS 活动指针与单步回滚 · 确定性内存验收</strong>
+                              <span>验证未来生产控制语义；不会创建活动指针，也不会让当前负收益候选进入 Shadow</span>
+                            </div>
+                            <button :disabled="runningEvolutionControlAcceptance" @click="runEvolutionControlAcceptance">
+                              {{ runningEvolutionControlAcceptance ? '验收中...' : '运行 10 项 CAS / rollback 验收' }}
+                            </button>
+                          </div>
+                          <div v-if="evolutionControlAcceptance">
+                            <div class="diagnostic-evaluation-grid">
+                              <div><strong>{{ evolutionControlAcceptance.passed_count }}/{{ evolutionControlAcceptance.case_count }}</strong><span>状态机用例通过</span></div>
+                              <div><strong>{{ evolutionControlAcceptance.production_writes }}</strong><span>生产写入</span></div>
+                              <div><strong>{{ evolutionControlAcceptance.production_active_pointers }}</strong><span>生产活动指针</span></div>
+                              <div><strong>{{ shortRevision(evolutionControlAcceptance.report_sha256) }}</strong><span>验收报告 Hash</span></div>
+                            </div>
+                            <div class="failure-acceptance-grid">
+                              <span v-for="item in evolutionControlAcceptance.cases" :key="item.reason_code" :class="item.passed ? 'dependency-ready' : 'dependency-down'">{{ evolutionControlAcceptanceLabel(item.reason_code) }}</span>
+                            </div>
+                            <small v-for="limitation in evolutionControlAcceptance.limitations" :key="limitation" class="evolution-limitation">{{ limitation }}</small>
+                          </div>
+                          <div v-else class="strategy-control-empty">尚无控制状态机验收报告；运行时只使用隔离的内存指针，不读写生产策略。</div>
+                        </details>
                       </article>
                     </div>
                     <div v-else class="strategy-control-empty">尚无公平比较报告。运行后会保存到 Release 目录外；同一实验再次点击只复用原报告，不会重新打开 Holdout。</div>
@@ -2253,6 +2278,8 @@ export default {
     const runningEvolutionComparison = ref(false)
     const evolutionPromotionAudit = ref(null)
     const submittingPromotionReview = ref(false)
+    const evolutionControlAcceptance = ref(null)
+    const runningEvolutionControlAcceptance = ref(false)
     const anomalyScenarios = [
       { value: 'healthy', label: '健康窗口' },
       { value: 'quality_drop', label: 'RAG 质量下降' },
@@ -3509,7 +3536,7 @@ export default {
       if (!evaluationCatalogOpen.value || evaluationCatalog.value || loadingEvaluationCatalog.value) return
       try {
         loadingEvaluationCatalog.value = true
-        const [catalogResponse, runResponse, pairedResponse, judgeCalibrationResponse, interviewEvidenceResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse, reliabilityResponse, onlineEvaluationResponse, failurePoolResponse, evolutionResponse, evolutionSplitResponse, evolutionComparisonResponse, evolutionPromotionResponse, performanceResponse] = await Promise.all([
+        const [catalogResponse, runResponse, pairedResponse, judgeCalibrationResponse, interviewEvidenceResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse, reliabilityResponse, onlineEvaluationResponse, failurePoolResponse, evolutionResponse, evolutionSplitResponse, evolutionComparisonResponse, evolutionPromotionResponse, evolutionControlResponse, performanceResponse] = await Promise.all([
           api.get('/evaluations/catalog/latest'),
           api.get('/evaluations/unified/latest'),
           api.get('/evaluations/paired/latest').catch(() => null),
@@ -3529,6 +3556,7 @@ export default {
           api.get('/evaluations/evolution/splits/latest').catch(() => null),
           api.get('/evaluations/evolution/comparison/latest').catch(() => null),
           api.get('/evaluations/evolution/promotion/latest').catch(() => null),
+          api.get('/evaluations/evolution/promotion/control/latest').catch(() => null),
           api.get('/evaluations/performance/latest').catch(() => null)
         ])
         evaluationCatalog.value = catalogResponse.data
@@ -3551,6 +3579,7 @@ export default {
         evolutionSplitAudit.value = evolutionSplitResponse?.data || null
         evolutionComparisonReport.value = evolutionComparisonResponse?.data || null
         evolutionPromotionAudit.value = evolutionPromotionResponse?.data || null
+        evolutionControlAcceptance.value = evolutionControlResponse?.data || null
         performanceReport.value = performanceResponse?.data || null
       } catch (error) {
         evaluationCatalogOpen.value = false
@@ -4048,6 +4077,29 @@ export default {
       human_approved_for_shadow: '人工批准进入隔离 Shadow'
     }[value] || value)
 
+    const runEvolutionControlAcceptance = async () => {
+      if (runningEvolutionControlAcceptance.value) return
+      try {
+        runningEvolutionControlAcceptance.value = true
+        const response = await api.post('/evaluations/evolution/promotion/control/acceptance')
+        evolutionControlAcceptance.value = response.data
+        if (response.data?.passed_count === response.data?.case_count) ElMessage.success('10 项 CAS / rollback 状态机验收全部通过，生产写入与活动指针均为 0')
+        else ElMessage.warning('Harness 控制状态机验收未全部通过')
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || 'Harness 控制状态机验收暂不可用')
+      } finally {
+        runningEvolutionControlAcceptance.value = false
+      }
+    }
+
+    const evolutionControlAcceptanceLabel = (value) => ({
+      human_approval_required: '无人工批准不能激活', offline_gate_required: '离线收益门必须通过',
+      shadow_gate_required: '隔离 Shadow 必须通过', safety_gate_required: '安全回归门必须通过',
+      parent_version_mismatch: '候选父版本必须匹配活动指针', cas_activation_succeeded: '合法候选可原子切换',
+      state_version_conflict: '过期 State Version 被拒绝', single_cas_winner: '并发切换只有一个赢家',
+      rollback_restored_previous: '回滚恢复父版本', rollback_target_consumed: '回滚目标消费后不可反复切换'
+    }[value] || value)
+
     const evolutionVariantLabel = (value) => ({
       frozen_harness: '旧 Harness', human_rule_candidate: '人工规则候选', same_budget_test_time_scaling: '同预算 TTS', evolved_candidate: '自动演化候选'
     }[value] || value)
@@ -4474,6 +4526,10 @@ export default {
       evolutionPromotionAudit,
       submittingPromotionReview,
       submitPromotionReview,
+      evolutionControlAcceptance,
+      runningEvolutionControlAcceptance,
+      runEvolutionControlAcceptance,
+      evolutionControlAcceptanceLabel,
       evolutionPromotionDecisionLabel,
       evolutionPromotionOutcomeLabel,
       evolutionPromotionAttemptReasonLabel,
@@ -7286,6 +7342,20 @@ export default {
 .evolution-promotion-attempt small {
   grid-column: 1 / -1;
   overflow-wrap: anywhere;
+}
+
+.evolution-control-acceptance {
+  margin-top: 9px;
+  padding: 9px;
+  border: 1px solid rgba(13, 148, 136, 0.24);
+  border-radius: 8px;
+  background: #f0fdfa;
+}
+
+.evolution-control-acceptance > summary {
+  cursor: pointer;
+  color: #0f766e;
+  font-weight: 800;
 }
 
 .failure-cluster-grid {
