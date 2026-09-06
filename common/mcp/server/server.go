@@ -38,6 +38,7 @@ type publicManifest struct {
 	BuildStrategy      string   `json:"build_strategy"`
 	Target             string   `json:"target"`
 	GoVersion          string   `json:"go_version"`
+	GoBuildFlags       []string `json:"go_build_flags"`
 	IncludedComponents []string `json:"included_components"`
 	ConfigIncluded     bool     `json:"config_included"`
 	Migrations         []string `json:"migrations"`

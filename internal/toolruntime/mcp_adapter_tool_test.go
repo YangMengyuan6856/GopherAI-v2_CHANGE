@@ -23,7 +23,7 @@ func (invoker *fakeMCPTextInvoker) InvokeText(_ context.Context, toolName string
 }
 
 func validMCPManifestPayload() []byte {
-	return []byte(`{"release_id":"release-1","branch":"add_eico","git_sha":"abc123","source_dirty":false,"built_at":"2026-09-05T00:00:00Z","build_strategy":"local-cross-compile","target":"linux/amd64","go_version":"go1.25","included_components":["backend","mcp"],"config_included":false,"migrations":[],"rollback":"previous"}`)
+	return []byte(`{"release_id":"release-1","branch":"add_eico","git_sha":"abc123","source_dirty":false,"built_at":"2026-09-05T00:00:00Z","build_strategy":"local-cross-compile","target":"linux/amd64","go_version":"go1.25","go_build_flags":["-p=1","-trimpath"],"included_components":["backend","mcp"],"config_included":false,"migrations":[],"rollback":"previous"}`)
 }
 
 func TestMCPDeploymentAdapterUsesFixedRemoteNameAndValidatesPayload(t *testing.T) {
@@ -34,7 +34,7 @@ func TestMCPDeploymentAdapterUsesFixedRemoteNameAndValidatesPayload(t *testing.T
 		t.Fatal(err)
 	}
 	manifest := output.Data.(PublicDeploymentManifest)
-	if invoker.toolName != mcpManifestSourceName || len(invoker.args) != 0 || manifest.ReleaseID != "release-1" || len(output.EvidenceRefs) != 1 || output.EvidenceRefs[0] != "mcp:deployment_manifest_source:release-1" {
+	if invoker.toolName != mcpManifestSourceName || len(invoker.args) != 0 || manifest.ReleaseID != "release-1" || len(manifest.GoBuildFlags) != 2 || len(output.EvidenceRefs) != 1 || output.EvidenceRefs[0] != "mcp:deployment_manifest_source:release-1" {
 		t.Fatalf("unexpected adapter output: invoker=%+v output=%+v", invoker, output)
 	}
 }

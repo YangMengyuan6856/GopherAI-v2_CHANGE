@@ -26,7 +26,7 @@ func TestOnlyGovernedScenarioSourceIsExposed(t *testing.T) {
 
 func TestManifestSourceReturnsOnlyStrictAllowlistedShape(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "release-manifest.json")
-	payload := `{"release_id":"release-1","branch":"add_eico","git_sha":"abc123","source_dirty":false,"built_at":"2026-09-05T00:00:00Z","build_strategy":"local-cross-compile","target":"linux/amd64","go_version":"go1.25","included_components":["backend"],"config_included":false,"migrations":[],"rollback":"previous","secret":"must-fail"}`
+	payload := `{"release_id":"release-1","branch":"add_eico","git_sha":"abc123","source_dirty":false,"built_at":"2026-09-05T00:00:00Z","build_strategy":"local-cross-compile","target":"linux/amd64","go_version":"go1.25","go_build_flags":["-p=1","-trimpath","-ldflags=-s -w"],"included_components":["backend"],"config_included":false,"migrations":[],"rollback":"previous","secret":"must-fail"}`
 	if err := os.WriteFile(path, []byte(payload), 0o600); err != nil {
 		t.Fatal(err)
 	}
