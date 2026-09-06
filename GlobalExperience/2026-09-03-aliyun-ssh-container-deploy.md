@@ -1569,3 +1569,11 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 真实生产运行中，Evolution 为 `97.6%→93.6%`、差值 `-4.0%`、95% CI `[-6.0%,-2.0%]`、McNemar `p=0.5000`；Validation 为 `97.9%→96.9%`、差值 `-1.0%`、95% CI `[-3.0%,0.0%]`、`p=1.0000`。人工规则和同预算 TTS 都与基线持平。Promotion 因上游收益、人工标签和 Fixture 身份被拒绝，Holdout 保持 `sealed/open_count=0`，generalization gap 不计算。
 - Release `20260906214114-8b4b5a8a60c9`，bundle SHA-256 `3e5e05e86890bbc4d2028dae82955c922d0481b918412bef33607e84d941288b`；规范报告短 Hash 为 `6e3b405ac716`，物理文件 `/root/GopherAI_Runtime/evaluation/harness-evolution-comparison-latest.json` 权限/大小为 `0640/13540 bytes`，文件 SHA-256 为 `11a6b698e0fd3e3d37a8851b12a85d9a3bfd4fd74464eb0058ae81291044c0f5`。第二次点击保持相同报告 Hash 和 Holdout 0 次，证明相同实验被复用。
 - 报告持久化校验不能只复算整体 SHA。还应重建受控候选并逐字段比较，重新推导 experiment identity，核对四方顺序/预算/成功率、成对比较的样本数和均值、CI/p 值边界、Promotion flags/reason codes 与 Holdout 状态。否则攻击者或错误代码可能在重算 SHA 后保存一份内部自相矛盾但“哈希正确”的报告。
+
+## 81. 2026-09-06 人工 Gate 的权限初始化也必须 fail-closed
+
+- `6e28d25c` 增加独立 `harness_reviewer` 角色和追加式 `harness_promotion_attempts`。普通 JWT 仍可查看脱敏审计，但只有 reviewer 可提交；请求必须绑定 experiment/candidate/report 三重身份、固定确认语和服务端哈希后的幂等键。相同载荷重试复用原记录，同键不同载荷返回冲突，旧报告绑定返回冲突。
+- 当前受控候选是负收益且 `ProductionCandidate=false`。人工拒绝会形成 `recorded/candidate_no_measured_gain`；请求批准会形成 `blocked/controlled_fixture_not_promotable`。两者都明确 `active_pointer_changed=false`、`affects_live_traffic=false`，阻断尝试同样保留证据，不能静默丢弃后只展示“系统安全”。
+- Release `20260906222549-6e28d25cc714`，bundle SHA-256 `a5b6e53eec43be84116bc942a91545aefb51732face00bd69e550eccb690c2e1`。生产浏览器连续执行“拒绝→批准→重复拒绝”后，页面与 MySQL 一致显示总尝试 `2`、有效决策 `1`、门禁阻断 `1`、活动指针 `0`；两条 Attempt SHA 前缀分别为 `7ffe1eb15cd0`、`ca1a3f277641`。
+- 不能因为服务器是个人项目就把所有账号直接升级。第一次按“唯一有效账号”授权时发现有效账号 `4`，第二次按邮箱发现重复命中 `2`，两次脚本都在 UPDATE 前退出。最终用当前登录用户私有可见、且在 Session 表中只映射到一个 owner 的会话标题取得匿名 owner hash，再要求 User 表恰好匹配 1 条后授权；全程只输出计数。这类 bootstrap 也应具备前置计数、唯一性校验和事后复核。
+- 给旧表增加角色字段时用 `NOT NULL DEFAULT user` 保持既有账号兼容；管理能力不要复用“已登录即管理员”。24A 只负责评审，尚未实现 Shadow/activate/rollback，因此数据模型和 UI 都保持 `human_gate_no_activation`，不能提前放出活动指针写接口。
