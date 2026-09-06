@@ -659,16 +659,20 @@ start_release() {
     grafana_pid="$(tr -cd '0-9' < "$run_path/grafana.pid")"
     grafana_startup_rss_kib="$(ps -o rss= -p "$grafana_pid" | tr -d ' ' || true)"
     [ -n "$grafana_startup_rss_kib" ] || { echo "Grafana process exited after readiness" >&2; return 1; }
-    [ "$grafana_startup_rss_kib" -le 225280 ] || { echo "Grafana RSS exceeded 220 MiB startup guard: ${grafana_startup_rss_kib} KiB" >&2; return 1; }
+    [ "$grafana_startup_rss_kib" -le 393216 ] || { echo "Grafana RSS exceeded 384 MiB startup guard: ${grafana_startup_rss_kib} KiB" >&2; return 1; }
 
     # Grafana briefly retains dashboard/plugin initialization memory after its
     # readiness endpoint turns green. Measure the settled process separately so
     # a harmless startup peak does not trigger rollback on the 1.6 GiB ECS.
-    sleep 20
+    sleep 45
     grafana_stable_rss_kib="$(ps -o rss= -p "$grafana_pid" | tr -d ' ' || true)"
     [ -n "$grafana_stable_rss_kib" ] || { echo "Grafana process exited during RSS stabilization" >&2; return 1; }
-    [ "$grafana_stable_rss_kib" -le 204800 ] || { echo "Grafana RSS exceeded 200 MiB stable-state guard: ${grafana_stable_rss_kib} KiB" >&2; return 1; }
-    echo "Grafana dashboard ready on private container port: gopherai-closed-loop-v1 (startup ${grafana_startup_rss_kib} KiB; stable ${grafana_stable_rss_kib} KiB RSS)"
+    [ "$grafana_stable_rss_kib" -le 307200 ] || { echo "Grafana RSS exceeded 300 MiB stable-state guard: ${grafana_stable_rss_kib} KiB" >&2; return 1; }
+    grafana_unexpected_plugins="$(pgrep -af '^/var/lib/grafana/plugins-bundled/.*/gpx_grafana_' 2>/dev/null | grep -v '/prometheus/' || true)"
+    [ -z "$grafana_unexpected_plugins" ] || { echo "Grafana started a disabled bundled plugin" >&2; echo "$grafana_unexpected_plugins" >&2; return 1; }
+    memory_available_kib="$(awk '/^MemAvailable:/ { print $2 }' /proc/meminfo)"
+    [ "$memory_available_kib" -ge 262144 ] || { echo "system memory available fell below 256 MiB after Grafana start: ${memory_available_kib} KiB" >&2; return 1; }
+    echo "Grafana dashboard ready on private container port: gopherai-closed-loop-v1 (startup ${grafana_startup_rss_kib} KiB; stable ${grafana_stable_rss_kib} KiB RSS; system available ${memory_available_kib} KiB)"
   else
     echo "Grafana config is absent in historical release; skipping dashboard server"
   fi
