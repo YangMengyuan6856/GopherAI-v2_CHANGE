@@ -3786,7 +3786,10 @@ export default {
       production_lineage_artifacts: '生产谱系候选', split_coverage: '分区覆盖', holdout_open_count: 'Holdout 打开次数',
       control_state_machine_acceptance: 'CAS/回滚状态机验收', human_rejections_recorded: '人工拒绝记录', approval_attempts_blocked: '批准阻断',
       shadow_control_events_blocked: 'Shadow 控制阻断', isolated_shadow_active_pointers: '隔离活动指针',
-      evolution_candidate_mean_delta: 'Evolution 候选质量差', validation_candidate_mean_delta: 'Validation 候选质量差'
+      evolution_candidate_mean_delta: 'Evolution 候选质量差', validation_candidate_mean_delta: 'Validation 候选质量差',
+      cleanup_verified_rate: '清理审计闭环', cleanup_removed_count: '已删除并复核', cleanup_retained_boundaries: '保留运行边界',
+      cleanup_blocked_count: '清理阻断', retired_entry_calls_24h: '旧入口 24h 调用',
+      retired_entry_observation_coverage: '零调用窗口覆盖', tracked_source_count: '受控源码文件'
     }[name] || name)
 
     const formatInterviewEvidenceMetric = (metric) => {
@@ -3833,7 +3836,11 @@ export default {
         runningCleanupAudit.value = true
         const response = await api.post('/evaluations/cleanup/acceptance')
         cleanupAudit.value = response.data
-        if (response.data.summary.cleanup_complete) ElMessage.success('清理闭环完成：授权候选已删除，必要协议边界仍保留')
+        if (response.data.summary.cleanup_complete) {
+          const evidenceResponse = await api.get('/evaluations/interview-evidence/latest').catch(() => null)
+          interviewEvidence.value = evidenceResponse?.data || interviewEvidence.value
+          ElMessage.success(evidenceResponse?.data ? '清理闭环完成，并已刷新可复现面试证据包' : '清理闭环完成：授权候选已删除，必要协议边界仍保留')
+        }
         else if (response.data.summary.deletion_plan_ready) ElMessage.success('清理前审计通过：候选仍将通过独立提交删除')
         else ElMessage.warning('清理前审计完成，但观测覆盖、调用量或源码引用仍有阻断')
       } catch (error) {

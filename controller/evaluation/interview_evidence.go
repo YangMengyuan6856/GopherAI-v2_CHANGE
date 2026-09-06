@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"GopherAI/common/mysql"
+	"GopherAI/internal/cleanupaudit"
 	"GopherAI/internal/controlrecommendation"
 	evaldomain "GopherAI/internal/evaluation"
 	"GopherAI/internal/evolution"
@@ -32,7 +33,7 @@ import (
 )
 
 const (
-	interviewEvidenceSchemaVersion = "interview-evidence-package-v3"
+	interviewEvidenceSchemaVersion = "interview-evidence-package-v4"
 	defaultReleaseManifestPath     = "release-manifest.json"
 	maxReleaseManifestBytes        = 64 << 10
 )
@@ -132,6 +133,7 @@ type interviewEvidenceInputs struct {
 	EvolutionPromotionSHA string
 	EvolutionShadow       evolution.ShadowControlAudit
 	EvolutionShadowSHA    string
+	Cleanup               cleanupaudit.Report
 }
 
 type InterviewEvidenceService interface {
@@ -156,6 +158,7 @@ type fileInterviewEvidenceService struct {
 	evolutionControl    evolution.ControlAcceptanceStore
 	evolutionPromotion  *evolution.PromotionService
 	evolutionShadow     *evolution.ShadowControlService
+	cleanup             cleanupaudit.Store
 }
 
 func newDefaultInterviewEvidenceService() *fileInterviewEvidenceService {
@@ -186,12 +189,13 @@ func newDefaultInterviewEvidenceService() *fileInterviewEvidenceService {
 		evolutionControl:    evolution.NewFileControlAcceptanceStore(defaultEvolutionControlAcceptancePath),
 		evolutionPromotion:  promotionService,
 		evolutionShadow:     shadowService,
+		cleanup:             cleanupaudit.NewFileStore(defaultCleanupAuditPath),
 	}
 }
 
 func (service *fileInterviewEvidenceService) Build(ctx context.Context, reviewer string) (InterviewEvidencePackage, error) {
 	if service == nil || service.unified == nil || service.collaboration == nil || service.parentContext == nil || service.performance == nil || service.judge == nil ||
-		service.faultCampaign == nil || service.reliability == nil || service.metricErr != nil || service.grafana == nil || service.control == nil || service.evolution == nil || service.evolutionComparison == nil || service.evolutionControl == nil || service.evolutionPromotion == nil || service.evolutionShadow == nil {
+		service.faultCampaign == nil || service.reliability == nil || service.metricErr != nil || service.grafana == nil || service.control == nil || service.evolution == nil || service.evolutionComparison == nil || service.evolutionControl == nil || service.evolutionPromotion == nil || service.evolutionShadow == nil || service.cleanup == nil {
 		return InterviewEvidencePackage{}, errors.New("interview evidence service is unavailable")
 	}
 	release, releaseSHA, err := loadInterviewReleaseManifest(service.releasePath)
@@ -282,6 +286,10 @@ func (service *fileInterviewEvidenceService) Build(ctx context.Context, reviewer
 	if err != nil {
 		return InterviewEvidencePackage{}, err
 	}
+	cleanup, err := service.cleanup.Load()
+	if err != nil {
+		return InterviewEvidencePackage{}, err
+	}
 	return buildInterviewEvidencePackage(interviewEvidenceInputs{
 		Release: release, ReleaseSHA: releaseSHA, Unified: unified, UnifiedSHA: unifiedSHA,
 		Paired: paired, Performance: performance, JudgeCalibration: judgeAudit,
@@ -290,7 +298,7 @@ func (service *fileInterviewEvidenceService) Build(ctx context.Context, reviewer
 		Control: control, ControlSHA: controlSHA,
 		EvolutionLineage: evolutionLineage, EvolutionLineageSHA: evolutionLineageSHA, EvolutionSplit: evolutionSplit, EvolutionSplitSHA: evolutionSplitSHA,
 		EvolutionComparison: evolutionComparison, EvolutionControl: evolutionControl, EvolutionPromotion: evolutionPromotion, EvolutionPromotionSHA: evolutionPromotionSHA,
-		EvolutionShadow: evolutionShadow, EvolutionShadowSHA: evolutionShadowSHA,
+		EvolutionShadow: evolutionShadow, EvolutionShadowSHA: evolutionShadowSHA, Cleanup: cleanup,
 	})
 }
 
@@ -381,6 +389,9 @@ func buildInterviewEvidencePackage(input interviewEvidenceInputs) (InterviewEvid
 	if input.EvolutionShadow.SchemaVersion != evolution.ShadowControlSchemaVersion || input.EvolutionShadow.Mode != evolution.ShadowControlMode || input.EvolutionShadow.Scope != evolution.ShadowPointerScope || input.EvolutionShadow.AffectsLiveTraffic || input.EvolutionShadow.EventCount < input.EvolutionShadow.AppliedCount+input.EvolutionShadow.BlockedCount || len(input.EvolutionShadowSHA) != 64 {
 		return InterviewEvidencePackage{}, errors.New("harness shadow control evidence is invalid")
 	}
+	if err := cleanupaudit.Validate(input.Cleanup); err != nil || input.Cleanup.ReleaseID != input.Release.ReleaseID || input.Cleanup.GitSHA != input.Release.GitSHA || !input.Cleanup.Summary.CleanupComplete || input.Cleanup.Summary.EligibleToDelete != 0 || input.Cleanup.Summary.Blocked != 0 {
+		return InterviewEvidencePackage{}, errors.New("cleanup audit evidence is invalid or stale")
+	}
 	collaboration, ok := pairedComparisonByName(input.Paired, "collaboration_target_quality")
 	if !ok {
 		return InterviewEvidencePackage{}, errors.New("collaboration paired evidence is missing")
@@ -407,6 +418,7 @@ func buildInterviewEvidencePackage(input interviewEvidenceInputs) (InterviewEvid
 		{Name: "harness_control_acceptance", Kind: "control_acceptance", Version: input.EvolutionControl.TransitionVersion, SHA256: input.EvolutionControl.ReportSHA256, GeneratedAt: input.EvolutionControl.GeneratedAt.UTC(), HumanReviewStatus: "not_applicable"},
 		{Name: "harness_promotion_audit", Kind: "human_gate", Version: input.EvolutionPromotion.SchemaVersion, SHA256: input.EvolutionPromotionSHA, GeneratedAt: harnessPromotionGeneratedAt(input.EvolutionPromotion, input.Release.BuiltAt), HumanReviewStatus: fmt.Sprintf("attempts_%d", input.EvolutionPromotion.AttemptCount)},
 		{Name: "harness_shadow_control", Kind: "isolated_control", Version: input.EvolutionShadow.Mode, SHA256: input.EvolutionShadowSHA, GeneratedAt: harnessShadowGeneratedAt(input.EvolutionShadow, input.Release.BuiltAt), HumanReviewStatus: "governed"},
+		{Name: "cleanup_audit", Kind: "source_cleanup", Version: input.Cleanup.SchemaVersion, SHA256: input.Cleanup.ReportSHA256, GeneratedAt: input.Cleanup.GeneratedAt.UTC(), HumanReviewStatus: "authorized_and_verified"},
 	}
 	for _, source := range input.Paired.Sources {
 		sources = append(sources, InterviewEvidenceSource{Name: source.Name + "_ab", Kind: "paired_source", Version: source.CandidateVersion, SHA256: source.ReportSHA256, GeneratedAt: source.GeneratedAt.UTC(), HumanReviewStatus: reviewStatus(source.HumanReviewed)})
@@ -430,6 +442,7 @@ func buildInterviewEvidencePackage(input interviewEvidenceInputs) (InterviewEvid
 		buildGrafanaEvidenceStatement(input.Grafana),
 		buildControlEvidenceStatement(input.Control),
 		buildHarnessEvolutionEvidenceStatement(input),
+		buildCleanupEvidenceStatement(input.Cleanup),
 	}
 	resumeReady := 0
 	for _, statement := range statements {
@@ -445,13 +458,14 @@ func buildInterviewEvidencePackage(input interviewEvidenceInputs) (InterviewEvid
 		SchemaVersion: interviewEvidenceSchemaVersion, ReleaseID: input.Release.ReleaseID, GitSHA: input.Release.GitSHA,
 		BuildStrategy: input.Release.BuildStrategy, Target: input.Release.Target, AllSourcesVerified: true,
 		ResumeReadyClaims: resumeReady, TotalClaims: len(statements), Status: status, Sources: sources, Statements: statements,
-		Guardrails: []string{"source_hash_required", "numerator_denominator_required_for_rates", "negative_results_preserved", "pending_human_review_blocks_resume_metric", "simulation_scope_disclosed", "no_active_policy_write", "harness_candidate_rejection_preserved", "isolated_shadow_not_live_traffic"},
+		Guardrails: []string{"source_hash_required", "numerator_denominator_required_for_rates", "negative_results_preserved", "pending_human_review_blocks_resume_metric", "simulation_scope_disclosed", "no_active_policy_write", "harness_candidate_rejection_preserved", "isolated_shadow_not_live_traffic", "cleanup_requires_24h_zero_calls", "release_source_bound_to_git_bytes"},
 		Limitations: []string{
 			"证据包聚合已存在的不可变报告，不会把多个不同任务、模型调用或成本口径合并成一个总体收益率。",
 			"ResumeMetricEligible 只表示该条数字具备当前证据链；表述时仍必须同时披露样本量、环境和限制。",
 			"当前多 Agent、父子 RAG、Full 320 与 Judge 人工一致性仍受人工复核阻塞，不能写成已上线收益。",
 			"故障、恢复与控制器数字来自隔离验收或只建议审计，只能按其边界陈述，不能称为真实线上事故或自动优化收益。",
 			"Harness Evolution 当前证据证明了可复现的候选拒绝与控制治理，不证明自动候选提升质量，也不证明 Sealed Holdout 已被打开。",
+			"源码清理证据只覆盖固定 11 项候选；数据库收缩和单实例生产百分比灰度仍未执行。",
 		},
 	}
 	if err := finalizeInterviewEvidencePackage(&result); err != nil {
@@ -743,6 +757,29 @@ func buildHarnessEvolutionEvidenceStatement(input interviewEvidenceInputs) Inter
 	}
 }
 
+func buildCleanupEvidenceStatement(report cleanupaudit.Report) InterviewEvidenceStatement {
+	ready := report.Summary.CleanupComplete && report.Summary.AlreadyRemoved == 9 && report.Summary.RetainedRequired == 2 && report.Summary.EligibleToDelete == 0 && report.Summary.Blocked == 0 && report.Observation.ZeroCalls && report.Observation.CoverageSufficient
+	status, blockers := "resume_ready", []string{}
+	if !ready {
+		status, blockers = "technical_gate_failed", []string{"cleanup_audit_incomplete_or_stale"}
+	}
+	return InterviewEvidenceStatement{
+		ID: "audit_driven_source_cleanup", Category: "engineering_governance", Title: "零调用与替代链路驱动的源码清理", Status: status, ResumeMetricEligible: ready,
+		Claim: fmt.Sprintf("固定审计 %d 项候选：已删除并复核 %d 项、保留运行边界 %d 项、待删 %d、阻断 %d；旧 Skill API 24h 调用 %.0f，Prometheus 采样覆盖 %.1f%%。", report.Summary.TotalCandidates, report.Summary.AlreadyRemoved, report.Summary.RetainedRequired, report.Summary.EligibleToDelete, report.Summary.Blocked, report.Observation.AttemptCount, report.Observation.CoverageRatio*100),
+		Metrics: []InterviewEvidenceMetric{
+			rateMetric("cleanup_verified_rate", report.Summary.AlreadyRemoved+report.Summary.RetainedRequired, report.Summary.TotalCandidates),
+			{Name: "cleanup_removed_count", Value: float64(report.Summary.AlreadyRemoved), Unit: "count"},
+			{Name: "cleanup_retained_boundaries", Value: float64(report.Summary.RetainedRequired), Unit: "count"},
+			{Name: "cleanup_blocked_count", Value: float64(report.Summary.Blocked), Unit: "count"},
+			{Name: "retired_entry_calls_24h", Value: report.Observation.AttemptCount, Unit: "count"},
+			{Name: "retired_entry_observation_coverage", Value: report.Observation.CoverageRatio, Unit: "ratio"},
+			{Name: "tracked_source_count", Value: float64(report.TrackedSourceCount), Unit: "count"},
+		},
+		SourceRefs: []string{"cleanup_audit", "current_release_manifest"}, Blockers: blockers,
+		ForbiddenOverclaims: []string{"不得把固定 11 项源码审计说成清理了全部技术债", "不得声称已执行数据库 Contract migration", "不得把单实例发布说成完成了 5% 到 100% 生产灰度"},
+	}
+}
+
 func harnessEvolvedComparison(report evolution.ComparisonReport, splitName string) (evolution.NamedEvolutionComparison, bool) {
 	for _, split := range report.Splits {
 		if split.Split != splitName {
@@ -804,7 +841,7 @@ func rateMetric(name string, numerator, denominator int) InterviewEvidenceMetric
 }
 
 func finalizeInterviewEvidencePackage(report *InterviewEvidencePackage) error {
-	if report == nil || report.SchemaVersion != interviewEvidenceSchemaVersion || report.ReleaseID == "" || len(report.GitSHA) != 40 || !report.AllSourcesVerified || report.TotalClaims != len(report.Statements) || report.ResumeReadyClaims < 0 || report.ResumeReadyClaims > report.TotalClaims || len(report.Sources) < 18 || len(report.Statements) != 11 {
+	if report == nil || report.SchemaVersion != interviewEvidenceSchemaVersion || report.ReleaseID == "" || len(report.GitSHA) != 40 || !report.AllSourcesVerified || report.TotalClaims != len(report.Statements) || report.ResumeReadyClaims < 0 || report.ResumeReadyClaims > report.TotalClaims || len(report.Sources) < 19 || len(report.Statements) != 12 {
 		return errors.New("interview evidence package is invalid")
 	}
 	sourceNames := make(map[string]struct{}, len(report.Sources))

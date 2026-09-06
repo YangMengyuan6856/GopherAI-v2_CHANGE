@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"GopherAI/internal/cleanupaudit"
 	"GopherAI/internal/controlrecommendation"
 	evaldomain "GopherAI/internal/evaluation"
 	"GopherAI/internal/evolution"
@@ -29,7 +32,7 @@ func TestBuildInterviewEvidencePackagePreservesProvenanceAndHumanBlockers(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(report.PackageSHA256) != 64 || !report.AllSourcesVerified || report.ResumeReadyClaims != 7 || report.TotalClaims != 11 || len(report.Sources) != 18 {
+	if len(report.PackageSHA256) != 64 || !report.AllSourcesVerified || report.ResumeReadyClaims != 8 || report.TotalClaims != 12 || len(report.Sources) != 19 {
 		t.Fatalf("unexpected evidence package: %+v", report)
 	}
 	byID := map[string]InterviewEvidenceStatement{}
@@ -50,6 +53,9 @@ func TestBuildInterviewEvidencePackagePreservesProvenanceAndHumanBlockers(t *tes
 	if statement := byID["gated_harness_evolution_negative_result"]; !statement.ResumeMetricEligible || statement.Status != "verified_negative_control_result" || len(statement.SourceRefs) != 6 {
 		t.Fatalf("gated harness negative result was not preserved: %+v", statement)
 	}
+	if statement := byID["audit_driven_source_cleanup"]; !statement.ResumeMetricEligible || statement.Status != "resume_ready" || len(statement.SourceRefs) != 2 {
+		t.Fatalf("cleanup evidence was not preserved: %+v", statement)
+	}
 	encoded, _ := json.Marshal(report)
 	for _, forbidden := range []string{"OPENAI_API_KEY", "Bearer ", "question\"", "answer\""} {
 		if bytes.Contains(encoded, []byte(forbidden)) {
@@ -60,7 +66,7 @@ func TestBuildInterviewEvidencePackagePreservesProvenanceAndHumanBlockers(t *tes
 	if err := writeInterviewEvidenceMarkdown(&markdown, report); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(markdown.String(), report.PackageSHA256) || !strings.Contains(markdown.String(), "禁止夸大") || !strings.Contains(markdown.String(), "7/11") {
+	if !strings.Contains(markdown.String(), report.PackageSHA256) || !strings.Contains(markdown.String(), "禁止夸大") || !strings.Contains(markdown.String(), "8/12") {
 		t.Fatalf("markdown export is incomplete: %s", markdown.String())
 	}
 }
@@ -70,6 +76,14 @@ func TestBuildInterviewEvidencePackageRejectsUnboundSource(t *testing.T) {
 	input.ReleaseSHA = "bad"
 	if _, err := buildInterviewEvidencePackage(input); err == nil {
 		t.Fatal("expected invalid release source hash rejection")
+	}
+}
+
+func TestBuildInterviewEvidencePackageRejectsStaleCleanupAudit(t *testing.T) {
+	input := validInterviewEvidenceInputs(t)
+	input.Release.ReleaseID = "new-release"
+	if _, err := buildInterviewEvidencePackage(input); err == nil || !strings.Contains(err.Error(), "cleanup audit") {
+		t.Fatalf("expected stale cleanup evidence rejection, got %v", err)
 	}
 }
 
@@ -178,6 +192,7 @@ func validInterviewEvidenceInputs(t *testing.T) interviewEvidenceInputs {
 		{ID: strings.Repeat("4", 64), Operation: evolution.ControlOperationRollback, Outcome: evolution.ControlOutcomeBlocked, ReasonCode: "rollback_unavailable", EventSHA256: strings.Repeat("4", 64), CreatedAt: time.Unix(65, 0).UTC()},
 	}}
 	evolutionShadowSHA, _ := digestInterviewEvidenceValue(evolutionShadow)
+	cleanup := validCleanupEvidence(t)
 	return interviewEvidenceInputs{
 		Release: interviewReleaseManifest{
 			ReleaseID: "release-current", Branch: "add_eico", GitSHA: strings.Repeat("a", 40), BuiltAt: time.Unix(10, 0).UTC(),
@@ -194,8 +209,51 @@ func validInterviewEvidenceInputs(t *testing.T) interviewEvidenceInputs {
 		MetricCatalog: metricHandler.report, Grafana: grafana, Control: control, ControlSHA: controlSHA,
 		EvolutionLineage: evolutionLineage, EvolutionLineageSHA: evolutionLineageSHA, EvolutionSplit: evolutionSplit, EvolutionSplitSHA: evolutionSplitSHA,
 		EvolutionComparison: evolutionComparison, EvolutionControl: evolutionControl, EvolutionPromotion: evolutionPromotion, EvolutionPromotionSHA: evolutionPromotionSHA,
-		EvolutionShadow: evolutionShadow, EvolutionShadowSHA: evolutionShadowSHA,
+		EvolutionShadow: evolutionShadow, EvolutionShadowSHA: evolutionShadowSHA, Cleanup: cleanup,
 	}
+}
+
+type interviewCleanupObservation struct {
+	observation observability.LegacyEntryObservation
+}
+
+func (reader interviewCleanupObservation) ObserveRetiredSkillAPI(context.Context) (observability.LegacyEntryObservation, error) {
+	return reader.observation, nil
+}
+
+func validCleanupEvidence(t *testing.T) cleanupaudit.Report {
+	t.Helper()
+	root := t.TempDir()
+	files := map[string]string{
+		"common/mcp/main.go":                       "package main // mcp_deployment_evidence\n",
+		"common/mcp/server/server.go":              "package server // deployment_manifest_source\n",
+		"internal/toolruntime/mcp_adapter_tool.go": "package toolruntime\n",
+		"router/router.go":                         "package router // LEGACY_SKILL_RETIRED\n",
+	}
+	paths := []string{"common/mcp/main.go", "common/mcp/server/server.go", "internal/toolruntime/mcp_adapter_tool.go", "router/router.go"}
+	for path, contents := range files {
+		absolute := filepath.Join(root, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(absolute), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(absolute, []byte(contents), 0o640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, ".release-source-files.txt"), []byte(strings.Join(paths, "\n")+"\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	observedAt := time.Unix(70, 0).UTC()
+	builder := cleanupaudit.NewBuilder(root, interviewCleanupObservation{observation: observability.LegacyEntryObservation{
+		SchemaVersion: "legacy-entry-observation-v1", Entry: "skill_api", WindowSeconds: 86400, ObservedAt: observedAt,
+		AttemptCount: 0, SampleCount: 5370, ExpectedSampleCount: 5760, MinimumSampleCount: 2880,
+		CoverageRatio: 5370.0 / 5760.0, ZeroCalls: true, CoverageSufficient: true, Status: "zero_calls_verified",
+	}}, func() time.Time { return observedAt })
+	report, err := builder.Build(context.Background(), "release-current", strings.Repeat("a", 40))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return report
 }
 
 func validInterviewPerformanceReport(t *testing.T) perfeval.Report {
