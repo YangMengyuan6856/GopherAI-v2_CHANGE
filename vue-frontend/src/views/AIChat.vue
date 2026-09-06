@@ -622,6 +622,48 @@
                 </div>
               </template>
             </details>
+            <details v-if="interviewEvidence" class="interview-evidence-card">
+              <summary>打开可复现面试证据包（{{ interviewEvidence.resume_ready_claims }}/{{ interviewEvidence.total_claims }} 条简历指标就绪）</summary>
+              <div class="metric-catalog-heading">
+                <div>
+                  <strong>Evidence Package · {{ interviewEvidence.release_id }}</strong>
+                  <span>来源均经 Hash 校验 · Package SHA {{ interviewEvidence.package_sha256.slice(0, 16) }}…</span>
+                </div>
+                <div class="interview-evidence-actions">
+                  <button :disabled="downloadingInterviewEvidence" @click="downloadInterviewEvidence('json')">下载 JSON</button>
+                  <button :disabled="downloadingInterviewEvidence" @click="downloadInterviewEvidence('markdown')">下载 Markdown</button>
+                </div>
+              </div>
+              <div class="interview-evidence-summary">
+                <div><strong>{{ interviewEvidence.resume_ready_claims }}/{{ interviewEvidence.total_claims }}</strong><span>简历指标就绪</span></div>
+                <div><strong>{{ interviewEvidence.all_sources_verified ? '全部通过' : '存在漂移' }}</strong><span>来源 Hash 校验</span></div>
+                <div><strong>{{ interviewEvidence.build_strategy }}</strong><span>{{ interviewEvidence.target }}</span></div>
+              </div>
+              <div class="interview-evidence-grid">
+                <article v-for="statement in interviewEvidence.statements" :key="statement.id">
+                  <div class="interview-evidence-heading">
+                    <strong>{{ statement.title }}</strong>
+                    <span :class="{ ready: statement.resume_metric_eligible, blocked: !statement.resume_metric_eligible }">{{ interviewEvidenceStatusLabel(statement.status) }}</span>
+                  </div>
+                  <p>{{ statement.claim }}</p>
+                  <div class="interview-evidence-metrics">
+                    <span v-for="metric in statement.metrics" :key="metric.name">
+                      {{ interviewEvidenceMetricLabel(metric.name) }}：{{ formatInterviewEvidenceMetric(metric) }}
+                    </span>
+                  </div>
+                  <small>来源：{{ statement.source_refs.join(' · ') }}</small>
+                  <small v-if="statement.blockers.length">阻塞：{{ statement.blockers.join(' · ') }}</small>
+                  <details>
+                    <summary>查看禁止夸大的边界</summary>
+                    <ul><li v-for="item in statement.forbidden_overclaims" :key="item">{{ item }}</li></ul>
+                  </details>
+                </article>
+              </div>
+              <div class="evaluation-candidate-warning">
+                <strong>证据可追溯，不等于所有数字都可写简历</strong>
+                <span>多 Agent、父子 RAG、Full 320 与 Judge 一致性仍受人工复核或净收益门阻断；负结果也保留，不做选择性汇报。</span>
+              </div>
+            </details>
             <details class="anomaly-workbench">
               <summary>打开固定阈值 + 滑动窗口 Z-score 验收工作台</summary>
               <p>下方五个场景是确定性 Fixture；“读取生产窗口”只读取后台定时落入 MySQL 的真实 Prometheus 聚合。两类数据不会混算，所有结果仅生成 Recommend-only 建议。</p>
@@ -1965,6 +2007,8 @@ export default {
     const judgeCalibrationAudit = ref(null)
     const loadingJudgeCalibration = ref(false)
     const submittingJudgeReview = ref(false)
+    const interviewEvidence = ref(null)
+    const downloadingInterviewEvidence = ref(false)
     const judgeCalibrationIndex = ref(0)
     const judgeCalibrationDraft = ref({ relevance: '', completeness: '', helpfulness: '', groundedness: '', safety: '' })
     const judgeCalibrationDimensions = [
@@ -3261,11 +3305,12 @@ export default {
       if (!evaluationCatalogOpen.value || evaluationCatalog.value || loadingEvaluationCatalog.value) return
       try {
         loadingEvaluationCatalog.value = true
-        const [catalogResponse, runResponse, pairedResponse, judgeCalibrationResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse, onlineEvaluationResponse, failurePoolResponse, performanceResponse] = await Promise.all([
+        const [catalogResponse, runResponse, pairedResponse, judgeCalibrationResponse, interviewEvidenceResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse, onlineEvaluationResponse, failurePoolResponse, performanceResponse] = await Promise.all([
           api.get('/evaluations/catalog/latest'),
           api.get('/evaluations/unified/latest'),
           api.get('/evaluations/paired/latest').catch(() => null),
           api.get('/evaluations/judge-calibration/latest').catch(() => null),
+          api.get('/evaluations/interview-evidence/latest').catch(() => null),
           api.get('/evaluations/metrics/catalog'),
           api.get('/evaluations/metrics/runtime').catch(() => null),
           api.get('/evaluations/metrics/dashboard').catch(() => null),
@@ -3282,6 +3327,7 @@ export default {
         pairedComparison.value = pairedResponse?.data || null
         judgeCalibrationAudit.value = judgeCalibrationResponse?.data || null
         if (judgeCalibrationAudit.value) initializeJudgeCalibrationSelection()
+        interviewEvidence.value = interviewEvidenceResponse?.data || null
         metricCatalog.value = metricCatalogResponse.data.report
         prometheusRuntime.value = prometheusRuntimeResponse?.data?.snapshot || null
         grafanaRuntime.value = grafanaRuntimeResponse?.data?.snapshot || null
@@ -3383,6 +3429,55 @@ export default {
         ElMessage.error(error.response?.data?.message || '人工评分保存失败')
       } finally {
         submittingJudgeReview.value = false
+      }
+    }
+
+    const interviewEvidenceStatusLabel = (status) => ({
+      resume_ready: '简历指标就绪', candidate_only: '技术候选 · 待人工', negative_result: '负结果 · 保留',
+      calibration_pending: '人工校准未完成', technical_gate_failed: '技术门失败'
+    }[status] || status)
+
+    const interviewEvidenceMetricLabel = (name) => ({
+      catalog_validation_rate: '目录校验', execution_coverage: '执行覆盖', completion_rate: '执行完成',
+      baseline_success_rate: '基线成功率', candidate_success_rate: '候选成功率', paired_mean_quality_delta: '成对质量差',
+      hot_success_rate: '热路径成功率', hot_total_latency_p95: '端到端 P95', hot_ttft_p95: 'TTFT P95',
+      estimated_tokens_per_100: '估算 Token/100 请求', judge_technical_completion: 'Judge 技术完成',
+      human_review_completion: '人工复核', linear_weighted_kappa: '线性加权 κ'
+    }[name] || name)
+
+    const formatInterviewEvidenceMetric = (metric) => {
+      if (metric.numerator !== undefined && metric.denominator !== undefined) {
+        return `${metric.numerator}/${metric.denominator}（${metricPercent(metric.value)}）`
+      }
+      if (metric.unit === 'ms') return `${metric.value.toFixed(0)}ms`
+      if (metric.unit === 'ratio') {
+        const interval = metric.ci95 ? `，95% CI [${metricPercent(metric.ci95.lower)}, ${metricPercent(metric.ci95.upper)}]` : ''
+        const pValue = metric.p_value !== undefined ? `，p=${metric.p_value.toFixed(4)}` : ''
+        return `${metricPercent(metric.value)}${interval}${pValue}`
+      }
+      if (metric.unit === 'coefficient') return metric.value.toFixed(4)
+      return `${metric.value}`
+    }
+
+    const downloadInterviewEvidence = async (format) => {
+      if (downloadingInterviewEvidence.value || !['json', 'markdown'].includes(format)) return
+      try {
+        downloadingInterviewEvidence.value = true
+        const response = await api.get('/evaluations/interview-evidence/latest', { params: { format }, responseType: 'blob' })
+        const blob = new Blob([response.data], { type: format === 'json' ? 'application/json' : 'text/markdown;charset=utf-8' })
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = `gopherai-interview-evidence.${format === 'json' ? 'json' : 'md'}`
+        document.body.appendChild(link)
+        link.click()
+        link.remove()
+        URL.revokeObjectURL(url)
+        ElMessage.success('面试证据包已下载')
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || '面试证据包下载失败')
+      } finally {
+        downloadingInterviewEvidence.value = false
       }
     }
 
@@ -3977,6 +4072,8 @@ export default {
       judgeCalibrationAudit,
       loadingJudgeCalibration,
       submittingJudgeReview,
+      interviewEvidence,
+      downloadingInterviewEvidence,
       judgeCalibrationIndex,
       judgeCalibrationDraft,
       judgeCalibrationDimensions,
@@ -4154,6 +4251,10 @@ export default {
       selectJudgeCalibrationCase,
       loadJudgeCalibration,
       submitJudgeCalibrationReview,
+      interviewEvidenceStatusLabel,
+      interviewEvidenceMetricLabel,
+      formatInterviewEvidenceMetric,
+      downloadInterviewEvidence,
       metricDomainLabel,
       metricTypeLabel,
       prometheusRuntimeStatusLabel,
@@ -6047,9 +6148,132 @@ export default {
   outline-offset: 1px;
 }
 
+.interview-evidence-card {
+  padding: 10px;
+  border: 1px dashed rgba(70, 84, 167, 0.34);
+  border-radius: 9px;
+  background: #f8f9ff;
+}
+
+.interview-evidence-card > summary {
+  cursor: pointer;
+  color: #4654a7;
+  font-weight: 800;
+}
+
+.interview-evidence-actions,
+.interview-evidence-heading,
+.interview-evidence-metrics {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.interview-evidence-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.interview-evidence-summary > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(70, 84, 167, 0.15);
+  border-radius: 8px;
+  background: #fff;
+  overflow-wrap: anywhere;
+}
+
+.interview-evidence-summary strong {
+  color: #3c4fa5;
+  font-size: 17px;
+}
+
+.interview-evidence-summary span,
+.interview-evidence-grid small {
+  color: #65718b;
+  font-size: 12px;
+}
+
+.interview-evidence-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 9px;
+}
+
+.interview-evidence-grid > article {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid rgba(70, 84, 167, 0.16);
+  border-radius: 8px;
+  background: #fff;
+  overflow-wrap: anywhere;
+}
+
+.interview-evidence-grid p {
+  margin: 0;
+  color: #3f4d63;
+  line-height: 1.5;
+}
+
+.interview-evidence-heading {
+  justify-content: space-between;
+}
+
+.interview-evidence-heading > span {
+  padding: 3px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.interview-evidence-heading > span.ready {
+  background: #e7f8ef;
+  color: #237c5d;
+}
+
+.interview-evidence-heading > span.blocked {
+  background: #fff3d8;
+  color: #9a6a16;
+}
+
+.interview-evidence-metrics span {
+  padding: 4px 7px;
+  border-radius: 6px;
+  background: #eef2ff;
+  color: #46547d;
+  font-size: 11px;
+}
+
+.interview-evidence-grid details {
+  color: #765b91;
+  font-size: 12px;
+}
+
+.interview-evidence-grid details summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.interview-evidence-grid ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
 @media (max-width: 900px) {
   .judge-score-form {
     grid-template-columns: repeat(2, minmax(140px, 1fr));
+  }
+
+  .interview-evidence-summary {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -6061,6 +6285,10 @@ export default {
   .judge-calibration-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .interview-evidence-grid {
+    grid-template-columns: 1fr;
   }
 }
 

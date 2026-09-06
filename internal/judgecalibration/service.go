@@ -99,18 +99,19 @@ type CaseView struct {
 }
 
 type Audit struct {
-	SchemaVersion  string                          `json:"schema_version"`
-	DatasetVersion string                          `json:"dataset_version"`
-	DatasetSHA256  string                          `json:"dataset_sha256"`
-	ReportSHA256   string                          `json:"report_sha256"`
-	JudgeModel     string                          `json:"judge_model"`
-	JudgePrompt    string                          `json:"judge_prompt"`
-	JudgeTechnical bool                            `json:"judge_technical_gate_passed"`
-	CaseCount      int                             `json:"case_count"`
-	Agreement      evaluation.CalibrationAgreement `json:"agreement"`
-	Cases          []CaseView                      `json:"cases"`
-	Guardrails     []string                        `json:"guardrails"`
-	Limitations    []string                        `json:"limitations"`
+	SchemaVersion    string                          `json:"schema_version"`
+	DatasetVersion   string                          `json:"dataset_version"`
+	DatasetSHA256    string                          `json:"dataset_sha256"`
+	ReportSHA256     string                          `json:"report_sha256"`
+	JudgeModel       string                          `json:"judge_model"`
+	JudgePrompt      string                          `json:"judge_prompt"`
+	JudgeGeneratedAt time.Time                       `json:"judge_generated_at"`
+	JudgeTechnical   bool                            `json:"judge_technical_gate_passed"`
+	CaseCount        int                             `json:"case_count"`
+	Agreement        evaluation.CalibrationAgreement `json:"agreement"`
+	Cases            []CaseView                      `json:"cases"`
+	Guardrails       []string                        `json:"guardrails"`
+	Limitations      []string                        `json:"limitations"`
 }
 
 type ReviewReceipt struct {
@@ -174,7 +175,7 @@ func (service *Service) Audit(ctx context.Context, reviewer string) (Audit, erro
 	return Audit{
 		SchemaVersion: SchemaVersion, DatasetVersion: report.DatasetVersion, DatasetSHA256: report.DatasetSHA256,
 		ReportSHA256: report.ReportSHA256, JudgeModel: report.ModelVersion, JudgePrompt: report.PromptVersion,
-		JudgeTechnical: report.TechnicalGatePassed, CaseCount: len(cases), Agreement: agreement, Cases: views,
+		JudgeGeneratedAt: report.GeneratedAt.UTC(), JudgeTechnical: report.TechnicalGatePassed, CaseCount: len(cases), Agreement: agreement, Cases: views,
 		Guardrails:  []string{"current_reviewer_scope", "append_only_review_revisions", "fixed_dataset_and_case_hash", "kappa_gate_0.70", "no_active_policy_write"},
 		Limitations: append(append([]string{}, report.Limitations...), "当前实现以登录用户作为单一复核人；增加第二位独立复核人前，不宣称双人标注一致性。"),
 	}, nil
