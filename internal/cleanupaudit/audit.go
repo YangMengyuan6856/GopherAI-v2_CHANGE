@@ -191,6 +191,23 @@ func (builder *Builder) presentArtifacts(probes []string) ([]string, error) {
 			}
 			return nil, err
 		}
+		if info.IsDir() {
+			hasFiles := false
+			if err := filepath.WalkDir(path, func(_ string, entry fs.DirEntry, walkErr error) error {
+				if walkErr != nil {
+					return walkErr
+				}
+				if !entry.IsDir() {
+					hasFiles = true
+				}
+				return nil
+			}); err != nil {
+				return nil, err
+			}
+			if !hasFiles {
+				continue
+			}
+		}
 		if len(parts) == 2 {
 			if info.IsDir() {
 				return nil, errors.New("content probe points to a directory")
@@ -242,6 +259,11 @@ func (builder *Builder) references(needles, excludes []string) ([]string, error)
 				return err
 			}
 			relative = filepath.ToSlash(relative)
+			// The audit's own compile-time candidate vocabulary is evidence
+			// metadata, never a runtime dependency on a retired symbol.
+			if strings.HasPrefix(relative, "internal/cleanupaudit/") {
+				return nil
+			}
 			for _, exclude := range excludes {
 				if relative == exclude || strings.HasPrefix(relative, strings.TrimSuffix(exclude, "/")+"/") {
 					return nil
