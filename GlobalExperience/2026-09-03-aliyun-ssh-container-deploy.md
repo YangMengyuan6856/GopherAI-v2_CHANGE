@@ -1513,3 +1513,10 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - CPU/heap/goroutine 三份不可变 pprof 的 SHA-256 分别为 `cee4267828f46a6250347f51ddece3b40872912e60339ba56c7666b29dc69dfe`、`07b4807ed51ea6e057e5c1903175975ff3dffba3ac2b50c783280942998b6dc3`、`2718aea70d4cd856b5633208c1c9fbeef6005c37a3a74e933ca1c47b40a656d2`，报告 SHA 为 `5ab3a74db097bd390d7074caca2b03827b128d0312a4f6519cc249748d965c68`。CPU 5.09 秒采样只有 50ms 活跃样本，说明当前请求主要等待外部 I/O，不能据此宣称已定位或优化 CPU 热点；heap in-use 约 5.47 MiB，主要分配来自 PEM、flate、Prometheus、模板解析和 runtime。
 - “冷”只表示当前 Release 启动后的第一条受控业务请求，不代表 ECS、Redis、MySQL、浏览器或模型连接全部冷启动；当前只覆盖 `legacy_chat`，不能外推为 RAG、多 Agent 或 Tool Runtime 性能。后续新增其他路径时必须按实际 route/model/strategy 分开报告，禁止混合计算百分位。
 - 从 PowerShell 把多行 Bash 作为 SSH 参数发送时，CRLF 可能让最后一个 flag 变成 `5\r` 并在业务执行前失败。短脚本可先移除 `\r`、Base64 编码后作为单参数解码执行；长发布脚本仍优先使用部署器既有的 UTF-8 stdin `ssh ... bash -s`，避免 Windows 参数长度上限。容器内分析 pprof 时显式使用 `/usr/local/go/bin/go tool pprof`，不要假定非交互 shell 的 PATH 含 Go。独立 CLI 初始化 GORM 会输出大量迁移日志，后续 CLI 应在初始化数据库前切到 release 日志模式，但不能为了安静跳过必要 Schema 校验。
+
+## 73. 2026-09-06 成对统计上线与 PowerShell 运行时边界
+
+- `1da2772b` 把多 Agent 和父子 RAG 两份逐例报告接入统一成对统计层；只按同一 Case 的基线/候选成对比较，公开分子/分母、胜负平、固定种子 2000 次 paired bootstrap 95% CI、二分类不一致对与精确双侧 McNemar p 值。接口只返回汇总和源报告 Hash，不返回问题、答案或 Case ID；分析输入存在非法分数或不足两对时 fail-closed。
+- Release `20260906155405-1da2772b1133`，bundle SHA-256 `e9d84ef2b31348cf7948c58d301ee77e8cd44ed13f8d0e03fe05e5d43b02083c`。真实浏览器显示多 Agent `0/10→8/10`、质量差 `+32%`、95% CI `[+20%,+40%]`、McNemar `p=0.0078`；父子 RAG `9/10→9/10`、差值/CI `0`、`p=1.0000`。Analysis SHA-256 为 `7a7d57888bf51b98b22b31fd6da458d9b5a0931d7ba6c36a36e6ed2977c95195`。前者是技术候选的统计收益，后者是没有净收益的负结果；两者均因人工标签未复核而保持 `PromotionEligible=false`。
+- 部署器的长远程脚本通过 `.NET ProcessStartInfo.ArgumentList` 与标准输入发送，需要 PowerShell 7；误用 Windows PowerShell 5.1 会在远端容量预检之前因缺少 `ArgumentList` 属性失败，服务器不会上传或切换。本机应固定执行 `pwsh.exe -NoProfile -File scripts/deploy/deploy-aliyun.ps1`，不要用 `powershell.exe`。本次改用 `pwsh 7.6.5` 后完成本地交叉构建、上传、原子切换和全部健康门。
+- Backend 比 Prometheus 更早启动时，第一次每分钟窗口采集可能短暂记录 `capture_failed`；本次下一周期开始持续恢复为 `warming/points=2`，Prometheus 2/2 targets 与控制器均正常。验收应检查后续周期是否恢复，不能把单次可观测启动瞬态隐瞒成无错误，也不能在后续仍失败时用“启动顺序”搪塞。
