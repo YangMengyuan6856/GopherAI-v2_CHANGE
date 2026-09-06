@@ -92,6 +92,8 @@ func migration() error {
 		new(model.FailureCluster),
 		new(model.FailureImprovementProposal),
 		new(model.JudgeCalibrationReview),
+		new(model.HarnessArtifact),
+		new(model.HarnessArtifactReview),
 	)
 }
 

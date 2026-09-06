@@ -1098,6 +1098,63 @@
                     <span v-for="guardrail in failurePoolAudit.guardrails" :key="guardrail" class="dependency-ready">{{ failureGuardrailLabel(guardrail) }}</span>
                   </div>
                 </details>
+                <details v-if="evolutionAudit" class="failure-pool-card evolution-lineage-card">
+                  <summary>
+                    查看 Harness Evolution 候选谱系（{{ evolutionAudit.artifact_count || 0 }} 条候选 · {{ evolutionAudit.applied_count || 0 }} 条已应用）
+                  </summary>
+                  <div class="metric-catalog-heading">
+                    <div>
+                      <strong>Harness Evolution · {{ evolutionAudit.schema_version }}</strong>
+                      <span>{{ evolutionAudit.mode }} · 白名单单变量 Patch · 不持有活动指针</span>
+                    </div>
+                    <div class="metric-catalog-actions">
+                      <button :disabled="materializingEvolution" @click="materializeEvolutionCandidates">
+                        {{ materializingEvolution ? '生成并校验中...' : '从当前失败池生成离线候选' }}
+                      </button>
+                    </div>
+                  </div>
+                  <p>这里只把脱敏失败簇转换成不可执行的 Prompt、Context Policy 或诊断 Playbook 候选；生成候选不等于质量提升，也不会改变线上聊天。</p>
+                  <div class="online-evaluation-rates">
+                    <div><strong>{{ evolutionAudit.artifact_count || 0 }}</strong><span>不可变候选</span></div>
+                    <div><strong>{{ evolutionAudit.review_count || 0 }}</strong><span>追加式复核</span></div>
+                    <div><strong>{{ evolutionAudit.approved_count || 0 }}</strong><span>人工批准</span></div>
+                    <div><strong>{{ evolutionAudit.active_pointers || 0 }}</strong><span>活动指针</span></div>
+                    <div><strong>{{ evolutionAudit.applied_count || 0 }}</strong><span>已应用</span></div>
+                  </div>
+                  <div v-if="evolutionMaterialization" class="evaluation-decision-strip">
+                    <span class="dependency-ready">来源提案 {{ evolutionMaterialization.proposal_count }}</span>
+                    <span class="dependency-ready">新建 {{ evolutionMaterialization.created_count }}</span>
+                    <span class="dependency-ready">幂等复用 {{ evolutionMaterialization.existing_count }}</span>
+                    <span>跳过 {{ evolutionMaterialization.skipped?.length || 0 }}</span>
+                  </div>
+                  <div v-if="evolutionAudit.latest?.length" class="failure-cluster-grid evolution-artifact-grid">
+                    <article v-for="artifact in evolutionAudit.latest" :key="artifact.id">
+                      <div class="evaluation-run-heading">
+                        <strong>{{ evolutionArtifactLabel(artifact.artifact_type) }}</strong>
+                        <span>{{ artifact.status }}</span>
+                      </div>
+                      <div class="failure-proposal-line">
+                        <span>单变量 {{ artifact.patch.operation }}</span>
+                        <strong>{{ artifact.patch.path }}</strong>
+                      </div>
+                      <p>Parent：{{ artifact.parent_version }} · {{ shortRevision(artifact.parent_sha256) }}</p>
+                      <p>Candidate：{{ artifact.artifact_version }} · {{ shortRevision(artifact.artifact_sha256) }}</p>
+                      <small>数据 {{ artifact.data_split }} · {{ shortRevision(artifact.data_version) }} · 预算：模型 {{ artifact.budget.model_calls }} 次 / Token {{ artifact.budget.token_budget }} / 搜索 {{ artifact.budget.search_iterations }} 轮</small>
+                      <div class="evaluation-decision-strip">
+                        <span :class="artifact.static_validation_passed ? 'dependency-ready' : 'dependency-down'">静态校验 {{ artifact.static_validation_passed ? '通过' : '失败' }}</span>
+                        <span :class="artifact.requires_human_approval ? 'dependency-ready' : 'dependency-down'">需要人工批准</span>
+                        <span :class="!artifact.offline_evaluation_passed ? 'dependency-ready' : 'dependency-down'">离线 A/B 未运行</span>
+                        <span :class="!artifact.holdout_opened ? 'dependency-ready' : 'dependency-down'">Holdout 未打开</span>
+                        <span :class="!artifact.applied ? 'dependency-ready' : 'dependency-down'">Applied=false</span>
+                      </div>
+                    </article>
+                  </div>
+                  <div v-else class="strategy-control-empty">尚无 Harness 候选。先刷新失败池，再点击生成；数据集类提案会被明确跳过，不会伪装成 Harness Patch。</div>
+                  <div class="evaluation-decision-strip">
+                    <span v-for="guardrail in evolutionAudit.guardrails" :key="guardrail" class="dependency-ready">{{ evolutionGuardrailLabel(guardrail) }}</span>
+                  </div>
+                  <small v-for="limitation in evolutionAudit.limitations" :key="limitation" class="evolution-limitation">{{ limitation }}</small>
+                </details>
               </details>
               <div v-if="loadingAnomaly" class="strategy-control-empty">正在以“基线窗口不含当前点”的规则计算...</div>
               <article v-else-if="anomalyResult" :class="['anomaly-result', anomalyDecisionClass(anomalyResult.analysis)]">
@@ -2049,6 +2106,9 @@ export default {
     const failurePoolAcceptance = ref(null)
     const refreshingFailurePool = ref(false)
     const runningFailurePoolAcceptance = ref(false)
+    const evolutionAudit = ref(null)
+    const evolutionMaterialization = ref(null)
+    const materializingEvolution = ref(false)
     const anomalyScenarios = [
       { value: 'healthy', label: '健康窗口' },
       { value: 'quality_drop', label: 'RAG 质量下降' },
@@ -3305,7 +3365,7 @@ export default {
       if (!evaluationCatalogOpen.value || evaluationCatalog.value || loadingEvaluationCatalog.value) return
       try {
         loadingEvaluationCatalog.value = true
-        const [catalogResponse, runResponse, pairedResponse, judgeCalibrationResponse, interviewEvidenceResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse, reliabilityResponse, onlineEvaluationResponse, failurePoolResponse, performanceResponse] = await Promise.all([
+        const [catalogResponse, runResponse, pairedResponse, judgeCalibrationResponse, interviewEvidenceResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse, reliabilityResponse, onlineEvaluationResponse, failurePoolResponse, evolutionResponse, performanceResponse] = await Promise.all([
           api.get('/evaluations/catalog/latest'),
           api.get('/evaluations/unified/latest'),
           api.get('/evaluations/paired/latest').catch(() => null),
@@ -3321,6 +3381,7 @@ export default {
           api.get('/evaluations/reliability/latest').catch(() => null),
           api.get('/evaluations/online/latest').catch(() => null),
           api.get('/evaluations/failure-pool/latest').catch(() => null),
+          api.get('/evaluations/evolution/latest').catch(() => null),
           api.get('/evaluations/performance/latest').catch(() => null)
         ])
         evaluationCatalog.value = catalogResponse.data
@@ -3339,6 +3400,7 @@ export default {
         reliabilityAcceptance.value = reliabilityResponse?.data || null
         onlineEvaluationAudit.value = onlineEvaluationResponse?.data || null
         failurePoolAudit.value = failurePoolResponse?.data || null
+        evolutionAudit.value = evolutionResponse?.data || null
         performanceReport.value = performanceResponse?.data || null
       } catch (error) {
         evaluationCatalogOpen.value = false
@@ -3727,6 +3789,32 @@ export default {
     }
 
     const failureProposalFor = (clusterId) => failurePoolAudit.value?.proposals?.find(item => item.cluster_id === clusterId) || null
+
+    const materializeEvolutionCandidates = async () => {
+      if (materializingEvolution.value) return
+      try {
+        materializingEvolution.value = true
+        const response = await api.post('/evaluations/evolution/materialize', { source: 'latest_failure_pool' })
+        evolutionMaterialization.value = response.data
+        evolutionAudit.value = response.data.audit
+        const skipped = response.data?.skipped?.length || 0
+        ElMessage.success(`Harness 离线候选：新建 ${response.data.created_count}，幂等复用 ${response.data.existing_count}，安全跳过 ${skipped}`)
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || '当前失败池无法生成合法 Harness 候选')
+      } finally {
+        materializingEvolution.value = false
+      }
+    }
+
+    const evolutionArtifactLabel = (value) => ({
+      prompt_template: 'Prompt Template', context_policy: 'Context Policy', diagnostic_playbook: 'Diagnostic Playbook'
+    }[value] || value)
+
+    const evolutionGuardrailLabel = (value) => ({
+      failure_metadata_only: '只读失败元数据', allowlisted_artifact_types: '仅白名单 Artifact', single_variable_patch: '单变量 Patch',
+      static_validation_required: '必须静态校验', append_only_lineage: '追加式谱系', human_approval_required: '必须人工批准',
+      no_active_pointer: 'Evolver 无活动指针', no_source_or_permission_changes: '禁止源码与权限变更'
+    }[value] || value)
 
     const failureWhereLabel = (value) => ({
       answer_quality: '回答质量', agent_budget: 'Agent 预算', tool_runtime: '工具运行时', retrieval_evidence_gate: '检索证据门',
@@ -4125,6 +4213,9 @@ export default {
       failurePoolAcceptance,
       refreshingFailurePool,
       runningFailurePoolAcceptance,
+      evolutionAudit,
+      evolutionMaterialization,
+      materializingEvolution,
       parentContextEvaluationOpen,
       loadingParentContextEvaluation,
       parentContextEvaluation,
@@ -4309,6 +4400,9 @@ export default {
       failureCandidateLabel,
       failureTargetLabel,
       failureGuardrailLabel,
+      materializeEvolutionCandidates,
+      evolutionArtifactLabel,
+      evolutionGuardrailLabel,
       submitDownvote,
       faultClassLabel,
       faultPhaseLabel,
@@ -6817,6 +6911,21 @@ export default {
   cursor: pointer;
   color: #6947a6;
   font-weight: 800;
+}
+
+.evolution-lineage-card {
+  background: #f5fbff;
+  border-color: rgba(48, 132, 168, 0.34);
+}
+
+.evolution-artifact-grid > article {
+  border-color: rgba(48, 132, 168, 0.22);
+}
+
+.evolution-limitation {
+  display: block;
+  margin-top: 5px;
+  color: #786548;
 }
 
 .failure-cluster-grid {

@@ -1,0 +1,52 @@
+package evaluation
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"GopherAI/internal/evolution"
+
+	"github.com/gin-gonic/gin"
+)
+
+type evolutionServiceStub struct {
+	audit  evolution.Audit
+	result evolution.MaterializeResult
+}
+
+func (stub evolutionServiceStub) Audit(context.Context) (evolution.Audit, error) {
+	return stub.audit, nil
+}
+func (stub evolutionServiceStub) MaterializeLatest(context.Context) (evolution.MaterializeResult, error) {
+	return stub.result, nil
+}
+
+func TestEvolutionEndpointsExposeOfflineBoundaryAndStrictSource(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	audit := evolution.Audit{SchemaVersion: evolution.SchemaVersion, Mode: evolution.Mode, ActivePointers: 0, AppliedCount: 0}
+	handler := NewEvolutionHandler(evolutionServiceStub{audit: audit, result: evolution.MaterializeResult{SchemaVersion: evolution.SchemaVersion, Audit: audit}})
+	router := gin.New()
+	router.GET("/latest", handler.Latest)
+	router.POST("/materialize", handler.Materialize)
+
+	latest := httptest.NewRecorder()
+	router.ServeHTTP(latest, httptest.NewRequest(http.MethodGet, "/latest", nil))
+	if latest.Code != http.StatusOK || !strings.Contains(latest.Body.String(), `"active_pointers":0`) {
+		t.Fatalf("unexpected audit response: %d %s", latest.Code, latest.Body.String())
+	}
+
+	accepted := httptest.NewRecorder()
+	router.ServeHTTP(accepted, httptest.NewRequest(http.MethodPost, "/materialize", strings.NewReader(`{"source":"latest_failure_pool"}`)))
+	if accepted.Code != http.StatusOK || !strings.Contains(accepted.Body.String(), `"schema_version":"harness-evolution-lineage-v1"`) {
+		t.Fatalf("unexpected materialize response: %d %s", accepted.Code, accepted.Body.String())
+	}
+
+	rejected := httptest.NewRecorder()
+	router.ServeHTTP(rejected, httptest.NewRequest(http.MethodPost, "/materialize", strings.NewReader(`{"source":"raw_chat_logs"}`)))
+	if rejected.Code != http.StatusBadRequest || !strings.Contains(rejected.Body.String(), "INVALID_EVOLUTION_SOURCE") {
+		t.Fatalf("unsafe source was accepted: %d %s", rejected.Code, rejected.Body.String())
+	}
+}
