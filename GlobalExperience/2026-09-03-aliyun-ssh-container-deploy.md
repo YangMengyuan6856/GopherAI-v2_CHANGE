@@ -1577,3 +1577,10 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - Release `20260906222549-6e28d25cc714`，bundle SHA-256 `a5b6e53eec43be84116bc942a91545aefb51732face00bd69e550eccb690c2e1`。生产浏览器连续执行“拒绝→批准→重复拒绝”后，页面与 MySQL 一致显示总尝试 `2`、有效决策 `1`、门禁阻断 `1`、活动指针 `0`；两条 Attempt SHA 前缀分别为 `7ffe1eb15cd0`、`ca1a3f277641`。
 - 不能因为服务器是个人项目就把所有账号直接升级。第一次按“唯一有效账号”授权时发现有效账号 `4`，第二次按邮箱发现重复命中 `2`，两次脚本都在 UPDATE 前退出。最终用当前登录用户私有可见、且在 Session 表中只映射到一个 owner 的会话标题取得匿名 owner hash，再要求 User 表恰好匹配 1 条后授权；全程只输出计数。这类 bootstrap 也应具备前置计数、唯一性校验和事后复核。
 - 给旧表增加角色字段时用 `NOT NULL DEFAULT user` 保持既有账号兼容；管理能力不要复用“已登录即管理员”。24A 只负责评审，尚未实现 Shadow/activate/rollback，因此数据模型和 UI 都保持 `human_gate_no_activation`，不能提前放出活动指针写接口。
+
+## 82. 2026-09-06 先验证控制状态机，再开放真实活动指针
+
+- `0b39a26c` 增加 `harness-pointer-cas-v1` 的确定性内存验收。未来活动指针切换必须同时满足离线收益门、独立人工批准、隔离 Shadow、安全回归门、候选 parent version/hash 与当前活动版本一致，以及调用方提供的 state version 未过期；任一条件不满足均 fail-closed。并发双请求使用同一 state version 时只允许一个成功，另一个必须得到冲突，而不是最后写入者静默覆盖。
+- 回滚只恢复指针保存的直接父版本，成功后 state version 单调递增并消费 rollback slot；不允许在两个版本间反复 toggle。10 项验收覆盖四个前置门、父版本绑定、合法 CAS、过期 CAS、并发单赢家、成功回滚和二次回滚阻断，全部在隔离内存中完成，不访问生产 Pointer Repository。
+- Release `20260906225400-0b39a26c515a`，bundle SHA-256 `3c4ac43f86517c21fc79368cad50b8f67ba98065328811b201ec276c93fe5158`。真实浏览器得到 `10/10`、生产写入 `0`、生产活动指针 `0`；报告自哈希为 `3fcd3d7cf1365ccfb4887830024c1c484450a44fb21519132a2a4048d9c8d5a0`。物理文件 `/root/GopherAI_Runtime/evaluation/harness-control-acceptance-latest.json` 权限/大小为 `0640/2293 bytes`，文件 SHA-256 为 `bf703b65cf93cc2ac4abc64ef75221037cc37ab8f46a658996c054a5b71a1973`。
+- 页面用折叠子工作台明确写出“状态机语义已验证”与“当前负收益候选未进入 Shadow”两个不同事实。此切片仍不是生产激活能力：当前真实候选已被上游 Promotion Gate 拒绝，因此实际 Shadow admission、活动 Pointer Repository 和生产 rollback API 尚未执行；M9-24 继续保持进行中，不能把 `10/10` 内存验收宣传成线上策略已安全切换。
