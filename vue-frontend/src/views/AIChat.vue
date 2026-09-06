@@ -23,6 +23,7 @@
       <div class="top-bar">
         <button class="back-btn" @click="$router.push('/menu')">← 返回</button>
         <button class="sync-btn" @click="syncHistory" :disabled="!currentSessionId || tempSession">同步历史数据</button>
+        <button class="interview-demo-toggle" :class="{ 'workspace-active': interviewDemoOpen }" :aria-pressed="interviewDemoOpen" :disabled="loadingInterviewDemo" @click="toggleInterviewDemo">🎤 面试导览</button>
         <span class="route-mode" title="新识别器只记录建议和指标；实际路由仍由当前显式开关决定">🧭 意图 Shadow（不切流）</span>
         <label for="streamingMode" style="margin-left: 20px;">
           <input type="checkbox" id="streamingMode" v-model="isStreaming" />
@@ -57,10 +58,83 @@
       </div>
 
       <div
-        v-show="policyControlOpen || toolRuntimeOpen || evaluationCatalogOpen || knowledgeDocuments.length > 0 || knowledgeSearchOpen || memoryPreviewOpen || diagnosticMode"
+        v-show="interviewDemoOpen || policyControlOpen || toolRuntimeOpen || evaluationCatalogOpen || knowledgeDocuments.length > 0 || knowledgeSearchOpen || memoryPreviewOpen || diagnosticMode"
         class="capability-workspace"
         aria-label="当前能力工作区"
       >
+
+      <section v-if="interviewDemoOpen" class="interview-demo-panel" aria-label="3 到 5 分钟面试导览">
+        <div class="interview-demo-header">
+          <div>
+            <small>GopherAI DevSupport · LIVE WALKTHROUGH</small>
+            <strong>3–5 分钟讲清：场景、证据、Agent、治理与反馈闭环</strong>
+            <span>一次只讲一个重点；所有数字来自当前只读 API 或不可变报告。</span>
+          </div>
+          <span class="interview-demo-readonly">READ ONLY · 不切流</span>
+        </div>
+
+        <div class="interview-demo-proof-grid">
+          <article>
+            <strong>{{ interviewEvidence?.release_id || '证据包待就绪' }}</strong>
+            <span>当前 Release</span>
+          </article>
+          <article>
+            <strong>{{ evaluationCatalog ? `${evaluationCatalog.actual_total}/${evaluationCatalog.expected_total}` : '读取中' }}</strong>
+            <span>固定评测目录</span>
+          </article>
+          <article>
+            <strong>{{ interviewEvidence ? `${interviewEvidence.resume_ready_claims}/${interviewEvidence.total_claims}` : '读取中' }}</strong>
+            <span>简历证据就绪</span>
+          </article>
+          <article>
+            <strong>{{ interviewEvidence?.all_sources_verified ? 'Hash 全通过' : '等待证据' }}</strong>
+            <span>来源可追溯</span>
+          </article>
+        </div>
+
+        <div v-if="loadingInterviewDemo" class="interview-demo-loading">正在读取当前 Release、Full 320 与证据包，不执行任何验收动作...</div>
+        <div v-else-if="interviewDemoLoadWarning" class="interview-demo-warning">{{ interviewDemoLoadWarning }}</div>
+
+        <nav class="interview-demo-tabs" aria-label="面试导览步骤">
+          <button
+            v-for="(step, index) in interviewDemoSteps"
+            :key="step.id"
+            :class="{ active: interviewDemoStep === index }"
+            :aria-current="interviewDemoStep === index ? 'step' : undefined"
+            @click="interviewDemoStep = index"
+          >{{ index + 1 }} · {{ step.shortTitle }}</button>
+        </nav>
+
+        <article class="interview-demo-step-card">
+          <div class="interview-demo-step-heading">
+            <div>
+              <small>{{ currentInterviewDemoStep.timebox }}</small>
+              <strong>{{ currentInterviewDemoStep.title }}</strong>
+            </div>
+            <span>{{ currentInterviewDemoStep.badge }}</span>
+          </div>
+          <p class="interview-demo-thesis">{{ currentInterviewDemoStep.thesis }}</p>
+          <div class="interview-demo-three-column">
+            <div><small>现场操作</small><strong>{{ currentInterviewDemoStep.action }}</strong></div>
+            <div><small>预期证据</small><strong>{{ currentInterviewDemoStep.proof }}</strong></div>
+            <div><small>主动披露边界</small><strong>{{ currentInterviewDemoStep.boundary }}</strong></div>
+          </div>
+          <details class="interview-question-card">
+            <summary>高频追问：{{ currentInterviewDemoStep.question }}</summary>
+            <p>{{ currentInterviewDemoStep.answer }}</p>
+          </details>
+          <div class="interview-demo-actions">
+            <button :disabled="interviewDemoStep === 0" @click="interviewDemoStep--">上一步</button>
+            <button class="interview-demo-open-workspace" @click="openInterviewDemoWorkspace(currentInterviewDemoStep.workspace)">{{ currentInterviewDemoStep.workspaceLabel }}</button>
+            <button :disabled="interviewDemoStep === interviewDemoSteps.length - 1" @click="interviewDemoStep++">下一步</button>
+          </div>
+        </article>
+
+        <div class="interview-demo-stack">
+          <span>Go 1.24</span><span>Vue</span><span>MySQL 权威状态</span><span>Redis Cache + Vector</span>
+          <span>RabbitMQ</span><span>MCP</span><span>Prometheus</span><span>Grafana</span><span>LLM-as-a-Judge</span>
+        </div>
+      </section>
 
       <section v-if="policyControlOpen" class="strategy-control-panel">
         <div class="strategy-control-header">
@@ -2299,6 +2373,63 @@ export default {
     const answeringKnowledge = ref(false)
     const answeringKnowledgeMode = ref('')
     const knowledgeAnswer = ref(null)
+    const interviewDemoOpen = ref(false)
+    const loadingInterviewDemo = ref(false)
+    const interviewDemoLoadWarning = ref('')
+    const interviewDemoStep = ref(0)
+    const interviewDemoSteps = [
+      {
+        id: 'scenario-routing', shortTitle: '场景与路由', timebox: '00:00–00:40', title: '先说明为什么系统不是“套壳聊天”', badge: 'Intent + Policy',
+        thesis: '场景固定为“研发与运维知识助手”：普通问答、项目知识问答和故障诊断共享入口，但实际路由、Shadow 判断和用户显式开关互相独立。',
+        action: '在下方发送一个项目问题，指出回答下方“实际路由”与“影子判断”两行。',
+        proof: 'Trace、strategy、policy version 与三级意图置信度同时可见；Shadow 不改真实结果。',
+        boundary: '当前 Shadow 只记录建议和指标，不自主切流。',
+        question: '为什么不让意图识别直接决定线上路由？',
+        answer: '先用 Shadow 建立混淆矩阵、低置信样本和回归基线，再经固定策略、依赖健康、稳定分桶和人工门逐级放量；这样可以把分类错误与路由事故隔离。',
+        workspace: 'chat', workspaceLabel: '回到正式聊天'
+      },
+      {
+        id: 'grounded-rag', shortTitle: '证据 RAG', timebox: '00:40–01:35', title: '展示“检索到”不等于“允许回答”', badge: 'Hybrid + Evidence Gate',
+        thesis: '文档经过版本化异步索引，查询同时使用结构化 key path、关键词和向量召回；最终由证据覆盖、冲突检测和引用校验决定是否调用模型。',
+        action: '打开证据检索，用 JSON + YAML 跨文档问题比较“基于证据回答”和“深度分析回答”。',
+        proof: '答案包含行号级引用、文档版本、Child/Parent 召回诊断；无证据时明确拒答。',
+        boundary: '父子上下文 A/B 未证明净收益，候选保持 0% 权重。',
+        question: 'Redis 在 RAG 中是不是权威数据库？',
+        answer: '不是。MySQL 保存文档、版本、Chunk 与状态机，Redis 只承载短缓存和向量投影；Worker 启动时按 MySQL 权威状态对账并清除陈旧向量，Redis 故障不能改变业务真相。',
+        workspace: 'knowledge', workspaceLabel: '打开证据检索'
+      },
+      {
+        id: 'bounded-agents', shortTitle: '有限多 Agent', timebox: '01:35–02:30', title: '只在复杂度收益足够时拆 Agent', badge: 'MAX 2 + Budget',
+        thesis: 'Planner 先判断独立故障域和知识核对需求；只有复杂任务才并行 KnowledgeAgent 与 DiagnosticAgent，并在统一预算、超时与引用合并器内收束。',
+        action: '打开策略演算，输入同时包含配置核对、HTTP 502 与 Redis NOAUTH 的复合问题，先规划再运行协作 Shadow。',
+        proof: '两个 Agent 并行、独立状态与预算可见；合并器只保留有引用 Claim，失败时显式降级。',
+        boundary: '最多 2 个 Agent，禁止递归创建；协作结果仍不替换正式聊天。',
+        question: '为什么不做完全自由的多 Agent 自主协作？',
+        answer: '自由拓扑难以预算、取消、重放和归因。这里把拆分条件、Agent 上限、输出 Schema、总超时和降级策略都写进契约，先证明目标复杂样本的成对收益，再讨论是否晋级。',
+        workspace: 'policy', workspaceLabel: '打开策略演算'
+      },
+      {
+        id: 'governed-runtime', shortTitle: '工具与记忆', timebox: '02:30–03:20', title: '让工具和记忆成为受治理能力', badge: 'Schema + ACL + Audit',
+        thesis: 'Tool Runtime 对 Registry、参数 Schema、意图、权限、副作用、预算、超时、熔断、缓存和审计统一治理；三级记忆分别处理 Working、Episodic 与 Profile。',
+        action: '打开受治理工具，执行 MCP 发布证据或 Backend Ready；随后可查看三级记忆的来源、冲突和修正入口。',
+        proof: 'ToolMessage 展示版本、耗时、参数 Hash、证据引用与缓存状态；原始参数和用户身份不进审计。',
+        boundary: '无任意 Shell/URL/文件路径；Profile 记忆需用户可见、可改、可删。',
+        question: 'MCP 和普通函数调用的区别是什么？',
+        answer: 'MCP 解决协议发现与跨进程互操作，真正的安全性来自外层 Runtime：固定 allowlist、Schema、ACL、副作用等级、预算、超时、熔断和审计。协议接入不能替代治理。',
+        workspace: 'tools', workspaceLabel: '打开受治理工具'
+      },
+      {
+        id: 'eval-loop', shortTitle: '评测闭环', timebox: '03:20–05:00', title: '用证据决定“改不改”，而不是自动自嗨', badge: 'Eval + Observe + Gate',
+        thesis: '离线 Full 320、成对 A/B、LLM-as-a-Judge、在线反馈、Prometheus 固定阈值与滑动 Z-score 汇入同一证据包；控制器当前只生成建议。',
+        action: '打开评测总览，依次看 8/12 证据包、三类故障演练、Recommend-only 控制器与 Harness Evolution 负结果。',
+        proof: '每条数字绑定样本量、Hash、CI/p 值或边界；负收益候选被 Gate 拒绝且活动策略不变。',
+        boundary: '人工 0/320 与 Judge 0/30 尚未完成；不能宣称全部质量收益已上线。',
+        question: '这算不算 Harness 自进化？',
+        answer: '实现了失败聚类、白名单最小 Patch、三分区、公平预算 A/B、人工 Promotion 与隔离 Shadow 的受门禁演化链；当前候选为负收益并被拒绝，所以只能称“演化机制与拒绝门已验证”，不能称质量已自进化提升。',
+        workspace: 'evaluation', workspaceLabel: '打开评测总览'
+      }
+    ]
+    const currentInterviewDemoStep = computed(() => interviewDemoSteps[interviewDemoStep.value] || interviewDemoSteps[0])
     const evaluationCatalogOpen = ref(false)
     const loadingEvaluationCatalog = ref(false)
     const evaluationCatalog = ref(null)
@@ -2438,11 +2569,51 @@ export default {
     let knowledgePollTimer = null
 
     const closeUtilityWorkspaces = (keep = '') => {
+      if (keep !== 'interview') interviewDemoOpen.value = false
       if (keep !== 'memory') memoryPreviewOpen.value = false
       if (keep !== 'tools') toolRuntimeOpen.value = false
       if (keep !== 'policy') policyControlOpen.value = false
       if (keep !== 'evaluation') evaluationCatalogOpen.value = false
       if (keep !== 'knowledge') knowledgeSearchOpen.value = false
+    }
+
+    const toggleInterviewDemo = async () => {
+      const opening = !interviewDemoOpen.value
+      closeUtilityWorkspaces(opening ? 'interview' : '')
+      interviewDemoOpen.value = opening
+      if (!opening || loadingInterviewDemo.value) return
+      try {
+        loadingInterviewDemo.value = true
+        interviewDemoLoadWarning.value = ''
+        const [catalogResponse, runResponse, evidenceResponse, cleanupResponse] = await Promise.all([
+          api.get('/evaluations/catalog/latest').catch(() => null),
+          api.get('/evaluations/unified/latest').catch(() => null),
+          api.get('/evaluations/interview-evidence/latest').catch(() => null),
+          api.get('/evaluations/cleanup/latest').catch(() => null)
+        ])
+        evaluationCatalog.value = catalogResponse?.data || evaluationCatalog.value
+        evaluationRun.value = runResponse?.data || evaluationRun.value
+        interviewEvidence.value = evidenceResponse?.data || interviewEvidence.value
+        cleanupAudit.value = cleanupResponse?.data || cleanupAudit.value
+        if (!catalogResponse?.data) interviewDemoLoadWarning.value = 'Full 320 目录当前不可用；导览可继续，但不能展示为已验证。'
+        else if (!evidenceResponse?.data) interviewDemoLoadWarning.value = '当前 Release 的完整证据包尚未就绪；请到评测总览刷新缺失的验收报告。'
+      } finally {
+        loadingInterviewDemo.value = false
+      }
+    }
+
+    const openInterviewDemoWorkspace = async (workspace) => {
+      interviewDemoOpen.value = false
+      if (workspace === 'chat') {
+        closeUtilityWorkspaces()
+        await nextTick()
+        messageInput.value?.focus()
+        return
+      }
+      if (workspace === 'knowledge' && !knowledgeSearchOpen.value) await toggleKnowledgeSearch()
+      if (workspace === 'policy' && !policyControlOpen.value) await togglePolicyControl()
+      if (workspace === 'tools' && !toolRuntimeOpen.value) await toggleToolRuntime()
+      if (workspace === 'evaluation' && !evaluationCatalogOpen.value) await toggleEvaluationCatalog()
     }
 
     const renderMarkdown = (text) => {
@@ -4657,6 +4828,12 @@ export default {
       answeringKnowledge,
       answeringKnowledgeMode,
       knowledgeAnswer,
+      interviewDemoOpen,
+      loadingInterviewDemo,
+      interviewDemoLoadWarning,
+      interviewDemoStep,
+      interviewDemoSteps,
+      currentInterviewDemoStep,
       evaluationCatalogOpen,
       loadingEvaluationCatalog,
       evaluationCatalog,
@@ -4856,6 +5033,8 @@ export default {
       rebuildSelectedDocument,
       deleteSelectedDocument,
       toggleKnowledgeSearch,
+      toggleInterviewDemo,
+      openInterviewDemoWorkspace,
       searchKnowledge,
       answerKnowledge,
       toggleParentContextEvaluation,
@@ -5097,6 +5276,24 @@ export default {
   filter: saturate(1.12);
 }
 
+.interview-demo-toggle {
+  padding: 8px 13px;
+  border: 0;
+  border-radius: 10px;
+  color: #fff;
+  background: linear-gradient(135deg, #db527d 0%, #7d55d8 100%);
+  box-shadow: 0 5px 14px rgba(151, 69, 169, 0.2);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.interview-demo-toggle:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 .capability-workspace {
   flex: 0 1 auto;
   min-height: 0;
@@ -5125,6 +5322,264 @@ export default {
 
 .capability-workspace::-webkit-scrollbar-track {
   background: rgba(255, 255, 255, 0.18);
+}
+
+.interview-demo-panel {
+  margin: 12px 20px 0;
+  padding: 18px;
+  border: 1px solid rgba(102, 78, 180, 0.2);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 92% 4%, rgba(222, 82, 125, 0.11), transparent 30%),
+    linear-gradient(145deg, #fbfaff 0%, #f3f7ff 55%, #eefaf7 100%);
+  box-shadow: 0 12px 32px rgba(69, 66, 142, 0.12);
+  color: #39445d;
+}
+
+.interview-demo-header,
+.interview-demo-step-heading,
+.interview-demo-actions,
+.interview-demo-stack {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.interview-demo-header,
+.interview-demo-step-heading {
+  justify-content: space-between;
+}
+
+.interview-demo-header > div,
+.interview-demo-step-heading > div {
+  display: grid;
+  gap: 4px;
+}
+
+.interview-demo-header strong {
+  color: #382f73;
+  font-size: 18px;
+}
+
+.interview-demo-header small,
+.interview-demo-step-heading small {
+  color: #8664a7;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.interview-demo-header span:not(.interview-demo-readonly) {
+  color: #667087;
+  font-size: 12px;
+}
+
+.interview-demo-readonly {
+  padding: 6px 10px;
+  border-radius: 999px;
+  color: #176b4b;
+  background: #dff5e9;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.interview-demo-proof-grid,
+.interview-demo-three-column {
+  display: grid;
+  gap: 9px;
+}
+
+.interview-demo-proof-grid {
+  grid-template-columns: repeat(4, minmax(140px, 1fr));
+  margin: 14px 0 12px;
+}
+
+.interview-demo-proof-grid article,
+.interview-demo-three-column > div {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid rgba(81, 91, 158, 0.14);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.interview-demo-proof-grid strong {
+  overflow-wrap: anywhere;
+  color: #4b51a2;
+  font-size: 14px;
+}
+
+.interview-demo-proof-grid span,
+.interview-demo-three-column small {
+  color: #737d93;
+  font-size: 11px;
+}
+
+.interview-demo-loading,
+.interview-demo-warning {
+  margin: 10px 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.interview-demo-loading {
+  color: #4d5d9b;
+  background: #eef1ff;
+}
+
+.interview-demo-warning {
+  color: #8a5b13;
+  background: #fff4d9;
+}
+
+.interview-demo-tabs {
+  display: flex;
+  gap: 7px;
+  margin: 12px 0;
+  overflow-x: auto;
+  padding-bottom: 3px;
+}
+
+.interview-demo-tabs button {
+  flex: 1 0 auto;
+  min-width: 112px;
+  padding: 7px 10px;
+  border: 1px solid rgba(89, 75, 166, 0.2);
+  border-radius: 999px;
+  color: #615a8c;
+  background: #fff;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.interview-demo-tabs button.active {
+  border-color: transparent;
+  color: #fff;
+  background: linear-gradient(135deg, #6954c5 0%, #3c8bb5 100%);
+}
+
+.interview-demo-step-card {
+  padding: 15px;
+  border: 1px solid rgba(83, 75, 168, 0.18);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.interview-demo-step-heading strong {
+  color: #34306c;
+  font-size: 16px;
+}
+
+.interview-demo-step-heading > span {
+  padding: 5px 9px;
+  border-radius: 999px;
+  color: #3d6894;
+  background: #e7f2ff;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.interview-demo-thesis {
+  margin: 11px 0;
+  color: #48546e;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.interview-demo-three-column {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.interview-demo-three-column strong {
+  color: #4b536c;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.55;
+}
+
+.interview-question-card {
+  margin-top: 11px;
+  padding: 9px 11px;
+  border-left: 4px solid #8b64cb;
+  border-radius: 8px;
+  background: #f6f1ff;
+  font-size: 12px;
+}
+
+.interview-question-card summary {
+  color: #59449b;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.interview-question-card p {
+  margin: 8px 0 1px;
+  color: #566078;
+  line-height: 1.65;
+}
+
+.interview-demo-actions {
+  justify-content: center;
+  margin-top: 12px;
+}
+
+.interview-demo-actions button {
+  padding: 7px 12px;
+  border: 1px solid rgba(89, 75, 166, 0.25);
+  border-radius: 8px;
+  color: #5c54a0;
+  background: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.interview-demo-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.interview-demo-actions .interview-demo-open-workspace {
+  border: 0;
+  color: #fff;
+  background: linear-gradient(135deg, #6b55c7 0%, #3c91aa 100%);
+}
+
+.interview-demo-stack {
+  justify-content: center;
+  margin-top: 12px;
+}
+
+.interview-demo-stack span {
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: #657087;
+  background: rgba(255, 255, 255, 0.78);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+@media (max-width: 980px) {
+  .interview-demo-proof-grid,
+  .interview-demo-three-column {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .interview-demo-panel {
+    margin: 8px 10px 0;
+    padding: 12px;
+  }
+
+  .interview-demo-proof-grid,
+  .interview-demo-three-column {
+    grid-template-columns: 1fr;
+  }
 }
 
 .memory-workbench {
