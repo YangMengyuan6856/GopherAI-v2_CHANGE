@@ -2,6 +2,8 @@ package reliabilityeval
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -21,6 +23,38 @@ func TestReliabilityAcceptanceCoversRecoveryAndSSECancellation(t *testing.T) {
 	}
 	if !report.SSECancellation.Passed || report.SSECancellation.Streams != StreamCount || report.SSECancellation.CancellationObserved != StreamCount || report.SSECancellation.DuplicateFinalEvents != 0 || report.SSECancellation.ActiveWorkersAfter != 0 || !report.SSECancellation.ResourceConverged {
 		t.Fatalf("SSE cancellation acceptance failed: %+v", report.SSECancellation)
+	}
+}
+
+func TestFileStorePersistsAndRejectsTamperedReliabilityReport(t *testing.T) {
+	report, err := Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "reliability.json")
+	store := NewFileStore(path)
+	if err := store.Save(report); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load()
+	if err != nil || loaded.ReportSHA256 != report.ReportSHA256 {
+		t.Fatalf("unexpected stored report: report=%+v err=%v", loaded, err)
+	}
+	encoded, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := range encoded {
+		if encoded[index] == '2' {
+			encoded[index] = '3'
+			break
+		}
+	}
+	if err := os.WriteFile(path, encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Load(); err == nil {
+		t.Fatal("tampered reliability report was accepted")
 	}
 }
 

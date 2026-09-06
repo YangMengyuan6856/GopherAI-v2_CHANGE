@@ -54,6 +54,7 @@ func RegisterEvaluationRouter(group *gin.RouterGroup) {
 	group.POST("/failure-pool/refresh", failurePoolHandler.Refresh)
 	group.POST("/failure-pool/acceptance", failurePoolHandler.Acceptance)
 	group.POST("/reliability/acceptance", reliabilityHandler.Acceptance)
+	group.GET("/reliability/latest", reliabilityHandler.Latest)
 	group.GET("/performance/latest", performanceHandler.Latest)
 	group.GET("/paired/latest", pairedHandler.Latest)
 	group.GET("/judge-calibration/latest", judgeCalibrationHandler.Latest)

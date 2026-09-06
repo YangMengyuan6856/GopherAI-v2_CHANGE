@@ -95,10 +95,48 @@ func Run(ctx context.Context) (Report, error) {
 			"goroutine 数仅作观测；资源收敛门以隔离 Strategy 的 active worker 归零为准。",
 		},
 	}
-	encoded, _ := json.Marshal(report)
+	if err := FinalizeReport(&report); err != nil {
+		return Report{}, err
+	}
+	return report, nil
+}
+
+func FinalizeReport(report *Report) error {
+	if report == nil {
+		return errors.New("reliability report is required")
+	}
+	report.ReportSHA256 = ""
+	encoded, err := json.Marshal(report)
+	if err != nil {
+		return err
+	}
 	digest := sha256.Sum256(encoded)
 	report.ReportSHA256 = hex.EncodeToString(digest[:])
-	return report, nil
+	return ValidateReport(*report)
+}
+
+func ValidateReport(report Report) error {
+	if report.SchemaVersion != SchemaVersion || report.Mode != Mode || !report.Simulation || report.GeneratedAt.IsZero() ||
+		!report.Passed || len(report.ReportSHA256) != 64 || !report.AgentRecovery.Passed || !report.SSECancellation.Passed ||
+		report.AgentRecovery.Scenarios <= 0 || report.AgentRecovery.Recovered != report.AgentRecovery.Scenarios ||
+		report.AgentRecovery.RecoveryRate != 1 || report.AgentRecovery.DuplicateResumeExecutions != 0 || !report.AgentRecovery.CheckpointRecovered ||
+		!report.AgentRecovery.StateVersionsMonotonic || report.SSECancellation.Streams <= 0 ||
+		report.SSECancellation.CancellationObserved != report.SSECancellation.Streams || report.SSECancellation.PropagationSuccessRate != 1 ||
+		report.SSECancellation.P95PropagationMillis > float64(report.SSECancellation.PropagationBudgetMillis) ||
+		report.SSECancellation.DuplicateFinalEvents != 0 || report.SSECancellation.ActiveWorkersAfter != 0 || !report.SSECancellation.ResourceConverged {
+		return errors.New("reliability report contract is invalid")
+	}
+	expected := report.ReportSHA256
+	report.ReportSHA256 = ""
+	encoded, err := json.Marshal(report)
+	if err != nil {
+		return err
+	}
+	digest := sha256.Sum256(encoded)
+	if hex.EncodeToString(digest[:]) != expected {
+		return errors.New("reliability report hash mismatch")
+	}
+	return nil
 }
 
 func runRecovery(ctx context.Context) (RecoveryResult, error) {

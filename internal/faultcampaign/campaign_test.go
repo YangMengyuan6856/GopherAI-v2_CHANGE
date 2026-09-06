@@ -110,7 +110,7 @@ func TestServicePersistsOneImmutableCampaignPerFixtureVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if audit.RunCount != 1 || audit.Latest == nil || audit.Latest.ReportSHA256 != first.ReportSHA256 {
+	if audit.RunCount != 1 || audit.Latest == nil || audit.Latest.ReportSHA256 != first.ReportSHA256 || audit.LatestCreatedAt.IsZero() {
 		t.Fatalf("unexpected audit: %+v", audit)
 	}
 	if _, err := service.RunAcceptance(context.Background(), "production_outage"); err == nil {

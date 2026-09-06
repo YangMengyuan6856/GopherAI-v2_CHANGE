@@ -661,7 +661,7 @@
               </div>
               <div class="evaluation-candidate-warning">
                 <strong>证据可追溯，不等于所有数字都可写简历</strong>
-                <span>多 Agent、父子 RAG、Full 320 与 Judge 一致性仍受人工复核或净收益门阻断；负结果也保留，不做选择性汇报。</span>
+                <span>质量收益仍受人工复核或净收益门阻断；可靠性、故障演练与控制器数字必须保留“隔离验收 / Observe-only / 不切流”边界。</span>
               </div>
             </details>
             <details class="anomaly-workbench">
@@ -3305,7 +3305,7 @@ export default {
       if (!evaluationCatalogOpen.value || evaluationCatalog.value || loadingEvaluationCatalog.value) return
       try {
         loadingEvaluationCatalog.value = true
-        const [catalogResponse, runResponse, pairedResponse, judgeCalibrationResponse, interviewEvidenceResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse, onlineEvaluationResponse, failurePoolResponse, performanceResponse] = await Promise.all([
+        const [catalogResponse, runResponse, pairedResponse, judgeCalibrationResponse, interviewEvidenceResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse, reliabilityResponse, onlineEvaluationResponse, failurePoolResponse, performanceResponse] = await Promise.all([
           api.get('/evaluations/catalog/latest'),
           api.get('/evaluations/unified/latest'),
           api.get('/evaluations/paired/latest').catch(() => null),
@@ -3318,6 +3318,7 @@ export default {
           api.get('/evaluations/webhooks/latest').catch(() => null),
           api.get('/evaluations/controller/latest').catch(() => null),
           api.get('/evaluations/fault-campaigns/latest').catch(() => null),
+          api.get('/evaluations/reliability/latest').catch(() => null),
           api.get('/evaluations/online/latest').catch(() => null),
           api.get('/evaluations/failure-pool/latest').catch(() => null),
           api.get('/evaluations/performance/latest').catch(() => null)
@@ -3335,6 +3336,7 @@ export default {
         webhookAudit.value = webhookAuditResponse?.data || null
         controllerAudit.value = controllerAuditResponse?.data || null
         faultCampaignAudit.value = faultCampaignAuditResponse?.data || null
+        reliabilityAcceptance.value = reliabilityResponse?.data || null
         onlineEvaluationAudit.value = onlineEvaluationResponse?.data || null
         failurePoolAudit.value = failurePoolResponse?.data || null
         performanceReport.value = performanceResponse?.data || null
@@ -3442,7 +3444,15 @@ export default {
       baseline_success_rate: '基线成功率', candidate_success_rate: '候选成功率', paired_mean_quality_delta: '成对质量差',
       hot_success_rate: '热路径成功率', hot_total_latency_p95: '端到端 P95', hot_ttft_p95: 'TTFT P95',
       estimated_tokens_per_100: '估算 Token/100 请求', judge_technical_completion: 'Judge 技术完成',
-      human_review_completion: '人工复核', linear_weighted_kappa: '线性加权 κ'
+      human_review_completion: '人工复核', linear_weighted_kappa: '线性加权 κ',
+      fault_detection_rate: '故障检测', fault_recovery_rate: '恢复识别', healthy_false_positive_rate: '健康误报',
+      mean_mttd_seconds: '平均 MTTD', recommendations_created: '生成建议', recommendations_applied: '实际应用',
+      agent_recovery_rate: 'Agent 恢复', duplicate_resume_executions: '重复 Resume', sse_cancellation_rate: 'SSE 取消传播',
+      cancel_propagation_p95: '取消传播 P95', active_workers_after: '结束活跃 Worker', metric_family_count: '指标族',
+      required_metric_contract_coverage: '核心契约覆盖', forbidden_label_hits: '高基数标签命中', series_budget_utilization: '序列预算使用',
+      grafana_panel_count: 'Grafana 面板', grafana_query_count: 'PromQL 查询', grafana_group_count: '看板分组',
+      grafana_public_exposure: '公网暴露', control_recommended_total: '累计建议', control_blocked_total: '累计阻断',
+      recent_control_applied: '最近实际应用', acceptance_recommended_present: '建议分支已验收', acceptance_blocked_present: '阻断分支已验收'
     }[name] || name)
 
     const formatInterviewEvidenceMetric = (metric) => {
@@ -3450,6 +3460,8 @@ export default {
         return `${metric.numerator}/${metric.denominator}（${metricPercent(metric.value)}）`
       }
       if (metric.unit === 'ms') return `${metric.value.toFixed(0)}ms`
+      if (metric.unit === 'seconds') return `${metric.value.toFixed(0)}s`
+      if (metric.unit === 'boolean') return metric.value === 1 ? '是' : '否'
       if (metric.unit === 'ratio') {
         const interval = metric.ci95 ? `，95% CI [${metricPercent(metric.ci95.lower)}, ${metricPercent(metric.ci95.upper)}]` : ''
         const pValue = metric.p_value !== undefined ? `，p=${metric.p_value.toFixed(4)}` : ''
@@ -3606,7 +3618,11 @@ export default {
         runningReliabilityAcceptance.value = true
         const response = await api.post('/evaluations/reliability/acceptance', {})
         reliabilityAcceptance.value = response.data
-        if (response.data?.passed) ElMessage.success('Agent Checkpoint 恢复与 SSE 取消传播均已通过')
+        if (response.data?.passed) {
+          const evidenceResponse = await api.get('/evaluations/interview-evidence/latest').catch(() => null)
+          interviewEvidence.value = evidenceResponse?.data || interviewEvidence.value
+          ElMessage.success('Agent Checkpoint 恢复与 SSE 取消传播均已通过，证据包已刷新')
+        }
         else ElMessage.warning('可靠性验收未全部通过，请查看恢复与取消指标')
       } catch (error) {
         ElMessage.error(error.response?.data?.message || '可靠性故障验收暂不可用')

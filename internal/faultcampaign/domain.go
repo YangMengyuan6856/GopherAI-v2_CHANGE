@@ -90,14 +90,15 @@ type CampaignReport struct {
 }
 
 type AuditSnapshot struct {
-	SchemaVersion  string          `json:"schema_version"`
-	FixtureVersion string          `json:"fixture_version"`
-	Environment    string          `json:"environment"`
-	Mode           string          `json:"mode"`
-	RunCount       int64           `json:"run_count"`
-	Latest         *CampaignReport `json:"latest,omitempty"`
-	Guardrails     []string        `json:"guardrails"`
-	Limitations    []string        `json:"limitations"`
+	SchemaVersion   string          `json:"schema_version"`
+	FixtureVersion  string          `json:"fixture_version"`
+	Environment     string          `json:"environment"`
+	Mode            string          `json:"mode"`
+	RunCount        int64           `json:"run_count"`
+	Latest          *CampaignReport `json:"latest,omitempty"`
+	LatestCreatedAt time.Time       `json:"latest_created_at,omitempty"`
+	Guardrails      []string        `json:"guardrails"`
+	Limitations     []string        `json:"limitations"`
 }
 
 type StoredCampaign struct {

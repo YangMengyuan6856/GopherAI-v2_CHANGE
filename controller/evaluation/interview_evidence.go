@@ -17,16 +17,21 @@ import (
 	"time"
 
 	"GopherAI/common/mysql"
+	"GopherAI/internal/controlrecommendation"
 	evaldomain "GopherAI/internal/evaluation"
+	"GopherAI/internal/faultcampaign"
 	"GopherAI/internal/judgecalibration"
+	"GopherAI/internal/metriccatalog"
+	"GopherAI/internal/observability"
 	"GopherAI/internal/perfeval"
+	"GopherAI/internal/reliabilityeval"
 	"GopherAI/middleware/requestid"
 
 	"github.com/gin-gonic/gin"
 )
 
 const (
-	interviewEvidenceSchemaVersion = "interview-evidence-package-v1"
+	interviewEvidenceSchemaVersion = "interview-evidence-package-v2"
 	defaultReleaseManifestPath     = "release-manifest.json"
 	maxReleaseManifestBytes        = 64 << 10
 )
@@ -109,6 +114,13 @@ type interviewEvidenceInputs struct {
 	Paired           PairedSummaryResponse
 	Performance      perfeval.Report
 	JudgeCalibration judgecalibration.Audit
+	FaultCampaign    faultcampaign.CampaignReport
+	FaultGeneratedAt time.Time
+	Reliability      reliabilityeval.Report
+	MetricCatalog    metriccatalog.CatalogReport
+	Grafana          observability.GrafanaRuntimeSnapshot
+	Control          controlrecommendation.AuditSnapshot
+	ControlSHA       string
 }
 
 type InterviewEvidenceService interface {
@@ -122,9 +134,18 @@ type fileInterviewEvidenceService struct {
 	parentContext ParentContextReportStore
 	performance   PerformanceReportStore
 	judge         *judgecalibration.Service
+	faultCampaign FaultCampaignService
+	reliability   reliabilityeval.ReportStore
+	metricCatalog metriccatalog.CatalogReport
+	metricErr     error
+	grafana       GrafanaRuntimeReader
+	control       RecommendationController
 }
 
 func newDefaultInterviewEvidenceService() *fileInterviewEvidenceService {
+	faultService, _ := faultcampaign.NewDefaultService()
+	recommendation, _ := controlrecommendation.NewDefaultController()
+	metricHandler := NewDefaultMetricCatalogHandler()
 	return &fileInterviewEvidenceService{
 		releasePath:   defaultReleaseManifestPath,
 		unified:       NewFileUnifiedReportStore(defaultUnifiedReportPath),
@@ -135,11 +156,18 @@ func newDefaultInterviewEvidenceService() *fileInterviewEvidenceService {
 			judgecalibration.NewFileArtifactStore(judgecalibration.DefaultDatasetPath, judgecalibration.DefaultReportPath),
 			judgecalibration.NewGormRepository(mysql.DB), time.Now,
 		),
+		faultCampaign: faultService,
+		reliability:   reliabilityeval.NewFileStore(defaultReliabilityReportPath),
+		metricCatalog: metricHandler.report,
+		metricErr:     metricHandler.err,
+		grafana:       observability.NewDefaultGrafanaRuntimeClient(),
+		control:       recommendation,
 	}
 }
 
 func (service *fileInterviewEvidenceService) Build(ctx context.Context, reviewer string) (InterviewEvidencePackage, error) {
-	if service == nil || service.unified == nil || service.collaboration == nil || service.parentContext == nil || service.performance == nil || service.judge == nil {
+	if service == nil || service.unified == nil || service.collaboration == nil || service.parentContext == nil || service.performance == nil || service.judge == nil ||
+		service.faultCampaign == nil || service.reliability == nil || service.metricErr != nil || service.grafana == nil || service.control == nil {
 		return InterviewEvidencePackage{}, errors.New("interview evidence service is unavailable")
 	}
 	release, releaseSHA, err := loadInterviewReleaseManifest(service.releasePath)
@@ -170,10 +198,42 @@ func (service *fileInterviewEvidenceService) Build(ctx context.Context, reviewer
 	if err != nil {
 		return InterviewEvidencePackage{}, err
 	}
+	faultAudit, err := service.faultCampaign.Audit(ctx)
+	if err != nil || faultAudit.Latest == nil || faultAudit.LatestCreatedAt.IsZero() {
+		return InterviewEvidencePackage{}, errors.New("fault campaign evidence is unavailable")
+	}
+	reliability, err := service.reliability.Load()
+	if err != nil {
+		return InterviewEvidencePackage{}, err
+	}
+	grafana, err := service.grafana.Snapshot(ctx)
+	if err != nil {
+		return InterviewEvidencePackage{}, err
+	}
+	control, err := service.control.Audit(ctx)
+	if err != nil {
+		return InterviewEvidencePackage{}, err
+	}
+	controlSHA, err := digestInterviewEvidenceValue(control)
+	if err != nil {
+		return InterviewEvidencePackage{}, err
+	}
 	return buildInterviewEvidencePackage(interviewEvidenceInputs{
 		Release: release, ReleaseSHA: releaseSHA, Unified: unified, UnifiedSHA: unifiedSHA,
 		Paired: paired, Performance: performance, JudgeCalibration: judgeAudit,
+		FaultCampaign: *faultAudit.Latest, FaultGeneratedAt: faultAudit.LatestCreatedAt,
+		Reliability: reliability, MetricCatalog: service.metricCatalog, Grafana: grafana,
+		Control: control, ControlSHA: controlSHA,
 	})
+}
+
+func digestInterviewEvidenceValue(value any) (string, error) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:]), nil
 }
 
 func loadInterviewReleaseManifest(path string) (interviewReleaseManifest, string, error) {
@@ -218,6 +278,24 @@ func buildInterviewEvidencePackage(input interviewEvidenceInputs) (InterviewEvid
 	if input.JudgeCalibration.SchemaVersion != judgecalibration.SchemaVersion || len(input.JudgeCalibration.ReportSHA256) != 64 || input.JudgeCalibration.CaseCount != evaldomain.JudgeCalibrationCaseCount || len(input.JudgeCalibration.Cases) != evaldomain.JudgeCalibrationCaseCount {
 		return InterviewEvidencePackage{}, errors.New("judge calibration evidence input is invalid")
 	}
+	if err := faultcampaign.ValidateReport(input.FaultCampaign); err != nil || input.FaultGeneratedAt.IsZero() {
+		return InterviewEvidencePackage{}, errors.New("fault campaign evidence input is invalid")
+	}
+	if err := reliabilityeval.ValidateReport(input.Reliability); err != nil {
+		return InterviewEvidencePackage{}, err
+	}
+	if input.MetricCatalog.SchemaVersion != metriccatalog.SchemaVersion || !input.MetricCatalog.Passed || len(input.MetricCatalog.CatalogSHA256) != 64 ||
+		input.MetricCatalog.RequiredFamilyCount != input.MetricCatalog.RequiredPresentCount || input.MetricCatalog.ForbiddenLabelHits != 0 || input.MetricCatalog.DuplicateMetricNames != 0 || input.MetricCatalog.ContractMismatchCount != 0 {
+		return InterviewEvidencePackage{}, errors.New("metric catalog evidence input is invalid")
+	}
+	if input.Grafana.SchemaVersion != observability.GrafanaRuntimeSchemaVersion || input.Grafana.Status != "ready" || input.Grafana.CollectedAt.IsZero() ||
+		input.Grafana.PublicExposure || !input.Grafana.Dashboard.Passed || len(input.Grafana.Dashboard.DashboardSHA) != 64 {
+		return InterviewEvidencePackage{}, errors.New("grafana evidence input is invalid")
+	}
+	if input.Control.SchemaVersion != controlrecommendation.SchemaVersion || input.Control.Mode != controlrecommendation.ModeRecommendOnly ||
+		input.Control.ActivePolicy.Version == "" || len(input.Control.ActivePolicy.SHA256) != 64 || len(input.ControlSHA) != 64 {
+		return InterviewEvidencePackage{}, errors.New("control evidence input is invalid")
+	}
 	collaboration, ok := pairedComparisonByName(input.Paired, "collaboration_target_quality")
 	if !ok {
 		return InterviewEvidencePackage{}, errors.New("collaboration paired evidence is missing")
@@ -233,6 +311,11 @@ func buildInterviewEvidencePackage(input interviewEvidenceInputs) (InterviewEvid
 		{Name: "paired_analysis", Kind: "statistical_analysis", Version: input.Paired.MethodVersion, SHA256: input.Paired.AnalysisSHA256, GeneratedAt: input.Paired.GeneratedAt.UTC(), HumanReviewStatus: reviewStatus(input.Paired.HumanReviewed)},
 		{Name: "performance_evaluation", Kind: "ecs_performance", Version: input.Performance.Release.ID, SHA256: input.Performance.ReportSHA256, GeneratedAt: input.Performance.GeneratedAt.UTC(), HumanReviewStatus: "not_applicable"},
 		{Name: "judge_calibration", Kind: "judge_calibration", Version: input.JudgeCalibration.JudgePrompt, SHA256: input.JudgeCalibration.ReportSHA256, GeneratedAt: input.JudgeCalibration.JudgeGeneratedAt.UTC(), HumanReviewStatus: fmt.Sprintf("current_reviewer_%d_of_%d", input.JudgeCalibration.Agreement.ReviewedCases, input.JudgeCalibration.Agreement.RequiredCases)},
+		{Name: "fault_campaign", Kind: "fault_injection", Version: input.FaultCampaign.FixtureVersion, SHA256: input.FaultCampaign.ReportSHA256, GeneratedAt: input.FaultGeneratedAt.UTC(), HumanReviewStatus: "not_applicable"},
+		{Name: "agent_reliability", Kind: "reliability", Version: input.Reliability.SchemaVersion, SHA256: input.Reliability.ReportSHA256, GeneratedAt: input.Reliability.GeneratedAt.UTC(), HumanReviewStatus: "not_applicable"},
+		{Name: "metric_catalog", Kind: "observability_contract", Version: input.MetricCatalog.CatalogVersion, SHA256: input.MetricCatalog.CatalogSHA256, GeneratedAt: input.Release.BuiltAt.UTC(), HumanReviewStatus: "not_applicable"},
+		{Name: "grafana_runtime", Kind: "observability_runtime", Version: input.Grafana.GrafanaVersion, SHA256: input.Grafana.Dashboard.DashboardSHA, GeneratedAt: input.Release.BuiltAt.UTC(), HumanReviewStatus: "not_applicable"},
+		{Name: "recommend_only_controller", Kind: "control_guardrail", Version: input.Control.ActivePolicy.Version, SHA256: input.ControlSHA, GeneratedAt: controlEvidenceGeneratedAt(input.Control, input.Release.BuiltAt), HumanReviewStatus: "not_applicable"},
 	}
 	for _, source := range input.Paired.Sources {
 		sources = append(sources, InterviewEvidenceSource{Name: source.Name + "_ab", Kind: "paired_source", Version: source.CandidateVersion, SHA256: source.ReportSHA256, GeneratedAt: source.GeneratedAt.UTC(), HumanReviewStatus: reviewStatus(source.HumanReviewed)})
@@ -250,6 +333,11 @@ func buildInterviewEvidencePackage(input interviewEvidenceInputs) (InterviewEvid
 		buildParentEvidenceStatement(parent),
 		buildPerformanceEvidenceStatement(input.Performance),
 		buildJudgeEvidenceStatement(input.JudgeCalibration),
+		buildFaultCampaignEvidenceStatement(input.FaultCampaign),
+		buildReliabilityEvidenceStatement(input.Reliability),
+		buildMetricCatalogEvidenceStatement(input.MetricCatalog),
+		buildGrafanaEvidenceStatement(input.Grafana),
+		buildControlEvidenceStatement(input.Control),
 	}
 	resumeReady := 0
 	for _, statement := range statements {
@@ -265,11 +353,12 @@ func buildInterviewEvidencePackage(input interviewEvidenceInputs) (InterviewEvid
 		SchemaVersion: interviewEvidenceSchemaVersion, ReleaseID: input.Release.ReleaseID, GitSHA: input.Release.GitSHA,
 		BuildStrategy: input.Release.BuildStrategy, Target: input.Release.Target, AllSourcesVerified: true,
 		ResumeReadyClaims: resumeReady, TotalClaims: len(statements), Status: status, Sources: sources, Statements: statements,
-		Guardrails: []string{"source_hash_required", "numerator_denominator_required_for_rates", "negative_results_preserved", "pending_human_review_blocks_resume_metric", "no_active_policy_write"},
+		Guardrails: []string{"source_hash_required", "numerator_denominator_required_for_rates", "negative_results_preserved", "pending_human_review_blocks_resume_metric", "simulation_scope_disclosed", "no_active_policy_write"},
 		Limitations: []string{
 			"证据包聚合已存在的不可变报告，不会把多个不同任务、模型调用或成本口径合并成一个总体收益率。",
 			"ResumeMetricEligible 只表示该条数字具备当前证据链；表述时仍必须同时披露样本量、环境和限制。",
 			"当前多 Agent、父子 RAG、Full 320 与 Judge 人工一致性仍受人工复核阻塞，不能写成已上线收益。",
+			"故障、恢复与控制器数字来自隔离验收或只建议审计，只能按其边界陈述，不能称为真实线上事故或自动优化收益。",
 		},
 	}
 	if err := finalizeInterviewEvidencePackage(&result); err != nil {
@@ -397,6 +486,139 @@ func buildJudgeEvidenceStatement(audit judgecalibration.Audit) InterviewEvidence
 	}
 }
 
+func buildFaultCampaignEvidenceStatement(report faultcampaign.CampaignReport) InterviewEvidenceStatement {
+	ready := faultcampaign.ValidateReport(report) == nil
+	status, blockers := "resume_ready", []string{}
+	if !ready {
+		status, blockers = "technical_gate_failed", []string{"fault_campaign_contract_failed"}
+	}
+	return InterviewEvidenceStatement{
+		ID: "observe_only_fault_campaign", Category: "closed_loop", Title: "三类 Observe-only 故障检测与恢复", Status: status, ResumeMetricEligible: ready,
+		Claim: fmt.Sprintf("隔离演练检测 %d/%d、恢复 %d/%d、健康对照误报 %d/%d，平均 MTTD %.0fs；生成建议 %d 条、实际应用 %d 条。", report.Summary.DetectedCount, report.Summary.ScenarioCount, report.Summary.RecoveredCount, report.Summary.ScenarioCount, report.Summary.FalsePositives, report.Summary.FalsePositiveChecks, report.Summary.MeanMTTDSeconds, report.Summary.RecommendationCount, report.Summary.AppliedCount),
+		Metrics: []InterviewEvidenceMetric{
+			rateMetric("fault_detection_rate", report.Summary.DetectedCount, report.Summary.ScenarioCount),
+			rateMetric("fault_recovery_rate", report.Summary.RecoveredCount, report.Summary.ScenarioCount),
+			rateMetric("healthy_false_positive_rate", report.Summary.FalsePositives, report.Summary.FalsePositiveChecks),
+			{Name: "mean_mttd_seconds", Value: report.Summary.MeanMTTDSeconds, Unit: "seconds"},
+			{Name: "recommendations_created", Value: float64(report.Summary.RecommendationCount), Unit: "count"},
+			{Name: "recommendations_applied", Value: float64(report.Summary.AppliedCount), Unit: "count"},
+		},
+		SourceRefs: []string{"fault_campaign"}, Blockers: blockers,
+		ForbiddenOverclaims: []string{"不得称为真实生产事故或混沌工程覆盖", "不得把检测和恢复识别写成缓解成功率", "不得声称已自动降权或切流"},
+	}
+}
+
+func buildReliabilityEvidenceStatement(report reliabilityeval.Report) InterviewEvidenceStatement {
+	ready := reliabilityeval.ValidateReport(report) == nil
+	status, blockers := "resume_ready", []string{}
+	if !ready {
+		status, blockers = "technical_gate_failed", []string{"reliability_contract_failed"}
+	}
+	return InterviewEvidenceStatement{
+		ID: "agent_recovery_and_sse_cancel", Category: "agent_reliability", Title: "Agent Checkpoint 恢复与 SSE 取消传播", Status: status, ResumeMetricEligible: ready,
+		Claim: fmt.Sprintf("隔离验收中 Agent 恢复 %d/%d、重复 Resume 执行 %d；SSE 取消传播 %d/%d，P95 %.3fms，结束活跃 Worker %d。", report.AgentRecovery.Recovered, report.AgentRecovery.Scenarios, report.AgentRecovery.DuplicateResumeExecutions, report.SSECancellation.CancellationObserved, report.SSECancellation.Streams, report.SSECancellation.P95PropagationMillis, report.SSECancellation.ActiveWorkersAfter),
+		Metrics: []InterviewEvidenceMetric{
+			rateMetric("agent_recovery_rate", report.AgentRecovery.Recovered, report.AgentRecovery.Scenarios),
+			{Name: "duplicate_resume_executions", Value: float64(report.AgentRecovery.DuplicateResumeExecutions), Unit: "count"},
+			rateMetric("sse_cancellation_rate", report.SSECancellation.CancellationObserved, report.SSECancellation.Streams),
+			{Name: "cancel_propagation_p95", Value: report.SSECancellation.P95PropagationMillis, Unit: "ms"},
+			{Name: "active_workers_after", Value: float64(report.SSECancellation.ActiveWorkersAfter), Unit: "count"},
+		},
+		SourceRefs: []string{"agent_reliability"}, Blockers: blockers,
+		ForbiddenOverclaims: []string{"不得称为真实主机掉电恢复", "不得外推到外部模型连接池或网络分区", "goroutine 观测值不得包装为完整资源泄漏证明"},
+	}
+}
+
+func buildMetricCatalogEvidenceStatement(report metriccatalog.CatalogReport) InterviewEvidenceStatement {
+	ready := report.Passed && report.RequiredFamilyCount == report.RequiredPresentCount && report.ForbiddenLabelHits == 0 && report.ContractMismatchCount == 0
+	status, blockers := "resume_ready", []string{}
+	if !ready {
+		status, blockers = "technical_gate_failed", []string{"metric_catalog_contract_failed"}
+	}
+	return InterviewEvidenceStatement{
+		ID: "bounded_metric_catalog", Category: "observability", Title: "Prometheus 指标目录与标签基数治理", Status: status, ResumeMetricEligible: ready,
+		Claim: fmt.Sprintf("运行时发现 %d 个指标族，核心契约 %d/%d；高基数标签命中 %d，保守序列预算 %d/%d。", report.FamilyCount, report.RequiredPresentCount, report.RequiredFamilyCount, report.ForbiddenLabelHits, report.MaxSeriesEstimate, report.SeriesBudget),
+		Metrics: []InterviewEvidenceMetric{
+			{Name: "metric_family_count", Value: float64(report.FamilyCount), Unit: "count"},
+			rateMetric("required_metric_contract_coverage", report.RequiredPresentCount, report.RequiredFamilyCount),
+			{Name: "forbidden_label_hits", Value: float64(report.ForbiddenLabelHits), Unit: "count"},
+			rateMetric("series_budget_utilization", report.MaxSeriesEstimate, report.SeriesBudget),
+		},
+		SourceRefs: []string{"metric_catalog"}, Blockers: blockers,
+		ForbiddenOverclaims: []string{"不得把注册完整说成所有生产信号都有样本", "序列数是保守估算而非 TSDB 实际活跃序列", "不得把无高基数标签说成无任何可观测性成本"},
+	}
+}
+
+func buildGrafanaEvidenceStatement(snapshot observability.GrafanaRuntimeSnapshot) InterviewEvidenceStatement {
+	ready := snapshot.Status == "ready" && snapshot.Dashboard.Passed && !snapshot.PublicExposure
+	status, blockers := "resume_ready", []string{}
+	if !ready {
+		status, blockers = "technical_gate_failed", []string{"grafana_runtime_not_ready"}
+	}
+	return InterviewEvidenceStatement{
+		ID: "private_grafana_dashboard", Category: "observability", Title: "私网 Grafana 反馈闭环看板", Status: status, ResumeMetricEligible: ready,
+		Claim: fmt.Sprintf("Grafana %s 在容器私网运行，固定看板含 %d 个面板、%d 条查询、%d 个分组，公网暴露=%t。", snapshot.GrafanaVersion, snapshot.Dashboard.PanelCount, snapshot.Dashboard.QueryCount, len(snapshot.Dashboard.Groups), snapshot.PublicExposure),
+		Metrics: []InterviewEvidenceMetric{
+			{Name: "grafana_panel_count", Value: float64(snapshot.Dashboard.PanelCount), Unit: "count"},
+			{Name: "grafana_query_count", Value: float64(snapshot.Dashboard.QueryCount), Unit: "count"},
+			{Name: "grafana_group_count", Value: float64(len(snapshot.Dashboard.Groups)), Unit: "count"},
+			{Name: "grafana_public_exposure", Value: boolMetric(snapshot.PublicExposure), Unit: "boolean"},
+		},
+		SourceRefs: []string{"grafana_runtime"}, Blockers: blockers,
+		ForbiddenOverclaims: []string{"不得把有看板说成监控自动优化了质量", "不得公开 Grafana 管理端口或凭据", "面板数量不等于告警准确率"},
+	}
+}
+
+func buildControlEvidenceStatement(audit controlrecommendation.AuditSnapshot) InterviewEvidenceStatement {
+	applied, simulatedRecommended, simulatedBlocked := 0, 0, 0
+	for _, item := range audit.Latest {
+		if item.Applied {
+			applied++
+		}
+		if item.Simulation && item.Status == controlrecommendation.StatusRecommended {
+			simulatedRecommended++
+		}
+		if item.Simulation && item.Status == controlrecommendation.StatusBlocked {
+			simulatedBlocked++
+		}
+	}
+	ready := audit.Mode == controlrecommendation.ModeRecommendOnly && len(audit.Latest) > 0 && applied == 0 && simulatedRecommended > 0 && simulatedBlocked > 0
+	status, blockers := "resume_ready", []string{}
+	if !ready {
+		status, blockers = "technical_gate_failed", []string{"recommend_only_acceptance_missing_or_invalid"}
+	}
+	return InterviewEvidenceStatement{
+		ID: "recommend_only_control_guard", Category: "closed_loop", Title: "Recommend-only 控制器不可写边界", Status: status, ResumeMetricEligible: ready,
+		Claim: fmt.Sprintf("控制审计累计 recommended=%d、blocked=%d；最近 %d 条中 Applied=%d，当前活动策略仍为 %s。", audit.Recommended, audit.Blocked, len(audit.Latest), applied, audit.ActivePolicy.Version),
+		Metrics: []InterviewEvidenceMetric{
+			{Name: "control_recommended_total", Value: float64(audit.Recommended), Unit: "count"},
+			{Name: "control_blocked_total", Value: float64(audit.Blocked), Unit: "count"},
+			{Name: "recent_control_applied", Value: float64(applied), Unit: "count"},
+			{Name: "acceptance_recommended_present", Value: boolMetric(simulatedRecommended > 0), Unit: "boolean"},
+			{Name: "acceptance_blocked_present", Value: boolMetric(simulatedBlocked > 0), Unit: "boolean"},
+		},
+		SourceRefs: []string{"recommend_only_controller"}, Blockers: blockers,
+		ForbiddenOverclaims: []string{"不得称为已自动修改线上路由权重", "不得把验收 Fixture 当作生产异常", "不得把候选建议数量说成质量收益"},
+	}
+}
+
+func controlEvidenceGeneratedAt(audit controlrecommendation.AuditSnapshot, fallback time.Time) time.Time {
+	latest := fallback.UTC()
+	for _, item := range audit.Latest {
+		if item.CreatedAt.After(latest) {
+			latest = item.CreatedAt.UTC()
+		}
+	}
+	return latest
+}
+
+func boolMetric(value bool) float64 {
+	if value {
+		return 1
+	}
+	return 0
+}
+
 func rateMetric(name string, numerator, denominator int) InterviewEvidenceMetric {
 	value := 0.0
 	if denominator > 0 {
@@ -407,7 +629,7 @@ func rateMetric(name string, numerator, denominator int) InterviewEvidenceMetric
 }
 
 func finalizeInterviewEvidencePackage(report *InterviewEvidencePackage) error {
-	if report == nil || report.SchemaVersion != interviewEvidenceSchemaVersion || report.ReleaseID == "" || len(report.GitSHA) != 40 || !report.AllSourcesVerified || report.TotalClaims != len(report.Statements) || report.ResumeReadyClaims < 0 || report.ResumeReadyClaims > report.TotalClaims || len(report.Sources) < 7 || len(report.Statements) != 5 {
+	if report == nil || report.SchemaVersion != interviewEvidenceSchemaVersion || report.ReleaseID == "" || len(report.GitSHA) != 40 || !report.AllSourcesVerified || report.TotalClaims != len(report.Statements) || report.ResumeReadyClaims < 0 || report.ResumeReadyClaims > report.TotalClaims || len(report.Sources) < 12 || len(report.Statements) != 10 {
 		return errors.New("interview evidence package is invalid")
 	}
 	sourceNames := make(map[string]struct{}, len(report.Sources))

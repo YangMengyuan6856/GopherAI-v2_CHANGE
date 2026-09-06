@@ -62,5 +62,6 @@ func (service *Service) Audit(ctx context.Context) (AuditSnapshot, error) {
 		return AuditSnapshot{}, errors.New("stored fault campaign report is invalid")
 	}
 	snapshot.Latest = &report
+	snapshot.LatestCreatedAt = record.CreatedAt.UTC()
 	return snapshot, nil
 }

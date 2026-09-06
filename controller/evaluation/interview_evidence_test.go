@@ -11,9 +11,13 @@ import (
 	"testing"
 	"time"
 
+	"GopherAI/internal/controlrecommendation"
 	evaldomain "GopherAI/internal/evaluation"
+	"GopherAI/internal/faultcampaign"
 	"GopherAI/internal/judgecalibration"
+	"GopherAI/internal/observability"
 	"GopherAI/internal/perfeval"
+	"GopherAI/internal/reliabilityeval"
 
 	"github.com/gin-gonic/gin"
 )
@@ -24,7 +28,7 @@ func TestBuildInterviewEvidencePackagePreservesProvenanceAndHumanBlockers(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(report.PackageSHA256) != 64 || !report.AllSourcesVerified || report.ResumeReadyClaims != 1 || report.TotalClaims != 5 || len(report.Sources) != 7 {
+	if len(report.PackageSHA256) != 64 || !report.AllSourcesVerified || report.ResumeReadyClaims != 6 || report.TotalClaims != 10 || len(report.Sources) != 12 {
 		t.Fatalf("unexpected evidence package: %+v", report)
 	}
 	byID := map[string]InterviewEvidenceStatement{}
@@ -37,6 +41,11 @@ func TestBuildInterviewEvidencePackagePreservesProvenanceAndHumanBlockers(t *tes
 	if byID["multi_agent_paired_gain"].ResumeMetricEligible || byID["judge_human_calibration"].Status != "calibration_pending" || byID["parent_context_negative_result"].Status != "negative_result" {
 		t.Fatalf("human gates or negative result were lost: %+v", byID)
 	}
+	for _, id := range []string{"observe_only_fault_campaign", "agent_recovery_and_sse_cancel", "bounded_metric_catalog", "private_grafana_dashboard", "recommend_only_control_guard"} {
+		if !byID[id].ResumeMetricEligible {
+			t.Fatalf("expected verified operational claim %s: %+v", id, byID[id])
+		}
+	}
 	encoded, _ := json.Marshal(report)
 	for _, forbidden := range []string{"OPENAI_API_KEY", "Bearer ", "question\"", "answer\""} {
 		if bytes.Contains(encoded, []byte(forbidden)) {
@@ -47,7 +56,7 @@ func TestBuildInterviewEvidencePackagePreservesProvenanceAndHumanBlockers(t *tes
 	if err := writeInterviewEvidenceMarkdown(&markdown, report); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(markdown.String(), report.PackageSHA256) || !strings.Contains(markdown.String(), "禁止夸大") || !strings.Contains(markdown.String(), "1/5") {
+	if !strings.Contains(markdown.String(), report.PackageSHA256) || !strings.Contains(markdown.String(), "禁止夸大") || !strings.Contains(markdown.String(), "6/10") {
 		t.Fatalf("markdown export is incomplete: %s", markdown.String())
 	}
 }
@@ -110,6 +119,36 @@ func validInterviewEvidenceInputs(t *testing.T) interviewEvidenceInputs {
 	for index := range judgeCases {
 		judgeCases[index] = judgecalibration.CaseView{ID: fmt.Sprintf("judge-%02d", index+1), Judge: evaldomain.JudgeCalibrationCaseResult{Status: evaldomain.JudgeStatusComplete}}
 	}
+	faultReport, err := faultcampaign.BuildReport()
+	if err != nil {
+		t.Fatal(err)
+	}
+	reliabilityReport, err := reliabilityeval.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	metricHandler := NewDefaultMetricCatalogHandler()
+	if metricHandler.err != nil {
+		t.Fatal(metricHandler.err)
+	}
+	grafana := observability.GrafanaRuntimeSnapshot{
+		SchemaVersion: observability.GrafanaRuntimeSchemaVersion, Status: "ready", Source: "test", CollectedAt: time.Unix(40, 0).UTC(),
+		GrafanaVersion: "13.2.1", Database: "ok", BindAddress: "container-private:9093", PublicExposure: false,
+		Dashboard: observability.GrafanaDashboardContract{SchemaVersion: observability.GrafanaDashboardSchemaVersion, UID: observability.GrafanaDashboardUID, DashboardSHA: strings.Repeat("9", 64), PanelCount: 22, QueryCount: 22, Groups: []observability.GrafanaDashboardGroup{{Title: "业务", PanelCount: 7}, {Title: "质量", PanelCount: 8}, {Title: "控制", PanelCount: 7}}, Passed: true},
+	}
+	control := controlrecommendation.AuditSnapshot{
+		SchemaVersion: controlrecommendation.SchemaVersion, Mode: controlrecommendation.ModeRecommendOnly, Recommended: 1, Blocked: 1,
+		ActivePolicy: controlrecommendation.PolicyIdentity{Version: "policy-v1", SHA256: strings.Repeat("8", 64), Status: "active"},
+		Evaluation:   controlrecommendation.EvaluationGate{Source: "test", RunID: "run", CandidateVersion: "candidate", ReportSHA256: strings.Repeat("7", 64)},
+		Latest: []controlrecommendation.RecommendationSummary{
+			{RecommendationID: "one", Status: controlrecommendation.StatusRecommended, Simulation: true, Applied: false, CreatedAt: time.Unix(50, 0).UTC()},
+			{RecommendationID: "two", Status: controlrecommendation.StatusBlocked, Simulation: true, Applied: false, CreatedAt: time.Unix(51, 0).UTC()},
+		},
+	}
+	controlSHA, err := digestInterviewEvidenceValue(control)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return interviewEvidenceInputs{
 		Release: interviewReleaseManifest{
 			ReleaseID: "release-current", Branch: "add_eico", GitSHA: strings.Repeat("a", 40), BuiltAt: time.Unix(10, 0).UTC(),
@@ -122,6 +161,8 @@ func validInterviewEvidenceInputs(t *testing.T) interviewEvidenceInputs {
 			Agreement: evaldomain.CalibrationAgreement{Status: "insufficient_human_review", RequiredCases: 30, ReviewedCases: 0, KappaGate: .70},
 			Cases:     judgeCases,
 		},
+		FaultCampaign: faultReport, FaultGeneratedAt: time.Unix(35, 0).UTC(), Reliability: reliabilityReport,
+		MetricCatalog: metricHandler.report, Grafana: grafana, Control: control, ControlSHA: controlSHA,
 	}
 }
 
