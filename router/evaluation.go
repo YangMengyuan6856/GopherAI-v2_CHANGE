@@ -22,6 +22,7 @@ func RegisterEvaluationRouter(group *gin.RouterGroup) {
 	controlWebhookHandler := evaluationcontroller.NewDefaultControlWebhookHandler()
 	recommendationHandler := evaluationcontroller.NewDefaultRecommendationHandler()
 	faultCampaignHandler := evaluationcontroller.NewDefaultFaultCampaignHandler()
+	onlineEvaluationHandler := evaluationcontroller.NewDefaultOnlineEvaluationHandler()
 	group.GET("/diagnostic/latest", handler.LatestDiagnostic)
 	group.GET("/memory/latest", memoryHandler.LatestMemory)
 	group.GET("/context/latest", contextHandler.LatestContext)
@@ -41,4 +42,6 @@ func RegisterEvaluationRouter(group *gin.RouterGroup) {
 	group.POST("/controller/acceptance", recommendationHandler.Acceptance)
 	group.GET("/fault-campaigns/latest", faultCampaignHandler.Latest)
 	group.POST("/fault-campaigns/acceptance", faultCampaignHandler.Acceptance)
+	group.GET("/online/latest", onlineEvaluationHandler.Latest)
+	group.POST("/online/acceptance", onlineEvaluationHandler.Acceptance)
 }

@@ -4,6 +4,7 @@ import (
 	"GopherAI/internal/app"
 	"GopherAI/internal/contract"
 	"GopherAI/internal/observability"
+	"GopherAI/internal/onlineeval"
 	"GopherAI/internal/platform/feature"
 	intentplatform "GopherAI/internal/platform/intent"
 	knowledgeplatform "GopherAI/internal/platform/knowledge"
@@ -32,6 +33,16 @@ type AutoHandler struct {
 
 type ChatObserver interface {
 	Record(output app.ChatOutput, requestError error)
+}
+
+type multiChatObserver []ChatObserver
+
+func (observers multiChatObserver) Record(output app.ChatOutput, requestError error) {
+	for _, observer := range observers {
+		if observer != nil {
+			observer.Record(output, requestError)
+		}
+	}
 }
 
 type AutoChatRequest struct {
@@ -80,7 +91,7 @@ func NewDefaultAutoHandler() *AutoHandler {
 	if err != nil {
 		panic(fmt.Sprintf("initialize auto chat application: %v", err))
 	}
-	return NewObservedAutoHandler(application, observability.NewDefaultRecorder())
+	return NewObservedAutoHandler(application, multiChatObserver{onlineeval.NewDefaultObserver(), observability.NewDefaultRecorder()})
 }
 
 func (handler *AutoHandler) Chat(context *gin.Context) {

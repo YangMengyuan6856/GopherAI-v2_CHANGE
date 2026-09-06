@@ -20,6 +20,9 @@ const (
 	IncidentIndexQueue = "gopher.incident.index.v1"
 	IncidentRetryQueue = "gopher.incident.index.v1.retry"
 	IncidentDLQ        = "gopher.incident.index.v1.dlq"
+	OnlineEvalQueue    = "gopher.eval.online.v1"
+	OnlineEvalRetry    = "gopher.eval.online.v1.retry"
+	OnlineEvalDLQ      = "gopher.eval.online.v1.dlq"
 	DefaultRetryDelay  = 5 * time.Second
 )
 
@@ -30,8 +33,9 @@ type QueueConfig struct {
 }
 
 var (
-	DocumentQueueConfig = QueueConfig{Queue: DocumentIndexQueue, RetryQueue: DocumentRetryQueue, DeadQueue: DocumentDLQ}
-	IncidentQueueConfig = QueueConfig{Queue: IncidentIndexQueue, RetryQueue: IncidentRetryQueue, DeadQueue: IncidentDLQ}
+	DocumentQueueConfig   = QueueConfig{Queue: DocumentIndexQueue, RetryQueue: DocumentRetryQueue, DeadQueue: DocumentDLQ}
+	IncidentQueueConfig   = QueueConfig{Queue: IncidentIndexQueue, RetryQueue: IncidentRetryQueue, DeadQueue: IncidentDLQ}
+	OnlineEvalQueueConfig = QueueConfig{Queue: OnlineEvalQueue, RetryQueue: OnlineEvalRetry, DeadQueue: OnlineEvalDLQ}
 )
 
 type RabbitMQ struct {
@@ -204,7 +208,7 @@ func (broker *RabbitMQ) declareTopology() error {
 			return fmt.Errorf("declare dead-letter exchange: %w", err)
 		}
 	}
-	for _, queue := range []QueueConfig{DocumentQueueConfig, IncidentQueueConfig} {
+	for _, queue := range []QueueConfig{DocumentQueueConfig, IncidentQueueConfig, OnlineEvalQueueConfig} {
 		if err := broker.declareQueue(queue); err != nil {
 			return err
 		}

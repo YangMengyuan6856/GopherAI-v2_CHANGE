@@ -27,7 +27,7 @@ func TestWorkerMetricsCollapseUntrustedLabels(t *testing.T) {
 
 func TestWorkerMetricCollectorsStayComplete(t *testing.T) {
 	metrics := NewWorkerMetrics(prometheus.NewRegistry())
-	if count := len(metrics.Collectors()); count != 6 {
-		t.Fatalf("expected 6 worker metric families, got %d", count)
+	if count := len(metrics.Collectors()); count != 8 {
+		t.Fatalf("expected 8 worker metric families, got %d", count)
 	}
 }

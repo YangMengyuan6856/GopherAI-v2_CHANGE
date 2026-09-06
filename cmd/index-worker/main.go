@@ -4,8 +4,10 @@ import (
 	"GopherAI/common/mysql"
 	redisstore "GopherAI/common/redis"
 	"GopherAI/config"
+	"GopherAI/internal/evaluation"
 	"GopherAI/internal/incident"
 	"GopherAI/internal/knowledge"
+	"GopherAI/internal/onlineeval"
 	jobqueueadapter "GopherAI/internal/platform/jobqueue"
 	"context"
 	"encoding/json"
@@ -24,6 +26,7 @@ import (
 	"time"
 
 	embeddingArk "github.com/cloudwego/eino-ext/components/embedding/ark"
+	modelOpenAI "github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -108,6 +111,25 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	chatModel, err := modelOpenAI.NewChatModel(ctx, &modelOpenAI.ChatModelConfig{
+		BaseURL: configuration.RagBaseUrl, APIKey: apiKey, Model: configuration.RagChatModelName,
+	})
+	if err != nil {
+		return fmt.Errorf("initialize online evaluation model: %w", err)
+	}
+	judge, err := evaluation.NewLLMJudge(chatModel, configuration.RagChatModelName, evaluation.JudgeDefaultTimeout)
+	if err != nil {
+		return fmt.Errorf("initialize online evaluation judge: %w", err)
+	}
+	onlineEvalRepository := onlineeval.NewGormRepository(mysql.DB)
+	onlineEvalProcessor, err := onlineeval.NewProcessor(onlineEvalRepository, judge, metrics, time.Now)
+	if err != nil {
+		return err
+	}
+	onlineEvalConsumer, err := onlineeval.NewConsumer(onlineEvalProcessor, onlineeval.DefaultMaximumAttempts)
+	if err != nil {
+		return err
+	}
 	state := new(workerState)
 	server, listener, err := startStatusServer(state, registry)
 	if err != nil {
@@ -128,7 +150,7 @@ func run() error {
 
 	rabbitURL := buildRabbitURL(configuration)
 	for ctx.Err() == nil {
-		err = runBrokerSession(ctx, rabbitURL, repository, consumer, incidentConsumer, metrics, state)
+		err = runBrokerSession(ctx, rabbitURL, repository, consumer, incidentConsumer, onlineEvalConsumer, metrics, state)
 		state.ready.Store(false)
 		if ctx.Err() != nil {
 			break
@@ -142,7 +164,7 @@ func run() error {
 	return ctx.Err()
 }
 
-func runBrokerSession(ctx context.Context, rabbitURL string, repository *knowledge.GormRepository, consumer *knowledge.IndexConsumer, incidentConsumer *incident.Consumer, metrics *knowledge.WorkerMetrics, state *workerState) error {
+func runBrokerSession(ctx context.Context, rabbitURL string, repository *knowledge.GormRepository, consumer *knowledge.IndexConsumer, incidentConsumer *incident.Consumer, onlineEvalConsumer *onlineeval.Consumer, metrics *knowledge.WorkerMetrics, state *workerState) error {
 	broker, err := jobqueueadapter.Dial(rabbitURL)
 	if err != nil {
 		return err
@@ -154,12 +176,16 @@ func runBrokerSession(ctx context.Context, rabbitURL string, repository *knowled
 	}
 	sessionContext, cancel := context.WithCancel(ctx)
 	defer cancel()
-	errorsChannel := make(chan error, 3)
+	errorsChannel := make(chan error, 4)
 	go func() { errorsChannel <- publisher.Run(sessionContext) }()
 	go func() { errorsChannel <- broker.Consume(sessionContext, consumer.Handle) }()
 	go func() {
 		errorsChannel <- broker.ConsumeQueue(sessionContext, jobqueueadapter.IncidentQueueConfig, incidentConsumer.Handle)
 	}()
+	go func() {
+		errorsChannel <- broker.ConsumeQueue(sessionContext, jobqueueadapter.OnlineEvalQueueConfig, onlineEvalConsumer.Handle)
+	}()
+	go runOnlineEvaluationRetention(sessionContext, onlineEvalConsumer)
 	state.ready.Store(true)
 	log.Print(`{"event":"index_worker","status":"ready"}`)
 	select {
@@ -167,6 +193,35 @@ func runBrokerSession(ctx context.Context, rabbitURL string, repository *knowled
 		return ctx.Err()
 	case err := <-errorsChannel:
 		return err
+	}
+}
+
+func runOnlineEvaluationRetention(ctx context.Context, consumer *onlineeval.Consumer) {
+	if consumer == nil {
+		return
+	}
+	prune := func() {
+		pruneContext, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		deleted, err := consumer.PruneExpired(pruneContext, time.Now())
+		if err != nil && ctx.Err() == nil {
+			log.Print(`{"event":"online_evaluation_retention","status":"error","error_code":"ONLINE_EVAL_REPOSITORY_FAILED"}`)
+			return
+		}
+		if deleted > 0 {
+			log.Printf(`{"event":"online_evaluation_retention","status":"success","deleted":%d}`, deleted)
+		}
+	}
+	prune()
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			prune()
+		}
 	}
 }
 

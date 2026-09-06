@@ -86,6 +86,7 @@ func migration() error {
 		new(model.ControlWebhookReceipt),
 		new(model.ControlRecommendation),
 		new(model.FaultInjectionCampaign),
+		new(model.OnlineEvaluationSample),
 	)
 }
 

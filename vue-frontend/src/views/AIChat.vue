@@ -687,6 +687,72 @@
                   <span v-for="guardrail in faultCampaignAudit.guardrails" :key="guardrail" class="dependency-ready">{{ guardrail }}</span>
                 </div>
               </details>
+              <details v-if="onlineEvaluationAudit" class="online-evaluation-card">
+                <summary>
+                  查看线上分层采样与异步 Judge（24h {{ onlineEvaluationAudit.last_24_hours.total }} 个生产样本）
+                </summary>
+                <div class="metric-catalog-heading">
+                  <div>
+                    <strong>Risk-stratified Online Evaluation · {{ onlineEvaluationAudit.sampler_version }}</strong>
+                    <span>{{ onlineEvaluationAudit.mode }} · {{ onlineEvaluationAudit.queue }}</span>
+                  </div>
+                  <button :disabled="runningOnlineEvaluationAcceptance" @click="runOnlineEvaluationAcceptance">
+                    {{ runningOnlineEvaluationAcceptance ? '等待 RabbitMQ 消费...' : '运行采样 / 队列验收' }}
+                  </button>
+                </div>
+                <p>稳定流量按请求哈希固定采 4%，Canary 20%，Probing 50%；点踩、低置信度、证据门禁失败、工具失败等风险样本 100%。采样、脱敏和 Judge 均不阻塞正式回答。</p>
+                <div class="online-evaluation-rates">
+                  <div><strong>4%</strong><span>稳定流量</span></div>
+                  <div><strong>20%</strong><span>Canary</span></div>
+                  <div><strong>50%</strong><span>Probing</span></div>
+                  <div><strong>100%</strong><span>风险样本</span></div>
+                  <div><strong>{{ onlineEvaluationAudit.retention_days }} 天</strong><span>脱敏样本保留</span></div>
+                </div>
+                <div class="evaluation-decision-strip">
+                  <span v-for="guarantee in onlineEvaluationAudit.privacy_guarantees" :key="guarantee" class="dependency-ready">{{ guarantee }}</span>
+                </div>
+                <article v-if="onlineEvaluationAudit.latest" class="online-evaluation-latest">
+                  <div class="evaluation-run-heading">
+                    <div>
+                      <strong>最近生产样本 · {{ onlineEvaluationAudit.latest.strategy }}</strong>
+                      <span>{{ onlineEvaluationAudit.latest.traffic_class }} · {{ onlineEvaluationStatusLabel(onlineEvaluationAudit.latest.status) }}</span>
+                    </div>
+                    <span>{{ onlineEvaluationAudit.latest.sample_rate_basis / 100 }}% · 脱敏 {{ onlineEvaluationAudit.latest.redaction_count }} 处</span>
+                  </div>
+                  <div v-if="onlineEvaluationAudit.latest.status === 'completed'" class="online-score-grid">
+                    <span>相关性 {{ metricPercent(onlineEvaluationAudit.latest.relevance) }}</span>
+                    <span>完整性 {{ metricPercent(onlineEvaluationAudit.latest.completeness) }}</span>
+                    <span>有用性 {{ metricPercent(onlineEvaluationAudit.latest.helpfulness) }}</span>
+                    <span>有依据 {{ metricPercent(onlineEvaluationAudit.latest.groundedness) }}</span>
+                    <span>安全性 {{ metricPercent(onlineEvaluationAudit.latest.safety) }}</span>
+                  </div>
+                  <small>页面不返回原始问题、回答、证据正文或用户标识。</small>
+                </article>
+                <div v-else class="strategy-control-empty">最近 24 小时尚无生产样本；4% 稳定采样不会为演示而伪造流量。</div>
+                <article v-if="onlineEvaluationAcceptance" :class="['online-evaluation-acceptance', onlineEvaluationAcceptance.passed ? 'passed' : 'failed']">
+                  <div class="evaluation-run-heading">
+                    <div>
+                      <strong>真实异步链路验收 · {{ onlineEvaluationAcceptance.passed ? '通过' : '未完成' }}</strong>
+                      <span>Simulation · 不调用模型 · 不写生产评分指标</span>
+                    </div>
+                    <span>{{ onlineEvaluationStatusLabel(onlineEvaluationAcceptance.final_status) }} · 脱敏 {{ onlineEvaluationAcceptance.redaction_count }} 处</span>
+                  </div>
+                  <div class="online-stage-list">
+                    <span v-for="stage in onlineEvaluationAcceptance.stages" :key="stage.name" :class="stage.status === 'completed' ? 'dependency-ready' : 'dependency-down'">{{ onlineEvaluationStageLabel(stage.name) }} · {{ stage.status === 'completed' ? '完成' : '等待' }}</span>
+                  </div>
+                  <div class="online-case-grid">
+                    <article v-for="item in onlineEvaluationAcceptance.cases" :key="item.name">
+                      <strong>{{ item.name }}</strong>
+                      <span>{{ item.traffic_class }} · {{ item.sample_rate_basis / 100 }}% · {{ item.forced ? '强制采样' : '哈希采样' }}</span>
+                      <small>{{ item.reasons.join('、') }}</small>
+                    </article>
+                  </div>
+                  <div class="evaluation-decision-strip">
+                    <span :class="!onlineEvaluationAcceptance.raw_identity_persisted ? 'dependency-ready' : 'dependency-down'">原始用户标识未落库</span>
+                    <span :class="!onlineEvaluationAcceptance.production_metrics_used ? 'dependency-ready' : 'dependency-down'">验收数据未污染生产指标</span>
+                  </div>
+                </article>
+              </details>
               <div v-if="loadingAnomaly" class="strategy-control-empty">正在以“基线窗口不含当前点”的规则计算...</div>
               <article v-else-if="anomalyResult" :class="['anomaly-result', anomalyDecisionClass(anomalyResult.analysis)]">
                 <div class="evaluation-run-heading">
@@ -1569,6 +1635,9 @@ export default {
     const faultCampaignResult = ref(null)
     const runningFaultCampaign = ref(false)
     const activeFaultCampaign = computed(() => faultCampaignResult.value || faultCampaignAudit.value?.latest || null)
+    const onlineEvaluationAudit = ref(null)
+    const onlineEvaluationAcceptance = ref(null)
+    const runningOnlineEvaluationAcceptance = ref(false)
     const anomalyScenarios = [
       { value: 'healthy', label: '健康窗口' },
       { value: 'quality_drop', label: 'RAG 质量下降' },
@@ -2787,7 +2856,7 @@ export default {
       if (!evaluationCatalogOpen.value || evaluationCatalog.value || loadingEvaluationCatalog.value) return
       try {
         loadingEvaluationCatalog.value = true
-        const [catalogResponse, runResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse] = await Promise.all([
+        const [catalogResponse, runResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse, onlineEvaluationResponse] = await Promise.all([
           api.get('/evaluations/catalog/latest'),
           api.get('/evaluations/unified/latest'),
           api.get('/evaluations/metrics/catalog'),
@@ -2796,7 +2865,8 @@ export default {
           api.get('/evaluations/anomaly/production/latest').catch(() => null),
           api.get('/evaluations/webhooks/latest').catch(() => null),
           api.get('/evaluations/controller/latest').catch(() => null),
-          api.get('/evaluations/fault-campaigns/latest').catch(() => null)
+          api.get('/evaluations/fault-campaigns/latest').catch(() => null),
+          api.get('/evaluations/online/latest').catch(() => null)
         ])
         evaluationCatalog.value = catalogResponse.data
         evaluationRun.value = runResponse.data
@@ -2807,6 +2877,7 @@ export default {
         webhookAudit.value = webhookAuditResponse?.data || null
         controllerAudit.value = controllerAuditResponse?.data || null
         faultCampaignAudit.value = faultCampaignAuditResponse?.data || null
+        onlineEvaluationAudit.value = onlineEvaluationResponse?.data || null
       } catch (error) {
         evaluationCatalogOpen.value = false
         ElMessage.error(error.response?.data?.message || '评测数据目录暂时不可用')
@@ -2945,6 +3016,39 @@ export default {
         ElMessage.error(error.response?.data?.message || '三类隔离故障演练暂时不可用')
       } finally {
         runningFaultCampaign.value = false
+      }
+    }
+
+    const onlineEvaluationStatusLabel = (status) => ({
+      pending: '等待 Outbox', evaluating: 'Judge 处理中', completed: '评测完成', judge_failed: 'Judge 失败（未伪造分数）', dead: '进入死信'
+    }[status] || status)
+
+    const onlineEvaluationStageLabel = (stage) => ({
+      mysql_outbox: 'MySQL Outbox', rabbitmq: 'RabbitMQ', online_eval_consumer: '独立 Consumer', deterministic_completion: '确定性完成'
+    }[stage] || stage)
+
+    const loadOnlineEvaluationAudit = async () => {
+      const response = await api.get('/evaluations/online/latest')
+      onlineEvaluationAudit.value = response.data
+      return response.data
+    }
+
+    const runOnlineEvaluationAcceptance = async () => {
+      if (runningOnlineEvaluationAcceptance.value) return
+      try {
+        runningOnlineEvaluationAcceptance.value = true
+        const response = await api.post('/evaluations/online/acceptance', {})
+        onlineEvaluationAcceptance.value = response.data
+        await loadOnlineEvaluationAudit()
+        if (response.data?.passed && response.data?.final_status === 'completed' && response.data?.raw_identity_persisted === false) {
+          ElMessage.success('分层采样、脱敏、Outbox、RabbitMQ 与独立消费链路均已通过')
+        } else {
+          ElMessage.warning('采样规则已验证，但异步消费链路尚未完成，请检查 Worker 与 RabbitMQ')
+        }
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || '在线评测异步链路验收暂不可用')
+      } finally {
+        runningOnlineEvaluationAcceptance.value = false
       }
     }
 
@@ -3295,6 +3399,9 @@ export default {
       faultCampaignResult,
       runningFaultCampaign,
       activeFaultCampaign,
+      onlineEvaluationAudit,
+      onlineEvaluationAcceptance,
+      runningOnlineEvaluationAcceptance,
       parentContextEvaluationOpen,
       loadingParentContextEvaluation,
       parentContextEvaluation,
@@ -3452,6 +3559,9 @@ export default {
       runControllerAcceptance,
       loadFaultCampaignAudit,
       runFaultCampaignAcceptance,
+      onlineEvaluationStatusLabel,
+      onlineEvaluationStageLabel,
+      runOnlineEvaluationAcceptance,
       faultClassLabel,
       faultPhaseLabel,
       faultMetricValue,
@@ -5432,6 +5542,113 @@ export default {
   color: #4d57a8;
   cursor: pointer;
   font-weight: 700;
+}
+
+.online-evaluation-card {
+  margin-top: 9px;
+  padding: 9px;
+  border: 1px dashed rgba(34, 139, 117, 0.44);
+  border-radius: 8px;
+  background: #f1fbf8;
+}
+
+.online-evaluation-card > summary {
+  cursor: pointer;
+  color: #1d745f;
+  font-weight: 800;
+}
+
+.online-evaluation-card p,
+.online-evaluation-card small {
+  color: #61766f;
+  font-size: 12px;
+}
+
+.online-evaluation-card button {
+  padding: 6px 9px;
+  border: 1px solid rgba(34, 139, 117, 0.38);
+  border-radius: 7px;
+  background: #fff;
+  color: #1d745f;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.online-evaluation-card button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.online-evaluation-rates {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+  margin: 9px 0;
+}
+
+.online-evaluation-rates > div {
+  display: grid;
+  gap: 3px;
+  padding: 9px;
+  border: 1px solid rgba(34, 139, 117, 0.16);
+  border-radius: 7px;
+  background: #fff;
+}
+
+.online-evaluation-rates strong {
+  color: #1d745f;
+  font-size: 17px;
+}
+
+.online-evaluation-rates span,
+.online-score-grid span,
+.online-case-grid span {
+  color: #61766f;
+  font-size: 12px;
+}
+
+.online-evaluation-latest,
+.online-evaluation-acceptance {
+  display: grid;
+  gap: 8px;
+  margin-top: 9px;
+  padding: 9px;
+  border: 1px solid rgba(34, 139, 117, 0.18);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.online-evaluation-acceptance.failed {
+  border-color: #e3b65e;
+  background: #fffaf0;
+}
+
+.online-score-grid,
+.online-stage-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.online-score-grid span {
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: #e4f6ef;
+}
+
+.online-case-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 7px;
+}
+
+.online-case-grid article {
+  display: grid;
+  gap: 3px;
+  padding: 8px;
+  border: 1px solid rgba(34, 139, 117, 0.14);
+  border-radius: 7px;
+  background: #fbfffd;
 }
 
 .fault-campaign-result,

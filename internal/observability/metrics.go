@@ -86,8 +86,6 @@ type Metrics struct {
 	policyLoads                 *prometheus.CounterVec
 	strategyWeights             *prometheus.GaugeVec
 	feedback                    *prometheus.CounterVec
-	onlineEvalScore             *prometheus.HistogramVec
-	onlineEvalFailures          *prometheus.CounterVec
 	evalRegressions             *prometheus.CounterVec
 	strategyState               *prometheus.GaugeVec
 	controlActions              *prometheus.CounterVec
@@ -130,7 +128,7 @@ func (metrics *Metrics) Collectors() []prometheus.Collector {
 		metrics.toolCalls, metrics.toolDuration, metrics.toolRetries, metrics.toolCircuitState,
 		metrics.toolCache, metrics.toolValidation, metrics.toolCancellations,
 		metrics.legacyEntryAttempts, metrics.policyLoads, metrics.strategyWeights,
-		metrics.feedback, metrics.onlineEvalScore, metrics.onlineEvalFailures, metrics.evalRegressions,
+		metrics.feedback, metrics.evalRegressions,
 		metrics.strategyState, metrics.controlActions, metrics.controlLoopDuration, metrics.webhookDeliveries,
 	}
 }
@@ -464,15 +462,6 @@ func NewMetrics(registerer prometheus.Registerer, gatherer prometheus.Gatherer) 
 			Name: "gopherai_feedback_total",
 			Help: "Total explicit and implicit feedback outcomes by bounded strategy and feedback type.",
 		}, []string{"strategy", "type", "result"}),
-		onlineEvalScore: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "gopherai_online_eval_score",
-			Help:    "Online evaluation score by bounded strategy and quality dimension.",
-			Buckets: prometheus.LinearBuckets(0, 0.1, 11),
-		}, []string{"strategy", "dimension"}),
-		onlineEvalFailures: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "gopherai_online_eval_failures_total",
-			Help: "Total online evaluation failures by bounded strategy and reason.",
-		}, []string{"strategy", "reason"}),
 		evalRegressions: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "gopherai_eval_regressions_total",
 			Help: "Total detected evaluation regressions by fixed suite and metric.",
@@ -620,8 +609,6 @@ func (metrics *Metrics) initializeRequiredMetricSeries() {
 	metrics.toolValidation.WithLabelValues("unknown", "unknown").Add(0)
 	metrics.toolCancellations.WithLabelValues("unknown", "unknown").Add(0)
 	metrics.feedback.WithLabelValues("legacy_chat", "explicit", "accepted").Add(0)
-	metrics.onlineEvalScore.WithLabelValues("legacy_chat", "quality")
-	metrics.onlineEvalFailures.WithLabelValues("legacy_chat", "error").Add(0)
 	metrics.evalRegressions.WithLabelValues("unified", "completion").Add(0)
 	metrics.strategyWeights.WithLabelValues("unknown", "unknown", "other").Set(0)
 	metrics.strategyState.WithLabelValues("unknown", "unknown", "healthy").Set(0)

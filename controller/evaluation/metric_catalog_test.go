@@ -19,7 +19,7 @@ func TestMetricCatalogEndpointPublishesBoundedCompleteSummary(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected metric catalog, got %d: %s", recorder.Code, recorder.Body.String())
 	}
-	for _, expected := range []string{`"passed":true`, `"family_count":88`, `"required_family_count":46`, `"required_present_count":46`, `"contract_mismatch_count":0`, `"forbidden_label_hits":0`, `"duplicate_metric_names":0`, `"name":"backend"`, `"family_count":82`, `"name":"index_worker"`, `"family_count":6`} {
+	for _, expected := range []string{`"passed":true`, `"family_count":88`, `"required_family_count":46`, `"required_present_count":46`, `"contract_mismatch_count":0`, `"forbidden_label_hits":0`, `"duplicate_metric_names":0`, `"name":"backend"`, `"family_count":80`, `"name":"index_worker"`, `"family_count":8`} {
 		if !strings.Contains(recorder.Body.String(), expected) {
 			t.Fatalf("metric catalog response missing %s", expected)
 		}
