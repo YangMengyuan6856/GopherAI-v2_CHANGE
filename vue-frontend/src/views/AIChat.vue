@@ -696,9 +696,14 @@
                     <strong>Risk-stratified Online Evaluation · {{ onlineEvaluationAudit.sampler_version }}</strong>
                     <span>{{ onlineEvaluationAudit.mode }} · {{ onlineEvaluationAudit.queue }}</span>
                   </div>
-                  <button :disabled="runningOnlineEvaluationAcceptance" @click="runOnlineEvaluationAcceptance">
-                    {{ runningOnlineEvaluationAcceptance ? '等待 RabbitMQ 消费...' : '运行采样 / 队列验收' }}
-                  </button>
+                  <div class="metric-catalog-actions">
+                    <button :disabled="loadingOnlineEvaluationAudit" @click="refreshOnlineEvaluationAudit">
+                      {{ loadingOnlineEvaluationAudit ? '刷新中...' : '刷新生产样本' }}
+                    </button>
+                    <button :disabled="runningOnlineEvaluationAcceptance" @click="runOnlineEvaluationAcceptance">
+                      {{ runningOnlineEvaluationAcceptance ? '等待 RabbitMQ 消费...' : '运行采样 / 队列验收' }}
+                    </button>
+                  </div>
                 </div>
                 <p>稳定流量按请求哈希固定采 4%，Canary 20%，Probing 50%；点踩、低置信度、证据门禁失败、工具失败等风险样本 100%。采样、脱敏和 Judge 均不阻塞正式回答。</p>
                 <div class="online-evaluation-rates">
@@ -1638,6 +1643,7 @@ export default {
     const onlineEvaluationAudit = ref(null)
     const onlineEvaluationAcceptance = ref(null)
     const runningOnlineEvaluationAcceptance = ref(false)
+    const loadingOnlineEvaluationAudit = ref(false)
     const anomalyScenarios = [
       { value: 'healthy', label: '健康窗口' },
       { value: 'quality_drop', label: 'RAG 质量下降' },
@@ -3033,6 +3039,19 @@ export default {
       return response.data
     }
 
+    const refreshOnlineEvaluationAudit = async () => {
+      if (loadingOnlineEvaluationAudit.value) return
+      try {
+        loadingOnlineEvaluationAudit.value = true
+        await loadOnlineEvaluationAudit()
+        ElMessage.success('已刷新最近 24 小时生产样本')
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || '在线评测生产样本刷新失败')
+      } finally {
+        loadingOnlineEvaluationAudit.value = false
+      }
+    }
+
     const runOnlineEvaluationAcceptance = async () => {
       if (runningOnlineEvaluationAcceptance.value) return
       try {
@@ -3402,6 +3421,7 @@ export default {
       onlineEvaluationAudit,
       onlineEvaluationAcceptance,
       runningOnlineEvaluationAcceptance,
+      loadingOnlineEvaluationAudit,
       parentContextEvaluationOpen,
       loadingParentContextEvaluation,
       parentContextEvaluation,
@@ -3561,6 +3581,7 @@ export default {
       runFaultCampaignAcceptance,
       onlineEvaluationStatusLabel,
       onlineEvaluationStageLabel,
+      refreshOnlineEvaluationAudit,
       runOnlineEvaluationAcceptance,
       faultClassLabel,
       faultPhaseLabel,
