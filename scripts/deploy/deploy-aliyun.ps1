@@ -362,7 +362,8 @@ try {
     if ($LASTEXITCODE -ne 0 -or $trackedSourceFiles.Count -eq 0) {
         throw "Unable to create the tracked source inventory."
     }
-    $trackedSourceFiles = @($trackedSourceFiles | ForEach-Object { $_ -replace '\\', '/' } | Sort-Object -Unique)
+    $trackedSourceFiles = [string[]]@($trackedSourceFiles | ForEach-Object { $_ -replace '\\', '/' })
+    [Array]::Sort($trackedSourceFiles, [System.StringComparer]::Ordinal)
     [System.IO.File]::WriteAllLines($sourceInventoryPath, $trackedSourceFiles, $utf8NoBom)
 
     $tarArgs = @(
