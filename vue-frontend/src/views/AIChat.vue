@@ -1200,6 +1200,64 @@
                       <span class="dependency-ready">重开 Holdout 必须新实验版本</span>
                     </div>
                   </details>
+                  <details class="review-fixture-list evolution-split-card evolution-comparison-card">
+                    <summary>查看公平预算 Harness A/B（{{ evolutionComparisonReport ? evolutionPromotionLabel(evolutionComparisonReport.promotion.decision) : '尚未运行' }}）</summary>
+                    <div class="metric-catalog-heading">
+                      <div>
+                        <strong>四方成对比较 · 旧 Harness / 人工规则 / 同预算 TTS / 自动候选</strong>
+                        <span>确定性诊断契约 · 同 Case、同执行次数、同模型/Token 预算</span>
+                      </div>
+                      <button :disabled="runningEvolutionComparison" @click="runEvolutionComparison">
+                        {{ runningEvolutionComparison ? '比较中...' : '运行受控离线公平 A/B' }}
+                      </button>
+                    </div>
+                    <div v-if="evolutionComparisonReport">
+                      <div class="evaluation-decision-strip">
+                        <span>实验 {{ evolutionComparisonReport.experiment_version }}</span>
+                        <span>报告 {{ shortRevision(evolutionComparisonReport.report_sha256) }}</span>
+                        <span :class="evolutionComparisonReport.candidate.production_candidate ? 'dependency-ready' : ''">受控 Fixture 候选</span>
+                        <span :class="evolutionComparisonReport.promotion.eligible ? 'dependency-ready' : 'dependency-down'">Promotion {{ evolutionComparisonReport.promotion.eligible ? '允许' : '拒绝' }}</span>
+                      </div>
+                      <article class="evolution-candidate-summary">
+                        <div class="evaluation-run-heading">
+                          <strong>{{ evolutionArtifactLabel(evolutionComparisonReport.candidate.artifact_type) }} · {{ evolutionComparisonReport.candidate.artifact_version }}</strong>
+                          <span>{{ evolutionComparisonReport.candidate.origin }}</span>
+                        </div>
+                        <p>Parent {{ evolutionComparisonReport.candidate.parent_version }} → {{ evolutionComparisonReport.candidate.patch.path }} = {{ evolutionComparisonReport.candidate.patch.value }}</p>
+                        <small>Static Validation 通过 · 需要人工批准 · Production Candidate=false</small>
+                      </article>
+                      <article v-for="split in evolutionComparisonReport.splits" :key="split.split" class="evolution-comparison-split">
+                        <div class="evaluation-run-heading">
+                          <strong>{{ evolutionSplitLabel(split.split) }} · {{ split.case_count }} 对</strong>
+                          <span>Set SHA {{ shortRevision(split.case_set_sha256) }}</span>
+                        </div>
+                        <div class="evolution-variant-grid">
+                          <div v-for="variant in split.variants" :key="variant.name">
+                            <strong>{{ evolutionVariantLabel(variant.name) }}</strong>
+                            <span>均分 {{ metricPercent(variant.mean_score) }} · 成功 {{ variant.successes }}/{{ variant.case_count }}</span>
+                            <small>执行 {{ variant.budget.analysis_passes_per_case }} 次/Case · 模型 {{ variant.budget.model_calls }} · Token {{ variant.budget.estimated_tokens }} · 反馈轮 {{ variant.budget.feedback_iterations }}</small>
+                          </div>
+                        </div>
+                        <div class="evolution-paired-list">
+                          <div v-for="comparison in split.comparisons" :key="comparison.candidate_variant">
+                            <span>{{ evolutionVariantLabel(comparison.candidate_variant) }} vs 旧 Harness</span>
+                            <strong>Δ {{ signedPercent(comparison.analysis.mean_delta) }} · 95% CI [{{ signedPercent(comparison.analysis.delta_ci95_lower) }}, {{ signedPercent(comparison.analysis.delta_ci95_upper) }}] · p={{ Number(comparison.analysis.mcnemar_exact_two_sided_p_value).toFixed(4) }}</strong>
+                            <small>{{ pairedConclusionLabel(comparison.analysis.conclusion) }}</small>
+                          </div>
+                        </div>
+                      </article>
+                      <article class="evaluation-candidate-warning">
+                        <strong>Sealed Holdout：{{ evolutionComparisonReport.holdout.state }} · 打开 {{ evolutionComparisonReport.holdout.open_count }} 次</strong>
+                        <span>{{ evolutionHoldoutReasonLabel(evolutionComparisonReport.holdout.reason_code) }}；不会为了完成报告而消耗最终集。</span>
+                      </article>
+                      <div class="evaluation-decision-strip">
+                        <span v-for="reason in evolutionComparisonReport.promotion.reason_codes" :key="reason" class="dependency-down">{{ evolutionPromotionReasonLabel(reason) }}</span>
+                        <span :class="evolutionComparisonReport.promotion.safety_passed ? 'dependency-ready' : 'dependency-down'">危险动作回归 {{ evolutionComparisonReport.promotion.safety_passed ? '0' : '存在' }}</span>
+                      </div>
+                      <small v-for="limitation in evolutionComparisonReport.limitations" :key="limitation" class="evolution-limitation">{{ limitation }}</small>
+                    </div>
+                    <div v-else class="strategy-control-empty">尚无公平比较报告。运行后会保存到 Release 目录外；同一实验再次点击只复用原报告，不会重新打开 Holdout。</div>
+                  </details>
                 </details>
               </details>
               <div v-if="loadingAnomaly" class="strategy-control-empty">正在以“基线窗口不含当前点”的规则计算...</div>
@@ -2158,6 +2216,8 @@ export default {
     const evolutionSplitAudit = ref(null)
     const evolutionSplitAcceptance = ref(null)
     const runningEvolutionSplitAcceptance = ref(false)
+    const evolutionComparisonReport = ref(null)
+    const runningEvolutionComparison = ref(false)
     const anomalyScenarios = [
       { value: 'healthy', label: '健康窗口' },
       { value: 'quality_drop', label: 'RAG 质量下降' },
@@ -3414,7 +3474,7 @@ export default {
       if (!evaluationCatalogOpen.value || evaluationCatalog.value || loadingEvaluationCatalog.value) return
       try {
         loadingEvaluationCatalog.value = true
-        const [catalogResponse, runResponse, pairedResponse, judgeCalibrationResponse, interviewEvidenceResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse, reliabilityResponse, onlineEvaluationResponse, failurePoolResponse, evolutionResponse, evolutionSplitResponse, performanceResponse] = await Promise.all([
+        const [catalogResponse, runResponse, pairedResponse, judgeCalibrationResponse, interviewEvidenceResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse, reliabilityResponse, onlineEvaluationResponse, failurePoolResponse, evolutionResponse, evolutionSplitResponse, evolutionComparisonResponse, performanceResponse] = await Promise.all([
           api.get('/evaluations/catalog/latest'),
           api.get('/evaluations/unified/latest'),
           api.get('/evaluations/paired/latest').catch(() => null),
@@ -3432,6 +3492,7 @@ export default {
           api.get('/evaluations/failure-pool/latest').catch(() => null),
           api.get('/evaluations/evolution/latest').catch(() => null),
           api.get('/evaluations/evolution/splits/latest').catch(() => null),
+          api.get('/evaluations/evolution/comparison/latest').catch(() => null),
           api.get('/evaluations/performance/latest').catch(() => null)
         ])
         evaluationCatalog.value = catalogResponse.data
@@ -3452,6 +3513,7 @@ export default {
         failurePoolAudit.value = failurePoolResponse?.data || null
         evolutionAudit.value = evolutionResponse?.data || null
         evolutionSplitAudit.value = evolutionSplitResponse?.data || null
+        evolutionComparisonReport.value = evolutionComparisonResponse?.data || null
         performanceReport.value = performanceResponse?.data || null
       } catch (error) {
         evaluationCatalogOpen.value = false
@@ -3897,6 +3959,39 @@ export default {
       new_experiment_required: 'Holdout 重开强制新实验版本'
     }[value] || value)
 
+    const runEvolutionComparison = async () => {
+      if (runningEvolutionComparison.value) return
+      try {
+        runningEvolutionComparison.value = true
+        const response = await api.post('/evaluations/evolution/comparison/run', { mode: 'controlled_offline_contract_comparison' })
+        evolutionComparisonReport.value = response.data.report
+        if (response.data.reused) ElMessage.success('同一实验已存在，已复用原报告且没有重新打开 Holdout')
+        else ElMessage.success('公平 A/B 已完成；候选未证明收益，Holdout 保持 sealed')
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || 'Harness 公平 A/B 暂不可用')
+      } finally {
+        runningEvolutionComparison.value = false
+      }
+    }
+
+    const evolutionVariantLabel = (value) => ({
+      frozen_harness: '旧 Harness', human_rule_candidate: '人工规则候选', same_budget_test_time_scaling: '同预算 TTS', evolved_candidate: '自动演化候选'
+    }[value] || value)
+
+    const evolutionPromotionLabel = (value) => ({ rejected: '候选被拒绝', promoted: '允许晋级', pending: '等待评测' }[value] || value)
+
+    const evolutionHoldoutReasonLabel = (value) => ({ upstream_gain_gate_failed: 'Evolution / Validation 上游收益门未通过，Holdout 保持密封' }[value] || value)
+
+    const evolutionPromotionReasonLabel = (value) => ({
+      evolution_gain_not_demonstrated: 'Evolution 未证明正收益', validation_gain_not_demonstrated: 'Validation 未证明正收益',
+      human_labels_pending: '人工标签待复核', controlled_fixture_not_promotable: '受控 Fixture 不可晋级', safety_regression: '存在安全回归'
+    }[value] || value)
+
+    const signedPercent = (value) => {
+      const number = Number(value || 0) * 100
+      return `${number > 0 ? '+' : ''}${number.toFixed(1)}%`
+    }
+
     const failureWhereLabel = (value) => ({
       answer_quality: '回答质量', agent_budget: 'Agent 预算', tool_runtime: '工具运行时', retrieval_evidence_gate: '检索证据门',
       answer_generation: '答案生成', task_resolution: '任务解决', request_execution: '请求执行'
@@ -4300,6 +4395,8 @@ export default {
       evolutionSplitAudit,
       evolutionSplitAcceptance,
       runningEvolutionSplitAcceptance,
+      evolutionComparisonReport,
+      runningEvolutionComparison,
       parentContextEvaluationOpen,
       loadingParentContextEvaluation,
       parentContextEvaluation,
@@ -4491,6 +4588,12 @@ export default {
       evolutionSplitLabel,
       evolutionSplitPurposeLabel,
       evolutionSplitAcceptanceLabel,
+      runEvolutionComparison,
+      evolutionVariantLabel,
+      evolutionPromotionLabel,
+      evolutionHoldoutReasonLabel,
+      evolutionPromotionReasonLabel,
+      signedPercent,
       submitDownvote,
       faultClassLabel,
       faultPhaseLabel,
@@ -7032,6 +7135,47 @@ export default {
 
 .evolution-split-grid {
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+}
+
+.evolution-comparison-card {
+  background: #fffdf8;
+  border-color: rgba(185, 130, 50, 0.28);
+}
+
+.evolution-candidate-summary,
+.evolution-comparison-split {
+  margin-top: 8px;
+  padding: 9px;
+  border: 1px solid rgba(185, 130, 50, 0.2);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.evolution-candidate-summary p {
+  margin: 5px 0;
+  overflow-wrap: anywhere;
+}
+
+.evolution-variant-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.evolution-variant-grid > div,
+.evolution-paired-list > div {
+  display: grid;
+  gap: 3px;
+  padding: 7px;
+  border-radius: 7px;
+  background: #f8fafc;
+}
+
+.evolution-paired-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
 }
 
 .failure-cluster-grid {

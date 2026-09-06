@@ -126,7 +126,6 @@ func BuildSplitAudit(ids []string, sourceSHA string, duplicateCount int) (SplitA
 	if len(ids) != SplitTotalCases || duplicateCount != 0 || len(sourceSHA) != 64 {
 		return SplitAudit{}, fmt.Errorf("%w: count, uniqueness or source hash mismatch", ErrEvolutionDatasetInvalid)
 	}
-	members := make([]splitMember, 0, len(ids))
 	seen := make(map[string]struct{}, len(ids))
 	for _, id := range ids {
 		id = strings.TrimSpace(id)
@@ -137,17 +136,8 @@ func BuildSplitAudit(ids []string, sourceSHA string, duplicateCount int) (SplitA
 			return SplitAudit{}, fmt.Errorf("%w: duplicate case id", ErrEvolutionDatasetInvalid)
 		}
 		seen[id] = struct{}{}
-		members = append(members, splitMember{id: id, rank: digestString(SplitPolicyVersion + "\x00" + id)})
 	}
-	sort.Slice(members, func(i, j int) bool {
-		if members[i].rank == members[j].rank {
-			return members[i].id < members[j].id
-		}
-		return members[i].rank < members[j].rank
-	})
-	evolutionIDs := memberIDs(members[:EvolutionCaseCount])
-	validationIDs := memberIDs(members[EvolutionCaseCount : EvolutionCaseCount+ValidationCaseCount])
-	holdoutIDs := memberIDs(members[EvolutionCaseCount+ValidationCaseCount:])
+	evolutionIDs, validationIDs, holdoutIDs := partitionCaseIDs(ids)
 	overlap := overlapCount(evolutionIDs, validationIDs, holdoutIDs)
 	if overlap != 0 || len(evolutionIDs)+len(validationIDs)+len(holdoutIDs) != len(ids) {
 		return SplitAudit{}, fmt.Errorf("%w: split overlap or coverage mismatch", ErrEvolutionDatasetInvalid)
@@ -166,6 +156,20 @@ func BuildSplitAudit(ids []string, sourceSHA string, duplicateCount int) (SplitA
 		Guardrails:                         []string{"source_catalog_sha_verified", "stable_hash_partition", "zero_overlap", "full_coverage", "candidate_search_evolution_only", "validation_after_candidate_freeze", "holdout_final_evaluation_only", "case_ids_not_exposed"},
 		Limitations:                        []string{"当前只冻结并审计分区；M9-23 才会运行公平预算 A/B。", "Full 320 人工标签尚未复核，因此任何后续结果仍不得直接晋级。"},
 	}, nil
+}
+
+func partitionCaseIDs(ids []string) ([]string, []string, []string) {
+	members := make([]splitMember, 0, len(ids))
+	for _, id := range ids {
+		members = append(members, splitMember{id: id, rank: digestString(SplitPolicyVersion + "\x00" + id)})
+	}
+	sort.Slice(members, func(i, j int) bool {
+		if members[i].rank == members[j].rank {
+			return members[i].id < members[j].id
+		}
+		return members[i].rank < members[j].rank
+	})
+	return memberIDs(members[:EvolutionCaseCount]), memberIDs(members[EvolutionCaseCount : EvolutionCaseCount+ValidationCaseCount]), memberIDs(members[EvolutionCaseCount+ValidationCaseCount:])
 }
 
 func CheckSplitAccess(stage, split string, candidateFrozen, holdoutAlreadyOpened bool) error {
