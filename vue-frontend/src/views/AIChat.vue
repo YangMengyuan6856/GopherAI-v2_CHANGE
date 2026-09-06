@@ -757,6 +757,64 @@
                     <span :class="!onlineEvaluationAcceptance.production_metrics_used ? 'dependency-ready' : 'dependency-down'">验收数据未污染生产指标</span>
                   </div>
                 </article>
+                <details v-if="failurePoolAudit" class="failure-pool-card">
+                  <summary>
+                    查看失败样本慢闭环（{{ failurePoolAudit.run?.eligible_count || 0 }} 个失败样本 · {{ failurePoolAudit.run?.cluster_count || 0 }} 个 WHERE×WHY 聚类）
+                  </summary>
+                  <div class="metric-catalog-heading">
+                    <div>
+                      <strong>Failure Pool · {{ failurePoolAudit.miner_version }}</strong>
+                      <span>{{ failurePoolAudit.mode }} · 最近 {{ failurePoolAudit.window_days }} 天 · 只读脱敏元数据</span>
+                    </div>
+                    <div class="metric-catalog-actions">
+                      <button :disabled="refreshingFailurePool" @click="refreshFailurePool">
+                        {{ refreshingFailurePool ? '聚类中...' : '刷新生产失败池' }}
+                      </button>
+                      <button :disabled="runningFailurePoolAcceptance" @click="runFailurePoolAcceptance">
+                        {{ runningFailurePoolAcceptance ? '验证中...' : '验证 8 类失败映射' }}
+                      </button>
+                    </div>
+                  </div>
+                  <p>聚类只使用 intent、strategy、错误类别、风险原因和 Judge 分数，不读取原始问题、回答或证据。每个聚类只生成一个不可执行候选。</p>
+                  <div v-if="failurePoolAudit.run" class="online-evaluation-rates">
+                    <div><strong>{{ failurePoolAudit.run.sample_count }}</strong><span>窗口样本</span></div>
+                    <div><strong>{{ failurePoolAudit.run.eligible_count }}</strong><span>失败样本</span></div>
+                    <div><strong>{{ failurePoolAudit.run.cluster_count }}</strong><span>WHERE×WHY 聚类</span></div>
+                    <div><strong>{{ failurePoolAudit.run.proposal_count }}</strong><span>待复核候选</span></div>
+                    <div><strong>0</strong><span>已应用</span></div>
+                  </div>
+                  <div v-else class="strategy-control-empty">尚无生产聚类快照；点击“刷新生产失败池”只会创建不可变审计，不会改变线上行为。</div>
+                  <div v-if="failurePoolAudit.clusters?.length" class="failure-cluster-grid">
+                    <article v-for="cluster in failurePoolAudit.clusters" :key="cluster.id">
+                      <div class="evaluation-run-heading">
+                        <strong>{{ failureWhereLabel(cluster.where_code) }} × {{ failureWhyLabel(cluster.why_code) }}</strong>
+                        <span>{{ cluster.sample_count }} 个脱敏样本</span>
+                      </div>
+                      <p>{{ cluster.intent }} · {{ cluster.strategy }} · {{ cluster.primary_reason }}</p>
+                      <template v-if="failureProposalFor(cluster.id)">
+                        <div class="failure-proposal-line">
+                          <span>{{ failureCandidateLabel(failureProposalFor(cluster.id).candidate_kind) }}</span>
+                          <strong>{{ failureTargetLabel(failureProposalFor(cluster.id).target) }}</strong>
+                        </div>
+                        <small>pending_human_review · Offline Gate 未通过 · Isolation Canary 未通过 · Applied=false</small>
+                      </template>
+                    </article>
+                  </div>
+                  <article v-if="failurePoolAcceptance" :class="['online-evaluation-acceptance', failurePoolAcceptance.passed ? 'passed' : 'failed']">
+                    <div class="evaluation-run-heading">
+                      <strong>确定性聚类验收 · {{ failurePoolAcceptance.passed ? '8/8 通过' : '未通过' }}</strong>
+                      <span>Simulation · 不写数据库 · 不读原始正文</span>
+                    </div>
+                    <div class="failure-acceptance-grid">
+                      <span v-for="item in failurePoolAcceptance.cases" :key="item.reason" :class="item.passed ? 'dependency-ready' : 'dependency-down'">
+                        {{ item.reason }} → {{ failureWhereLabel(item.where_code) }} × {{ failureWhyLabel(item.why_code) }} → {{ failureCandidateLabel(item.candidate_kind) }}
+                      </span>
+                    </div>
+                  </article>
+                  <div class="evaluation-decision-strip">
+                    <span v-for="guardrail in failurePoolAudit.guardrails" :key="guardrail" class="dependency-ready">{{ failureGuardrailLabel(guardrail) }}</span>
+                  </div>
+                </details>
               </details>
               <div v-if="loadingAnomaly" class="strategy-control-empty">正在以“基线窗口不含当前点”的规则计算...</div>
               <article v-else-if="anomalyResult" :class="['anomaly-result', anomalyDecisionClass(anomalyResult.analysis)]">
@@ -1654,6 +1712,10 @@ export default {
     const onlineEvaluationAcceptance = ref(null)
     const runningOnlineEvaluationAcceptance = ref(false)
     const loadingOnlineEvaluationAudit = ref(false)
+    const failurePoolAudit = ref(null)
+    const failurePoolAcceptance = ref(null)
+    const refreshingFailurePool = ref(false)
+    const runningFailurePoolAcceptance = ref(false)
     const anomalyScenarios = [
       { value: 'healthy', label: '健康窗口' },
       { value: 'quality_drop', label: 'RAG 质量下降' },
@@ -2910,7 +2972,7 @@ export default {
       if (!evaluationCatalogOpen.value || evaluationCatalog.value || loadingEvaluationCatalog.value) return
       try {
         loadingEvaluationCatalog.value = true
-        const [catalogResponse, runResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse, onlineEvaluationResponse] = await Promise.all([
+        const [catalogResponse, runResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse, onlineEvaluationResponse, failurePoolResponse] = await Promise.all([
           api.get('/evaluations/catalog/latest'),
           api.get('/evaluations/unified/latest'),
           api.get('/evaluations/metrics/catalog'),
@@ -2920,7 +2982,8 @@ export default {
           api.get('/evaluations/webhooks/latest').catch(() => null),
           api.get('/evaluations/controller/latest').catch(() => null),
           api.get('/evaluations/fault-campaigns/latest').catch(() => null),
-          api.get('/evaluations/online/latest').catch(() => null)
+          api.get('/evaluations/online/latest').catch(() => null),
+          api.get('/evaluations/failure-pool/latest').catch(() => null)
         ])
         evaluationCatalog.value = catalogResponse.data
         evaluationRun.value = runResponse.data
@@ -2932,6 +2995,7 @@ export default {
         controllerAudit.value = controllerAuditResponse?.data || null
         faultCampaignAudit.value = faultCampaignAuditResponse?.data || null
         onlineEvaluationAudit.value = onlineEvaluationResponse?.data || null
+        failurePoolAudit.value = failurePoolResponse?.data || null
       } catch (error) {
         evaluationCatalogOpen.value = false
         ElMessage.error(error.response?.data?.message || '评测数据目录暂时不可用')
@@ -3118,6 +3182,63 @@ export default {
         runningOnlineEvaluationAcceptance.value = false
       }
     }
+
+    const refreshFailurePool = async () => {
+      if (refreshingFailurePool.value) return
+      try {
+        refreshingFailurePool.value = true
+        const response = await api.post('/evaluations/failure-pool/refresh', {})
+        failurePoolAudit.value = response.data
+        ElMessage.success(response.data?.created ? '已从生产在线评测样本创建新的不可变失败聚类快照' : '输入样本未变化，复用已有聚类快照')
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || '失败样本聚类暂不可用')
+      } finally {
+        refreshingFailurePool.value = false
+      }
+    }
+
+    const runFailurePoolAcceptance = async () => {
+      if (runningFailurePoolAcceptance.value) return
+      try {
+        runningFailurePoolAcceptance.value = true
+        const response = await api.post('/evaluations/failure-pool/acceptance', {})
+        failurePoolAcceptance.value = response.data
+        if (response.data?.passed) ElMessage.success('8 类 WHERE×WHY 映射与不可执行候选边界均已通过')
+        else ElMessage.warning('失败样本聚类验收未全部通过')
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || '失败样本聚类验收暂不可用')
+      } finally {
+        runningFailurePoolAcceptance.value = false
+      }
+    }
+
+    const failureProposalFor = (clusterId) => failurePoolAudit.value?.proposals?.find(item => item.cluster_id === clusterId) || null
+
+    const failureWhereLabel = (value) => ({
+      answer_quality: '回答质量', agent_budget: 'Agent 预算', tool_runtime: '工具运行时', retrieval_evidence_gate: '检索证据门',
+      answer_generation: '答案生成', task_resolution: '任务解决', request_execution: '请求执行'
+    }[value] || value)
+
+    const failureWhyLabel = (value) => ({
+      user_rejected_answer: '用户明确否定', execution_budget_exceeded: '执行预算耗尽', governed_tool_failure: '受治理工具失败',
+      insufficient_or_missing_evidence: '证据缺失或不足', low_model_confidence: '模型低置信', unresolved_response: '任务未解决',
+      request_error: '请求错误', judge_score_below_threshold: 'Judge 低于阈值'
+    }[value] || value)
+
+    const failureCandidateLabel = (value) => ({ dataset: '数据集候选', prompt: 'Prompt 候选', rule: '规则候选', parameter: '参数候选' }[value] || value)
+
+    const failureTargetLabel = (value) => ({
+      user_rejected_answer_case: '用户拒绝回答边界用例', rag_insufficient_evidence_case: 'RAG 证据不足用例',
+      tool_failure_recovery_rule: '工具失败恢复规则', context_budget_allocation: '上下文预算分配',
+      low_confidence_boundary_case: '低置信边界用例', resolution_output_contract: '任务解决输出契约',
+      request_fallback_classification: '请求降级分类规则', grounded_answer_contract: '有依据回答契约'
+    }[value] || value)
+
+    const failureGuardrailLabel = (value) => ({
+      metadata_only_clustering: '只用元数据聚类', raw_content_not_read: '不读取原始正文', immutable_candidates: '候选不可变',
+      human_review_required: '必须人工复核', offline_gate_required: '必须离线回归', isolated_canary_required: '必须隔离 Canary',
+      no_active_policy_write: '禁止写活动策略'
+    }[value] || value)
 
     const faultClassLabel = (faultClass) => ({
       rag_degradation: 'RAG 退化', agent_latency: 'Agent 延迟', tool_failure: '工具失败'
@@ -3470,6 +3591,10 @@ export default {
       onlineEvaluationAcceptance,
       runningOnlineEvaluationAcceptance,
       loadingOnlineEvaluationAudit,
+      failurePoolAudit,
+      failurePoolAcceptance,
+      refreshingFailurePool,
+      runningFailurePoolAcceptance,
       parentContextEvaluationOpen,
       loadingParentContextEvaluation,
       parentContextEvaluation,
@@ -3631,6 +3756,14 @@ export default {
       onlineEvaluationStageLabel,
       refreshOnlineEvaluationAudit,
       runOnlineEvaluationAcceptance,
+      refreshFailurePool,
+      runFailurePoolAcceptance,
+      failureProposalFor,
+      failureWhereLabel,
+      failureWhyLabel,
+      failureCandidateLabel,
+      failureTargetLabel,
+      failureGuardrailLabel,
       submitDownvote,
       faultClassLabel,
       faultPhaseLabel,
@@ -5719,6 +5852,61 @@ export default {
   border: 1px solid rgba(34, 139, 117, 0.14);
   border-radius: 7px;
   background: #fbfffd;
+}
+
+.failure-pool-card {
+  margin-top: 10px;
+  padding: 9px;
+  border: 1px dashed rgba(120, 84, 184, 0.38);
+  border-radius: 8px;
+  background: #faf7ff;
+}
+
+.failure-pool-card > summary {
+  cursor: pointer;
+  color: #6947a6;
+  font-weight: 800;
+}
+
+.failure-cluster-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 8px;
+  margin: 9px 0;
+}
+
+.failure-cluster-grid > article {
+  display: grid;
+  gap: 6px;
+  padding: 9px;
+  border: 1px solid rgba(120, 84, 184, 0.18);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.failure-cluster-grid p {
+  margin: 0;
+}
+
+.failure-proposal-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
+.failure-proposal-line span {
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #eee5fb;
+  color: #6947a6;
+  font-size: 11px;
+}
+
+.failure-acceptance-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  gap: 6px;
 }
 
 .fault-campaign-result,

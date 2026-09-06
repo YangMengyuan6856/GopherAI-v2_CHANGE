@@ -7,6 +7,7 @@ import (
 	"GopherAI/config"
 	"GopherAI/internal/controlrecommendation"
 	"GopherAI/internal/controlwebhook"
+	"GopherAI/internal/failurepool"
 	"GopherAI/internal/observability"
 	"GopherAI/router"
 	"context"
@@ -58,6 +59,8 @@ func main() {
 	go controlrecommendation.Run(context.Background(), metricWindowService, recommendationController, 45*time.Second, time.Minute, log.Default())
 	webhookRepository := controlwebhook.NewGormRepository(mysql.DB)
 	go controlwebhook.RunReconciler(context.Background(), metricWindowService, controlwebhook.NewReconciler(webhookRepository, observability.DefaultMetrics()), 35*time.Second, time.Minute, log.Default())
+	failurePoolService := failurepool.NewService(failurepool.NewGormRepository(mysql.DB), time.Now)
+	go failurepool.Run(context.Background(), failurePoolService, 55*time.Second, 5*time.Minute, log.Default())
 	if webhookConfig.Enabled {
 		dispatcher, dispatcherErr := controlwebhook.NewDispatcher(webhookConfig, webhookRepository, controlwebhook.NewHTTPClient(), observability.DefaultMetrics(), log.Default())
 		if dispatcherErr != nil {

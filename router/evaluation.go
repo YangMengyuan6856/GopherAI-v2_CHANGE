@@ -23,6 +23,7 @@ func RegisterEvaluationRouter(group *gin.RouterGroup) {
 	recommendationHandler := evaluationcontroller.NewDefaultRecommendationHandler()
 	faultCampaignHandler := evaluationcontroller.NewDefaultFaultCampaignHandler()
 	onlineEvaluationHandler := evaluationcontroller.NewDefaultOnlineEvaluationHandler()
+	failurePoolHandler := evaluationcontroller.NewDefaultFailurePoolHandler()
 	group.GET("/diagnostic/latest", handler.LatestDiagnostic)
 	group.GET("/memory/latest", memoryHandler.LatestMemory)
 	group.GET("/context/latest", contextHandler.LatestContext)
@@ -44,4 +45,7 @@ func RegisterEvaluationRouter(group *gin.RouterGroup) {
 	group.POST("/fault-campaigns/acceptance", faultCampaignHandler.Acceptance)
 	group.GET("/online/latest", onlineEvaluationHandler.Latest)
 	group.POST("/online/acceptance", onlineEvaluationHandler.Acceptance)
+	group.GET("/failure-pool/latest", failurePoolHandler.Latest)
+	group.POST("/failure-pool/refresh", failurePoolHandler.Refresh)
+	group.POST("/failure-pool/acceptance", failurePoolHandler.Acceptance)
 }

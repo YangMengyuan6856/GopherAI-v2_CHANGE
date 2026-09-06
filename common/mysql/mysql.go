@@ -88,6 +88,9 @@ func migration() error {
 		new(model.FaultInjectionCampaign),
 		new(model.OnlineEvaluationSample),
 		new(model.UserFeedbackEvent),
+		new(model.FailureMiningRun),
+		new(model.FailureCluster),
+		new(model.FailureImprovementProposal),
 	)
 }
 

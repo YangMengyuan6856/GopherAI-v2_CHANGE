@@ -37,14 +37,14 @@ func (repository *GormRepository) Create(ctx context.Context, feedback *model.Us
 	sampleID := ""
 	err := repository.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var existing model.UserFeedbackEvent
-		err := tx.Where("user_hash = ? AND request_hash = ? AND feedback_type = ?", feedback.UserHash, feedback.RequestHash, feedback.FeedbackType).First(&existing).Error
-		if err == nil {
+		result := tx.Where("user_hash = ? AND request_hash = ? AND feedback_type = ?", feedback.UserHash, feedback.RequestHash, feedback.FeedbackType).Limit(1).Find(&existing)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected > 0 {
 			feedbackID = existing.ID
 			sampleID = existing.SampleID
 			return nil
-		}
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
 		}
 		if sample.ID != feedback.SampleID || event.AggregateID != sample.ID || event.ID != sample.EventID {
 			return errors.New("feedback transaction identity mismatch")
@@ -68,10 +68,10 @@ func (repository *GormRepository) Create(ctx context.Context, feedback *model.Us
 	// of surfacing a spurious failure to the user.
 	if err != nil {
 		var existing model.UserFeedbackEvent
-		lookupErr := repository.db.WithContext(ctx).
+		lookup := repository.db.WithContext(ctx).
 			Where("user_hash = ? AND request_hash = ? AND feedback_type = ?", feedback.UserHash, feedback.RequestHash, feedback.FeedbackType).
-			First(&existing).Error
-		if lookupErr == nil {
+			Limit(1).Find(&existing)
+		if lookup.Error == nil && lookup.RowsAffected > 0 {
 			return false, existing.ID, existing.SampleID, nil
 		}
 	}
