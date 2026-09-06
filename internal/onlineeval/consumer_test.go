@@ -181,6 +181,21 @@ func TestObserverRecordDoesNotBlockOnPersistence(t *testing.T) {
 	close(repository.createBlock)
 }
 
+func TestObserverExcludesBoundedPerformanceProbeFromOnlineQualitySamples(t *testing.T) {
+	repository := newMemoryRepository()
+	observer := NewObserver(repository, 1, time.Now)
+	output := testOutput("legacy_chat")
+	output.Request.UserID = performanceProbeUser
+	output.Result.Confidence = .1
+	observer.Record(output, nil)
+	time.Sleep(10 * time.Millisecond)
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	if len(repository.samples) != 0 {
+		t.Fatalf("performance probe polluted online evaluation samples: %d", len(repository.samples))
+	}
+}
+
 func envelopeBody(event model.OutboxEvent) []byte {
 	payload := json.RawMessage(event.PayloadJSON)
 	body, _ := json.Marshal(jobqueue.Envelope{

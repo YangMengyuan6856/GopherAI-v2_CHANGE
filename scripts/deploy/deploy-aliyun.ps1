@@ -248,6 +248,12 @@ function Build-LocalLinuxArtifacts {
         "-o", (Join-Path $ArtifactDirectory "GopherAI-dashboard-validator"),
         "./cmd/dashboard-validator"
     )
+    Write-Host "[build] bounded performance evaluation runner linux/amd64 CGO_ENABLED=0"
+    Invoke-Checked -FilePath $GoExecutable -Arguments @(
+        "-C", $RepoRoot, "build", "-p", "1", "-trimpath", "-ldflags=-s -w",
+        "-o", (Join-Path $ArtifactDirectory "GopherAI-perf-eval"),
+        "./cmd/perf-eval"
+    )
 }
 
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..\..")).Path
@@ -336,7 +342,7 @@ try {
         target = "linux/amd64"
         go_version = $goVersion
         go_build_flags = @("-p=1", "-trimpath", "-ldflags=-s -w")
-        included_components = @("backend", "index-worker", "mcp", "frontend-static-gateway", "frontend-dist", "collaboration-eval", "parent-context-eval", "unified-eval-runner", "grafana-dashboard-validator")
+        included_components = @("backend", "index-worker", "mcp", "frontend-static-gateway", "frontend-dist", "collaboration-eval", "parent-context-eval", "unified-eval-runner", "grafana-dashboard-validator", "bounded-performance-eval")
         config_included = [bool]$DeployConfig
         migrations = @()
         rollback = "previous-directory"
@@ -443,6 +449,7 @@ if [ "$build_in_container" = "true" ]; then
   (cd "$new_path" && go build -p 1 -trimpath -ldflags='-s -w' -o GopherAI-parent-context-eval ./cmd/parent-context-eval)
   (cd "$new_path" && go build -p 1 -trimpath -ldflags='-s -w' -o GopherAI-eval-runner ./cmd/eval-runner)
   (cd "$new_path" && go build -p 1 -trimpath -ldflags='-s -w' -o GopherAI-dashboard-validator ./cmd/dashboard-validator)
+  (cd "$new_path" && go build -p 1 -trimpath -ldflags='-s -w' -o GopherAI-perf-eval ./cmd/perf-eval)
 else
   echo "[container] installing locally built Linux binaries"
   test -f "$new_path/.deploy-bin/GopherAI"
@@ -453,6 +460,7 @@ else
   test -f "$new_path/.deploy-bin/GopherAI-parent-context-eval"
   test -f "$new_path/.deploy-bin/GopherAI-eval-runner"
   test -f "$new_path/.deploy-bin/GopherAI-dashboard-validator"
+  test -f "$new_path/.deploy-bin/GopherAI-perf-eval"
   cp "$new_path/.deploy-bin/GopherAI" "$new_path/GopherAI"
   cp "$new_path/.deploy-bin/GopherAI-index-worker" "$new_path/GopherAI-index-worker"
   cp "$new_path/.deploy-bin/gopherai-mcp" "$new_path/common/mcp/gopherai-mcp"
@@ -461,7 +469,8 @@ else
   cp "$new_path/.deploy-bin/GopherAI-parent-context-eval" "$new_path/GopherAI-parent-context-eval"
   cp "$new_path/.deploy-bin/GopherAI-eval-runner" "$new_path/GopherAI-eval-runner"
   cp "$new_path/.deploy-bin/GopherAI-dashboard-validator" "$new_path/GopherAI-dashboard-validator"
-  chmod 0755 "$new_path/GopherAI" "$new_path/GopherAI-index-worker" "$new_path/common/mcp/gopherai-mcp" "$new_path/GopherAI-frontend" "$new_path/GopherAI-collaboration-eval" "$new_path/GopherAI-parent-context-eval" "$new_path/GopherAI-eval-runner" "$new_path/GopherAI-dashboard-validator"
+  cp "$new_path/.deploy-bin/GopherAI-perf-eval" "$new_path/GopherAI-perf-eval"
+  chmod 0755 "$new_path/GopherAI" "$new_path/GopherAI-index-worker" "$new_path/common/mcp/gopherai-mcp" "$new_path/GopherAI-frontend" "$new_path/GopherAI-collaboration-eval" "$new_path/GopherAI-parent-context-eval" "$new_path/GopherAI-eval-runner" "$new_path/GopherAI-dashboard-validator" "$new_path/GopherAI-perf-eval"
   rm -rf -- "$new_path/.deploy-bin"
 fi
 

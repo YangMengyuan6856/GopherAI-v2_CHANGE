@@ -7,6 +7,7 @@ import (
 	profiledomain "GopherAI/internal/profilememory"
 	"GopherAI/model"
 	"context"
+	"os"
 	"sync"
 	"time"
 
@@ -203,8 +204,10 @@ func (a *AIHelper) GenerateResponse(userName string, ctx context.Context, userQu
 
 	schemaMsg, err := modelInstance.GenerateResponse(ctx, messages)
 	if err != nil {
+		observability.DefaultMetrics().RecordModelUsage("chat", modelMetricAlias(modelInstance), "error", estimateSchemaTokens(messages), 0)
 		return nil, err
 	}
+	observability.DefaultMetrics().RecordModelUsage("chat", modelMetricAlias(modelInstance), "success", estimateSchemaTokens(messages), EstimateTokenCount(schemaMsg.Content))
 
 	modelMsg := &model.Message{
 		SessionID: a.SessionID,
@@ -232,8 +235,10 @@ func (a *AIHelper) StreamResponse(userName string, ctx context.Context, cb Strea
 
 	content, err := modelInstance.StreamResponse(ctx, messages, cb)
 	if err != nil {
+		observability.DefaultMetrics().RecordModelUsage("chat", modelMetricAlias(modelInstance), "error", estimateSchemaTokens(messages), 0)
 		return nil, err
 	}
+	observability.DefaultMetrics().RecordModelUsage("chat", modelMetricAlias(modelInstance), "success", estimateSchemaTokens(messages), EstimateTokenCount(content))
 
 	modelMsg := &model.Message{
 		SessionID: a.SessionID,
@@ -246,6 +251,38 @@ func (a *AIHelper) StreamResponse(userName string, ctx context.Context, cb Strea
 		return nil, err
 	}
 	return modelMsg, nil
+}
+
+func estimateSchemaTokens(messages []*schema.Message) int {
+	total := 0
+	for _, message := range messages {
+		if message != nil {
+			total += EstimateTokenCount(message.Content) + perMessageOverhead
+		}
+	}
+	return total
+}
+
+func modelMetricAlias(model AIModel) string {
+	if model == nil {
+		return "other"
+	}
+	switch model.GetModelType() {
+	case "1":
+		if alias := os.Getenv("OPENAI_MODEL_NAME"); alias != "" {
+			return alias
+		}
+		return "openai-compatible"
+	case "2":
+		if alias := config.GetConfig().RagChatModelName; alias != "" {
+			return alias
+		}
+		return "qwen-rag"
+	case "4":
+		return "ollama"
+	default:
+		return "other"
+	}
 }
 
 // GetModelType 获取模型类型

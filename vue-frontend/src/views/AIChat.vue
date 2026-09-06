@@ -737,6 +737,82 @@
                 </template>
                 <div v-else class="strategy-control-empty">尚无本轮报告；验收在请求内运行且不持久化，不会污染生产指标或策略。</div>
               </details>
+              <details class="reliability-acceptance-card performance-acceptance-card">
+                <summary>
+                  查看 ECS 冷热路径与 pprof 证据（{{ performanceReport ? (performanceReport.gates.technical_passed ? '技术门通过' : '存在失败项') : '尚未生成' }}）
+                </summary>
+                <div class="metric-catalog-heading">
+                  <div>
+                    <strong>Bounded Loopback Performance · {{ performanceReport?.runner_version || 'bounded-loopback-perf-v1' }}</strong>
+                    <span>固定回环地址 · 最多 50 请求 / 5 并发 · CPU、Heap、Goroutine 三类证据</span>
+                  </div>
+                  <button :disabled="loadingPerformanceReport" @click="refreshPerformanceReport">
+                    {{ loadingPerformanceReport ? '读取中...' : '刷新性能报告' }}
+                  </button>
+                </div>
+                <p>报告只能由容器内命令显式生成；浏览器不会触发压测。冷路径是“本次发布后的首个受控请求”，热路径会先执行 1 次不计入指标的预热。</p>
+                <template v-if="performanceReport">
+                  <div class="evaluation-run-heading">
+                    <strong>{{ performanceReport.release.id }}</strong>
+                    <span :class="['evaluation-gate', performanceReport.gates.technical_passed ? 'passed' : 'failed']">
+                      {{ performanceReport.gates.technical_passed ? '技术门通过' : performanceReport.gates.failures.join(' · ') }}
+                    </span>
+                  </div>
+                  <div class="performance-phase-grid">
+                    <article>
+                      <div class="evaluation-run-heading"><strong>发布首请求（Cold）</strong><span>{{ performanceReport.cold.successes }}/{{ performanceReport.cold.requests }} 成功</span></div>
+                      <div class="diagnostic-evaluation-grid">
+                        <div><strong>{{ performanceReport.cold.total_latency.p50_ms.toFixed(1) }}ms</strong><span>端到端 P50</span></div>
+                        <div><strong>{{ performanceReport.cold.total_latency.p95_ms.toFixed(1) }}ms</strong><span>端到端 P95</span></div>
+                        <div><strong>{{ performanceReport.cold.ttft.p50_ms.toFixed(1) }}ms</strong><span>TTFT P50</span></div>
+                        <div><strong>{{ performanceReport.cold.errors }}</strong><span>错误数</span></div>
+                      </div>
+                      <div class="performance-route-strip">
+                        <span v-for="route in performanceReport.cold.observed_routes" :key="`${route.strategy}-${route.strategy_version}`">路由 {{ route.strategy }} · {{ route.strategy_version }} · {{ route.policy_version }}</span>
+                        <span v-for="model in performanceReport.cold.observed_model_aliases" :key="model">模型 {{ model }}</span>
+                        <span>阶段耗时 {{ performanceReport.cold.duration_ms.toFixed(1) }}ms</span>
+                      </div>
+                      <small>{{ performanceReport.cold.definition }}</small>
+                    </article>
+                    <article>
+                      <div class="evaluation-run-heading"><strong>预热路径（Hot）</strong><span>{{ performanceReport.hot.requests }} 请求 · 并发 {{ performanceReport.hot.concurrency }}</span></div>
+                      <div class="diagnostic-evaluation-grid">
+                        <div><strong>{{ performanceReport.hot.total_latency.p50_ms.toFixed(1) }}ms</strong><span>端到端 P50</span></div>
+                        <div><strong>{{ performanceReport.hot.total_latency.p95_ms.toFixed(1) }}ms</strong><span>端到端 P95</span></div>
+                        <div><strong>{{ performanceReport.hot.total_latency.p99_ms.toFixed(1) }}ms</strong><span>端到端 P99</span></div>
+                        <div><strong>{{ performanceReport.hot.ttft.p95_ms.toFixed(1) }}ms</strong><span>TTFT P95</span></div>
+                        <div><strong>{{ performanceReport.hot.model_calls_per_100_successes.toFixed(1) }}</strong><span>模型调用 / 100 成功</span></div>
+                        <div><strong>{{ performanceReport.hot.estimated_tokens_per_100_successes.toFixed(0) }}</strong><span>估算 Token / 100 成功</span></div>
+                      </div>
+                      <div class="performance-route-strip">
+                        <span v-for="route in performanceReport.hot.observed_routes" :key="`${route.strategy}-${route.strategy_version}`">路由 {{ route.strategy }} · {{ route.strategy_version }} · {{ route.policy_version }}</span>
+                        <span v-for="model in performanceReport.hot.observed_model_aliases" :key="model">模型 {{ model }}</span>
+                        <span>阶段耗时 {{ performanceReport.hot.duration_ms.toFixed(1) }}ms</span>
+                      </div>
+                      <small>{{ performanceReport.hot.definition }}</small>
+                    </article>
+                  </div>
+                  <div class="performance-runtime-strip">
+                    <span>{{ performanceReport.runtime.cpu_cores }} vCPU</span>
+                    <span>{{ (performanceReport.runtime.memory_total_bytes / 1073741824).toFixed(2) }} GiB RAM</span>
+                    <span>进程运行 {{ performanceReport.runtime.process_uptime_seconds.toFixed(0) }}s</span>
+                    <span>{{ performanceReport.runtime.go_version }}</span>
+                  </div>
+                  <div class="evaluation-decision-strip">
+                    <span v-for="artifact in performanceReport.profiles" :key="artifact.kind" class="dependency-ready">
+                      {{ artifact.kind }} · {{ artifact.bytes }} B · SHA {{ artifact.sha256.slice(0, 12) }}…
+                    </span>
+                  </div>
+                  <details class="strategy-registry-details">
+                    <summary>查看口径限制与安全边界</summary>
+                    <div class="performance-limitations">
+                      <span v-for="item in performanceReport.limitations" :key="item">{{ item }}</span>
+                      <small>Report SHA-256 {{ performanceReport.report_sha256 }}</small>
+                    </div>
+                  </details>
+                </template>
+                <div v-else class="strategy-control-empty">部署完成后由受限 CLI 在 ECS 容器内生成，不存储登录凭据、问题或回答。</div>
+              </details>
               <details v-if="onlineEvaluationAudit" class="online-evaluation-card">
                 <summary>
                   查看线上分层采样与异步 Judge（24h {{ onlineEvaluationAudit.last_24_hours.total }} 个生产样本）
@@ -1787,6 +1863,8 @@ export default {
     const runningFaultCampaign = ref(false)
     const reliabilityAcceptance = ref(null)
     const runningReliabilityAcceptance = ref(false)
+    const performanceReport = ref(null)
+    const loadingPerformanceReport = ref(false)
     const activeFaultCampaign = computed(() => faultCampaignResult.value || faultCampaignAudit.value?.latest || null)
     const onlineEvaluationAudit = ref(null)
     const onlineEvaluationAcceptance = ref(null)
@@ -3052,7 +3130,7 @@ export default {
       if (!evaluationCatalogOpen.value || evaluationCatalog.value || loadingEvaluationCatalog.value) return
       try {
         loadingEvaluationCatalog.value = true
-        const [catalogResponse, runResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse, onlineEvaluationResponse, failurePoolResponse] = await Promise.all([
+        const [catalogResponse, runResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse, onlineEvaluationResponse, failurePoolResponse, performanceResponse] = await Promise.all([
           api.get('/evaluations/catalog/latest'),
           api.get('/evaluations/unified/latest'),
           api.get('/evaluations/metrics/catalog'),
@@ -3063,7 +3141,8 @@ export default {
           api.get('/evaluations/controller/latest').catch(() => null),
           api.get('/evaluations/fault-campaigns/latest').catch(() => null),
           api.get('/evaluations/online/latest').catch(() => null),
-          api.get('/evaluations/failure-pool/latest').catch(() => null)
+          api.get('/evaluations/failure-pool/latest').catch(() => null),
+          api.get('/evaluations/performance/latest').catch(() => null)
         ])
         evaluationCatalog.value = catalogResponse.data
         evaluationRun.value = runResponse.data
@@ -3076,6 +3155,7 @@ export default {
         faultCampaignAudit.value = faultCampaignAuditResponse?.data || null
         onlineEvaluationAudit.value = onlineEvaluationResponse?.data || null
         failurePoolAudit.value = failurePoolResponse?.data || null
+        performanceReport.value = performanceResponse?.data || null
       } catch (error) {
         evaluationCatalogOpen.value = false
         ElMessage.error(error.response?.data?.message || '评测数据目录暂时不可用')
@@ -3235,6 +3315,20 @@ export default {
         ElMessage.error(error.response?.data?.message || '可靠性故障验收暂不可用')
       } finally {
         runningReliabilityAcceptance.value = false
+      }
+    }
+
+    const refreshPerformanceReport = async () => {
+      if (loadingPerformanceReport.value) return
+      try {
+        loadingPerformanceReport.value = true
+        const response = await api.get('/evaluations/performance/latest')
+        performanceReport.value = response.data
+        ElMessage.success('已读取 ECS 性能与 pprof 证据报告')
+      } catch (error) {
+        ElMessage.warning(error.response?.data?.message || '尚未生成有效的 ECS 性能报告')
+      } finally {
+        loadingPerformanceReport.value = false
       }
     }
 
@@ -3695,6 +3789,8 @@ export default {
       runningFaultCampaign,
       reliabilityAcceptance,
       runningReliabilityAcceptance,
+      performanceReport,
+      loadingPerformanceReport,
       activeFaultCampaign,
       onlineEvaluationAudit,
       onlineEvaluationAcceptance,
@@ -3865,6 +3961,7 @@ export default {
       runFaultCampaignAcceptance,
       runReliabilityAcceptance,
       reliabilityGuardrailLabel,
+      refreshPerformanceReport,
       onlineEvaluationStatusLabel,
       onlineEvaluationStageLabel,
       refreshOnlineEvaluationAudit,
@@ -5876,6 +5973,58 @@ export default {
 
 .reliability-result-grid > article.passed { border-color: rgba(36, 154, 98, 0.4); }
 .reliability-result-grid > article.failed { border-color: rgba(207, 72, 72, 0.45); }
+
+.performance-phase-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.performance-phase-grid > article {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(86, 93, 214, 0.2);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.performance-runtime-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.performance-runtime-strip span {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(74, 144, 226, 0.1);
+}
+
+.performance-route-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+  font-size: 12px;
+  color: #53627d;
+}
+
+.performance-route-strip span {
+  padding: 3px 7px;
+  border-radius: 7px;
+  background: rgba(87, 100, 206, 0.08);
+}
+
+.performance-limitations {
+  display: grid;
+  gap: 6px;
+  padding: 10px 0;
+}
+
+@media (max-width: 900px) {
+  .performance-phase-grid { grid-template-columns: 1fr; }
+}
 
 .fault-campaign-card p {
   margin: 6px 0;

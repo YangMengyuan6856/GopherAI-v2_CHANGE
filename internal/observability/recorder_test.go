@@ -68,6 +68,25 @@ func TestRecorderPersistsSanitizedRunAndMetrics(t *testing.T) {
 	}
 }
 
+func TestRecordModelUsageKeepsBoundedAliasesAndEstimatedDirections(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	metrics := NewMetrics(registry, registry)
+	metrics.RecordModelUsage("chat", "qwen-plus", "success", 120, 30)
+	if count := testutil.ToFloat64(metrics.modelCalls.WithLabelValues("chat", "qwen-plus", "success")); count != 1 {
+		t.Fatalf("expected one model call, got %v", count)
+	}
+	if tokens := testutil.ToFloat64(metrics.modelTokens.WithLabelValues("chat", "qwen-plus", "input")); tokens != 120 {
+		t.Fatalf("expected 120 estimated input tokens, got %v", tokens)
+	}
+	if tokens := testutil.ToFloat64(metrics.modelTokens.WithLabelValues("chat", "qwen-plus", "output")); tokens != 30 {
+		t.Fatalf("expected 30 estimated output tokens, got %v", tokens)
+	}
+	metrics.RecordModelUsage(strings.Repeat("x", 65), strings.Repeat("y", 65), "unexpected", -1, -1)
+	if count := testutil.ToFloat64(metrics.modelCalls.WithLabelValues("unknown", "unknown", "error")); count != 1 {
+		t.Fatalf("unbounded labels were not collapsed: %v", count)
+	}
+}
+
 func TestRecorderPersistsAndMeasuresShadowDecisionSeparately(t *testing.T) {
 	repository := new(memoryRunRepository)
 	registry := prometheus.NewRegistry()

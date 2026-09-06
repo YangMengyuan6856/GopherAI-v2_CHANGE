@@ -646,6 +646,26 @@ func (metrics *Metrics) RecordWebhookDelivery(eventType string, status string) {
 	metrics.webhookDeliveries.WithLabelValues(eventType, status).Inc()
 }
 
+// RecordModelUsage records one real provider invocation. Token values use the
+// application's stable estimator when the provider does not return billable usage.
+func (metrics *Metrics) RecordModelUsage(purpose, modelAlias, status string, inputTokens, outputTokens int) {
+	if metrics == nil {
+		return
+	}
+	purpose = boundedLabel(purpose)
+	modelAlias = boundedLabel(modelAlias)
+	status = boundedStatus(status)
+	if inputTokens < 0 {
+		inputTokens = 0
+	}
+	if outputTokens < 0 {
+		outputTokens = 0
+	}
+	metrics.modelCalls.WithLabelValues(purpose, modelAlias, status).Inc()
+	metrics.modelTokens.WithLabelValues(purpose, modelAlias, "input").Add(float64(inputTokens))
+	metrics.modelTokens.WithLabelValues(purpose, modelAlias, "output").Add(float64(outputTokens))
+}
+
 func (metrics *Metrics) RecordFeedback(strategy, feedbackType, result string) {
 	if metrics == nil {
 		return

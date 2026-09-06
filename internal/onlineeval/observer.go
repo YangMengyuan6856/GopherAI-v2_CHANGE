@@ -12,6 +12,8 @@ import (
 
 const observerBuffer = 128
 
+const performanceProbeUser = "__perf_probe__"
+
 type queuedObservation struct {
 	output app.ChatOutput
 	err    error
@@ -51,6 +53,9 @@ func NewDefaultObserver() *Observer {
 // the formal answer still succeeds and a structured drop signal is emitted.
 func (observer *Observer) Record(output app.ChatOutput, requestErr error) {
 	if observer == nil || observer.repository == nil {
+		return
+	}
+	if output.Request.UserID == performanceProbeUser {
 		return
 	}
 	decision := Decide(output, requestErr)
