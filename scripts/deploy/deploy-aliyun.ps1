@@ -262,6 +262,41 @@ function Build-LocalLinuxArtifacts {
     )
 }
 
+function Assert-EvaluationCatalogReleaseIntegrity {
+    param([string]$TrackedSourceRoot)
+
+    $manifestPath = Join-Path $TrackedSourceRoot "evals\devsupport-eval-v1.manifest.json"
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        throw "Release source is missing the evaluation catalog manifest."
+    }
+
+    $catalog = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    $actualTotal = 0
+    foreach ($slice in $catalog.slices) {
+        $slicePath = Join-Path (Split-Path -Parent $manifestPath) ([string]$slice.path)
+        if (-not (Test-Path -LiteralPath $slicePath -PathType Leaf)) {
+            throw "Release source is missing evaluation slice '$($slice.name)': $($slice.path)"
+        }
+
+        $actualHash = (Get-FileHash -LiteralPath $slicePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        $expectedHash = ([string]$slice.sha256).ToLowerInvariant()
+        if ($actualHash -ne $expectedHash) {
+            throw "Release evaluation slice '$($slice.name)' SHA-256 mismatch after git archive: got $actualHash want $expectedHash."
+        }
+
+        $actualCount = (Get-Content -LiteralPath $slicePath | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count
+        if ($actualCount -ne [int]$slice.expected_count) {
+            throw "Release evaluation slice '$($slice.name)' count mismatch: got $actualCount want $($slice.expected_count)."
+        }
+        $actualTotal += $actualCount
+    }
+
+    if ($actualTotal -ne [int]$catalog.total_cases) {
+        throw "Release evaluation catalog total mismatch: got $actualTotal want $($catalog.total_cases)."
+    }
+    Write-Host "[deploy] evaluation catalog release gate passed: $actualTotal cases with exact SHA-256"
+}
+
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..\..")).Path
 $timestamp = Get-Date -Format "yyyyMMddHHmmss"
 $branch = (& git -C $repoRoot branch --show-current).Trim()
@@ -347,7 +382,11 @@ try {
 	# Build the release source from the committed tree, never from the ambient
 	# working directory. This excludes ignored screenshots, local logs and other
 	# machine-only files even when they happen to exist beside the repository.
-	$archiveArgs = @("-C", $repoRoot, "archive", "--format=tar", "--output=$trackedSourceArchive", $gitSha, "--", ".")
+	# Disable the developer machine's core.autocrlf setting for archive export.
+	# Evaluation fixture hashes are calculated over repository bytes; allowing a
+	# Windows checkout policy to rewrite LF to CRLF makes the same Git SHA deploy
+	# different evidence bytes on Linux.
+	$archiveArgs = @("-c", "core.autocrlf=false", "-C", $repoRoot, "archive", "--format=tar", "--output=$trackedSourceArchive", $gitSha, "--", ".")
 	if (-not $DeployConfig) {
 		$archiveArgs += ":(exclude)config/config.toml"
 	}
@@ -355,6 +394,7 @@ try {
 	$archiveArgs += ":(exclude).idea"
 	Invoke-Checked -FilePath "git" -Arguments $archiveArgs
 	Invoke-Checked -FilePath "tar" -Arguments @("-xf", $trackedSourceArchive, "-C", $trackedSourceRoot)
+	Assert-EvaluationCatalogReleaseIntegrity -TrackedSourceRoot $trackedSourceRoot
 
     $manifest = [ordered]@{
         release_id = $releaseId
