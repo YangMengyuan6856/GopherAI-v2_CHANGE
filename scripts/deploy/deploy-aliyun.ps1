@@ -55,13 +55,6 @@ function Quote-Bash {
     return "'" + ($Value -replace "'", "'\''") + "'"
 }
 
-function New-RemoteBashCommand {
-    param([string]$Script)
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($Script)
-    $encoded = [Convert]::ToBase64String($bytes)
-    return "printf %s '$encoded' | base64 -d | bash"
-}
-
 function Assert-RemoteDeploymentCapacity {
     $capacityScript = @'
 set -Eeuo pipefail
@@ -78,7 +71,7 @@ awk -v current_load="$load_one" -v limit="$load_limit" -v io_pressure="$io_full_
   exit 75
 }
 '@
-    Invoke-Remote -Command (New-RemoteBashCommand -Script $capacityScript)
+    Invoke-RemoteScript -Script $capacityScript
 }
 
 function Invoke-Remote {
@@ -97,6 +90,52 @@ function Invoke-Remote {
         $HostAlias,
         $Command
     )
+}
+
+function Invoke-RemoteScript {
+    param([string]$Script)
+    if ($DryRun) {
+        Write-Host "[dry-run][ssh stdin] bash -s ($([System.Text.Encoding]::UTF8.GetByteCount($Script)) bytes)"
+        return
+    }
+
+    Require-Command "ssh"
+    $sshPath = (Get-Command "ssh" -ErrorAction Stop).Source
+    $arguments = @(
+        "-F", $SshConfigPath,
+        "-o", "BatchMode=yes",
+        "-o", "ConnectTimeout=30",
+        "-o", "ServerAliveInterval=10",
+        "-o", "ServerAliveCountMax=6",
+        $HostAlias,
+        "bash", "-s"
+    )
+    Write-Host "[local] $sshPath $($arguments -join ' ') < remote-deploy-script"
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $sshPath
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardInput = $true
+    foreach ($argument in $arguments) {
+        $startInfo.ArgumentList.Add($argument)
+    }
+
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    try {
+        if (-not $process.Start()) {
+            throw "Failed to start ssh for remote script execution."
+        }
+        $process.StandardInput.Write($Script)
+        $process.StandardInput.Close()
+        $process.WaitForExit()
+        if ($process.ExitCode -ne 0) {
+            throw "Remote script failed with exit code $($process.ExitCode)."
+        }
+    }
+    finally {
+        $process.Dispose()
+    }
 }
 
 function Upload-File {
@@ -781,7 +820,7 @@ find "$host_bundle_dir" -maxdepth 1 -type f ! -name "$bundle_name" ! -name "$bun
         Replace("__SKIP_FRONTEND_RAW__", $skipFrontendText).
         Replace("__DEPLOY_CONFIG_RAW__", $deployConfigText).
         Replace("__BUILD_IN_CONTAINER_RAW__", $buildInContainerText)
-    Invoke-Remote -Command (New-RemoteBashCommand -Script $remoteScript)
+    Invoke-RemoteScript -Script $remoteScript
 }
 finally {
     foreach ($name in $environmentNames) {
