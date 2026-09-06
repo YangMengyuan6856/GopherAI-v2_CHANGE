@@ -98,6 +98,7 @@ func migration() error {
 		new(model.HarnessActivePointer),
 		new(model.HarnessControlEvent),
 		new(model.G10ResumeFactConfirmation),
+		new(model.EvaluationCatalogReview),
 	)
 }
 

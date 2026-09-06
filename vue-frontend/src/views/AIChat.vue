@@ -1702,6 +1702,102 @@
               <div><strong>{{ evaluationCatalog.review_manifest.fixtures.length }}</strong><span>固定 Fixture Hash</span></div>
               <div><strong>{{ evaluationCatalog.review_manifest.catalog_matched ? '一致' : '不一致' }}</strong><span>Catalog Hash</span></div>
             </div>
+            <div class="catalog-review-entry">
+              <div>
+                <strong>人工逐例复核队列</strong>
+                <span>分页读取、断点续审、追加修订；不会直接改写冻结数据集</span>
+              </div>
+              <button :disabled="loadingCatalogReview" @click="toggleCatalogReviewWorkbench">
+                {{ loadingCatalogReview ? '加载中...' : (catalogReviewOpen ? '收起复核台' : '打开复核台') }}
+              </button>
+            </div>
+            <section v-if="catalogReviewOpen" class="catalog-review-workbench">
+              <div v-if="catalogReviewWorkbench" class="catalog-review-body">
+                <div class="metric-catalog-heading">
+                  <div>
+                    <strong>当前登录复核人进度</strong>
+                    <span>Catalog SHA {{ catalogReviewWorkbench.catalog_sha256.slice(0, 16) }}… · Review Set {{ catalogReviewWorkbench.progress.review_set_sha256.slice(0, 16) }}…</span>
+                  </div>
+                  <span :class="['evaluation-gate', catalogReviewWorkbench.progress.ready_for_sealed_materialization ? 'passed' : 'failed']">
+                    {{ catalogReviewWorkbench.progress.ready_for_sealed_materialization ? '可进入独立封存门' : '仍在人工复核' }}
+                  </span>
+                </div>
+                <div class="diagnostic-evaluation-grid">
+                  <div><strong>{{ catalogReviewWorkbench.progress.reviewed }} / {{ catalogReviewWorkbench.progress.total }}</strong><span>已复核</span></div>
+                  <div><strong>{{ catalogReviewWorkbench.progress.approved }}</strong><span>标签通过</span></div>
+                  <div><strong>{{ catalogReviewWorkbench.progress.rejected }}</strong><span>退回修正</span></div>
+                  <div><strong>{{ catalogReviewWorkbench.progress.pending }}</strong><span>待复核</span></div>
+                </div>
+                <div class="catalog-review-filters">
+                  <label>切片
+                    <select v-model="catalogReviewSlice" @change="changeCatalogReviewFilter">
+                      <option value="">全部切片</option>
+                      <option v-for="slice in evaluationCatalog.slices" :key="slice.name" :value="slice.name">{{ evaluationSliceLabel(slice.name) }}</option>
+                    </select>
+                  </label>
+                  <label>状态
+                    <select v-model="catalogReviewStatus" @change="changeCatalogReviewFilter">
+                      <option value="pending">待复核</option>
+                      <option value="rejected">退回修正</option>
+                      <option value="approved">标签通过</option>
+                      <option value="reviewed">全部已复核</option>
+                      <option value="all">全部状态</option>
+                    </select>
+                  </label>
+                  <span>当前筛选 {{ catalogReviewWorkbench.filtered_total }} 条 · 第 {{ catalogReviewWorkbench.page }} / {{ catalogReviewPageCount }} 页</span>
+                </div>
+                <article v-if="currentCatalogReviewCase" class="catalog-review-case">
+                  <div class="catalog-review-case-heading">
+                    <div>
+                      <strong>{{ currentCatalogReviewCase.id }} · {{ evaluationSliceLabel(currentCatalogReviewCase.slice) }}</strong>
+                      <span>Case SHA {{ currentCatalogReviewCase.case_sha256.slice(0, 16) }}…</span>
+                    </div>
+                    <span v-if="currentCatalogReviewCase.review" :class="currentCatalogReviewCase.review.decision === 'approved' ? 'dependency-ready' : 'dependency-down'">
+                      {{ catalogReviewDecisionLabel(currentCatalogReviewCase.review.decision) }} · revision {{ currentCatalogReviewCase.review.revision }}
+                    </span>
+                    <span v-else class="dependency-down">待复核</span>
+                  </div>
+                  <p class="catalog-review-prompt">{{ currentCatalogReviewCase.prompt }}</p>
+                  <details class="catalog-review-payload" open>
+                    <summary>核对完整输入、期望结果与边界字段</summary>
+                    <pre>{{ formatCatalogReviewContent(currentCatalogReviewCase.content) }}</pre>
+                  </details>
+                  <div v-if="currentCatalogReviewCase.review" class="catalog-review-history">
+                    当前结论：{{ catalogReviewDecisionLabel(currentCatalogReviewCase.review.decision) }} ·
+                    {{ currentCatalogReviewCase.review.reason_codes.map(catalogReviewReasonLabel).join('、') }} ·
+                    SHA {{ currentCatalogReviewCase.review.review_sha256.slice(0, 16) }}…
+                  </div>
+                  <div class="catalog-review-decision">
+                    <label><input v-model="catalogReviewDecision" type="radio" value="approved"> 标签与期望结果正确</label>
+                    <label><input v-model="catalogReviewDecision" type="radio" value="rejected"> 退回数据修正</label>
+                    <select v-if="catalogReviewDecision === 'rejected'" v-model="catalogReviewRejectReason">
+                      <option value="ambiguous_input">问题或输入有歧义</option>
+                      <option value="expected_result_incorrect">期望结果不正确</option>
+                      <option value="missing_context">缺少必要上下文</option>
+                      <option value="schema_issue">Schema/字段问题</option>
+                      <option value="unsafe_or_sensitive">不安全或包含敏感内容</option>
+                    </select>
+                  </div>
+                  <label class="catalog-review-ack">
+                    <input v-model="catalogReviewAcknowledged" type="checkbox">
+                    我已逐项核对本例输入、期望结果和边界字段；该动作会追加一条审计修订。
+                  </label>
+                  <button class="catalog-review-submit" :disabled="submittingCatalogReview || !catalogReviewAcknowledged" @click="submitCatalogCaseReview">
+                    {{ submittingCatalogReview ? '提交中...' : (catalogReviewDecision === 'approved' ? '确认本例标签通过' : '确认退回修正') }}
+                  </button>
+                </article>
+                <div v-else class="evaluation-candidate-warning passed">
+                  <strong>当前筛选没有待展示用例</strong>
+                  <span>可切换切片或状态查看其他用例；这不等同于 Full 320 已全部通过。</span>
+                </div>
+                <div class="catalog-review-pagination">
+                  <button :disabled="loadingCatalogReview || catalogReviewPage <= 1" @click="moveCatalogReviewPage(-1)">上一例</button>
+                  <button :disabled="loadingCatalogReview || catalogReviewPage >= catalogReviewPageCount" @click="moveCatalogReviewPage(1)">下一例</button>
+                </div>
+                <p class="catalog-review-boundary">复核记录按当前登录用户隔离。即使 320/320 全部通过，也只允许进入独立封存、重跑评测和基线门，不会自动切流或改写 active policy。</p>
+              </div>
+              <div v-else class="evaluation-candidate-warning"><strong>复核台尚未加载</strong><span>请重试；加载失败不会改变任何复核状态。</span></div>
+            </section>
             <details class="review-fixture-list">
               <summary>查看数据来源、Reviewer 状态与 Fixture Hash</summary>
               <div class="failure-acceptance-grid">
@@ -2506,6 +2602,19 @@ export default {
     const evaluationWorkbenchLoaded = ref(false)
     const evaluationCatalog = ref(null)
     const evaluationRun = ref(null)
+    const catalogReviewOpen = ref(false)
+    const loadingCatalogReview = ref(false)
+    const submittingCatalogReview = ref(false)
+    const catalogReviewWorkbench = ref(null)
+    const catalogReviewSlice = ref('')
+    const catalogReviewStatus = ref('pending')
+    const catalogReviewPage = ref(1)
+    const catalogReviewDecision = ref('approved')
+    const catalogReviewRejectReason = ref('expected_result_incorrect')
+    const catalogReviewAcknowledged = ref(false)
+    const catalogReviewIdempotencyKey = ref('')
+    const currentCatalogReviewCase = computed(() => catalogReviewWorkbench.value?.cases?.[0] || null)
+    const catalogReviewPageCount = computed(() => Math.max(1, Math.ceil((catalogReviewWorkbench.value?.filtered_total || 0) / (catalogReviewWorkbench.value?.page_size || 1))))
     const pairedComparison = ref(null)
     const judgeCalibrationAudit = ref(null)
     const loadingJudgeCalibration = ref(false)
@@ -2651,7 +2760,10 @@ export default {
       if (keep !== 'memory') memoryPreviewOpen.value = false
       if (keep !== 'tools') toolRuntimeOpen.value = false
       if (keep !== 'policy') policyControlOpen.value = false
-      if (keep !== 'evaluation') evaluationCatalogOpen.value = false
+      if (keep !== 'evaluation') {
+        evaluationCatalogOpen.value = false
+        catalogReviewOpen.value = false
+      }
       if (keep !== 'knowledge') knowledgeSearchOpen.value = false
     }
 
@@ -3941,6 +4053,96 @@ export default {
       pending_user: '待用户逐例复核', reviewed: '已完成人工复核', rejected: '人工拒绝'
     }[status] || status || '复核状态缺失')
 
+    const loadCatalogReviewWorkbench = async () => {
+      if (loadingCatalogReview.value) return
+      try {
+        loadingCatalogReview.value = true
+        const response = await api.get('/evaluations/catalog/reviews', {
+          params: {
+            slice: catalogReviewSlice.value || undefined,
+            status: catalogReviewStatus.value,
+            page: catalogReviewPage.value,
+            page_size: 1
+          }
+        })
+        catalogReviewWorkbench.value = response.data
+        if (!response.data?.cases?.length && response.data?.filtered_total > 0 && catalogReviewPage.value > 1) {
+          catalogReviewPage.value = Math.max(1, Math.ceil(response.data.filtered_total / response.data.page_size))
+          loadingCatalogReview.value = false
+          await loadCatalogReviewWorkbench()
+        }
+      } catch (error) {
+        catalogReviewWorkbench.value = null
+        ElMessage.error(error.response?.data?.message || '逐例复核工作台暂不可用')
+      } finally {
+        loadingCatalogReview.value = false
+      }
+    }
+
+    const toggleCatalogReviewWorkbench = async () => {
+      catalogReviewOpen.value = !catalogReviewOpen.value
+      if (catalogReviewOpen.value) await loadCatalogReviewWorkbench()
+    }
+
+    const changeCatalogReviewFilter = async () => {
+      catalogReviewPage.value = 1
+      catalogReviewAcknowledged.value = false
+      catalogReviewIdempotencyKey.value = ''
+      await loadCatalogReviewWorkbench()
+    }
+
+    const moveCatalogReviewPage = async (offset) => {
+      const target = catalogReviewPage.value + offset
+      if (target < 1 || target > catalogReviewPageCount.value) return
+      catalogReviewPage.value = target
+      catalogReviewAcknowledged.value = false
+      catalogReviewIdempotencyKey.value = ''
+      await loadCatalogReviewWorkbench()
+    }
+
+    const submitCatalogCaseReview = async () => {
+      const item = currentCatalogReviewCase.value
+      if (!item || submittingCatalogReview.value || !catalogReviewAcknowledged.value) return
+      if (!catalogReviewIdempotencyKey.value) {
+        const randomPart = window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`
+        catalogReviewIdempotencyKey.value = `catalog-review-${randomPart}`
+      }
+      try {
+        submittingCatalogReview.value = true
+        const reasonCodes = catalogReviewDecision.value === 'approved' ? ['label_verified'] : [catalogReviewRejectReason.value]
+        const response = await api.post('/evaluations/catalog/reviews', {
+          mode: 'human_catalog_case_review',
+          catalog_sha256: catalogReviewWorkbench.value.catalog_sha256,
+          case_id: item.id,
+          case_sha256: item.case_sha256,
+          expected_revision: item.review?.revision || 0,
+          decision: catalogReviewDecision.value,
+          reason_codes: reasonCodes,
+          idempotency_key: catalogReviewIdempotencyKey.value,
+          acknowledgment: 'I_REVIEWED_CASE_AND_EXPECTED_RESULT'
+        })
+        ElMessage.success(`${response.data.created ? '已追加' : '已复用'} ${item.id} 的人工复核记录`)
+        catalogReviewAcknowledged.value = false
+        catalogReviewIdempotencyKey.value = ''
+        await loadCatalogReviewWorkbench()
+      } catch (error) {
+        if (error.response?.status === 409) {
+          catalogReviewIdempotencyKey.value = ''
+          await loadCatalogReviewWorkbench()
+        }
+        ElMessage.error(error.response?.data?.message || '逐例复核提交失败')
+      } finally {
+        submittingCatalogReview.value = false
+      }
+    }
+
+    const catalogReviewDecisionLabel = (decision) => ({ approved: '标签通过', rejected: '退回修正' }[decision] || decision)
+    const catalogReviewReasonLabel = (reason) => ({
+      label_verified: '已核对标签', ambiguous_input: '输入有歧义', expected_result_incorrect: '期望结果不正确',
+      missing_context: '缺少上下文', schema_issue: 'Schema 问题', unsafe_or_sensitive: '不安全或敏感'
+    }[reason] || reason)
+    const formatCatalogReviewContent = (content) => JSON.stringify(content || {}, null, 2)
+
     const evaluationStatusLabel = (status) => ({
       technical_candidate: '技术候选 · 不可切流', rejected: '技术门拒绝', baseline_eligible: '可冻结基线 · 仍不可自动切流'
     }[status] || status)
@@ -4993,6 +5195,18 @@ export default {
       loadingEvaluationCatalog,
       evaluationCatalog,
       evaluationRun,
+      catalogReviewOpen,
+      loadingCatalogReview,
+      submittingCatalogReview,
+      catalogReviewWorkbench,
+      catalogReviewSlice,
+      catalogReviewStatus,
+      catalogReviewPage,
+      catalogReviewDecision,
+      catalogReviewRejectReason,
+      catalogReviewAcknowledged,
+      currentCatalogReviewCase,
+      catalogReviewPageCount,
       pairedComparison,
       judgeCalibrationAudit,
       loadingJudgeCalibration,
@@ -5203,6 +5417,13 @@ export default {
       evaluationSliceLabel,
       reviewSliceFor,
       reviewStatusLabel,
+      toggleCatalogReviewWorkbench,
+      changeCatalogReviewFilter,
+      moveCatalogReviewPage,
+      submitCatalogCaseReview,
+      catalogReviewDecisionLabel,
+      catalogReviewReasonLabel,
+      formatCatalogReviewContent,
       evaluationStatusLabel,
       evaluationFailureLabel,
       pairedComparisonLabel,
@@ -8443,6 +8664,168 @@ export default {
 
 .review-fixture-list > div {
   margin-top: 8px;
+}
+
+.catalog-review-entry,
+.catalog-review-entry > div,
+.catalog-review-case-heading,
+.catalog-review-case-heading > div,
+.catalog-review-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.catalog-review-entry > div,
+.catalog-review-case-heading > div {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.catalog-review-entry span,
+.catalog-review-case-heading span,
+.catalog-review-boundary,
+.catalog-review-history {
+  color: #64738a;
+  font-size: 12px;
+}
+
+.catalog-review-entry button,
+.catalog-review-pagination button,
+.catalog-review-submit {
+  padding: 7px 10px;
+  border: 1px solid rgba(52, 109, 88, 0.3);
+  border-radius: 7px;
+  background: #fff;
+  color: #346d58;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.catalog-review-entry button:disabled,
+.catalog-review-pagination button:disabled,
+.catalog-review-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.catalog-review-workbench,
+.catalog-review-body,
+.catalog-review-case {
+  display: grid;
+  gap: 9px;
+}
+
+.catalog-review-workbench {
+  padding: 10px;
+  border: 1px dashed rgba(52, 109, 88, 0.35);
+  border-radius: 8px;
+  background: #f0faf6;
+}
+
+.catalog-review-filters,
+.catalog-review-decision {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.catalog-review-filters label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #52657d;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.catalog-review-filters select,
+.catalog-review-decision select {
+  padding: 6px 8px;
+  border: 1px solid rgba(52, 109, 88, 0.25);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.catalog-review-filters > span {
+  margin-left: auto;
+  color: #64738a;
+  font-size: 12px;
+}
+
+.catalog-review-case {
+  padding: 10px;
+  border: 1px solid rgba(52, 109, 88, 0.22);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.catalog-review-prompt {
+  margin: 0;
+  color: #26384c;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.55;
+}
+
+.catalog-review-payload summary {
+  cursor: pointer;
+  color: #346d58;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.catalog-review-payload pre {
+  max-height: 280px;
+  margin: 7px 0 0;
+  padding: 9px;
+  overflow: auto;
+  border-radius: 7px;
+  background: #19222d;
+  color: #dbe9e2;
+  font: 12px/1.5 Consolas, "Courier New", monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.catalog-review-decision label,
+.catalog-review-ack {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  color: #40536a;
+  font-size: 12px;
+}
+
+.catalog-review-submit {
+  justify-self: start;
+  background: #346d58;
+  color: #fff;
+}
+
+.catalog-review-pagination {
+  justify-content: flex-end;
+}
+
+.catalog-review-boundary {
+  margin: 0;
+  line-height: 1.5;
+}
+
+@media (max-width: 720px) {
+  .catalog-review-entry,
+  .catalog-review-case-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .catalog-review-filters > span {
+    width: 100%;
+    margin-left: 0;
+  }
 }
 
 .fault-campaign-result,

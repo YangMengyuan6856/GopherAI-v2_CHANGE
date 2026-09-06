@@ -1,0 +1,185 @@
+package catalogreview
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+	"time"
+
+	"GopherAI/model"
+)
+
+type artifactStub struct{ snapshot Snapshot }
+
+func (stub artifactStub) Load() (Snapshot, error) { return stub.snapshot, nil }
+
+type memoryRepository struct {
+	rows []model.EvaluationCatalogReview
+}
+
+func (repository *memoryRepository) ListLatest(_ context.Context, catalogSHA, reviewerHash string) ([]model.EvaluationCatalogReview, error) {
+	latest := map[string]model.EvaluationCatalogReview{}
+	for _, row := range repository.rows {
+		if row.CatalogSHA256 == catalogSHA && row.ReviewerHash == reviewerHash && row.Revision > latest[row.CaseID].Revision {
+			latest[row.CaseID] = row
+		}
+	}
+	result := make([]model.EvaluationCatalogReview, 0, len(latest))
+	for _, row := range latest {
+		result = append(result, row)
+	}
+	return result, nil
+}
+
+func (repository *memoryRepository) Append(_ context.Context, candidate model.EvaluationCatalogReview) (bool, model.EvaluationCatalogReview, error) {
+	for _, row := range repository.rows {
+		if row.IdempotencyKeyHash == candidate.IdempotencyKeyHash {
+			if row.RequestSHA256 != candidate.RequestSHA256 {
+				return false, model.EvaluationCatalogReview{}, ErrIdempotencyConflict
+			}
+			return false, row, nil
+		}
+	}
+	current := 0
+	for _, row := range repository.rows {
+		if row.CatalogSHA256 == candidate.CatalogSHA256 && row.ReviewerHash == candidate.ReviewerHash && row.CaseID == candidate.CaseID && row.Revision > current {
+			current = row.Revision
+		}
+	}
+	if candidate.ExpectedRevision != current || candidate.Revision != current+1 {
+		return false, model.EvaluationCatalogReview{}, ErrRevisionConflict
+	}
+	repository.rows = append(repository.rows, candidate)
+	return true, candidate, nil
+}
+
+func TestFileArtifactStoreLoadsValidatedFullCatalog(t *testing.T) {
+	snapshot, err := NewFileArtifactStore("../../evals/devsupport-eval-v1.manifest.json").Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.DatasetVersion != "devsupport-eval-v1" || len(snapshot.CatalogSHA256) != 64 || len(snapshot.Cases) != 320 {
+		t.Fatalf("unexpected full catalog snapshot: version=%s hash=%s cases=%d", snapshot.DatasetVersion, snapshot.CatalogSHA256, len(snapshot.Cases))
+	}
+	first := snapshot.Cases[0]
+	if first.ID != "intent-v1-001" || first.Slice != "intent" || first.Prompt == "" || first.Content["reviewed_by"] != nil || first.Content["dataset_version"] != nil || first.Content["id"] != nil {
+		t.Fatalf("catalog case was not normalized safely: %+v", first)
+	}
+}
+
+func TestServicePaginatesAndScopesAppendOnlyReviewProgress(t *testing.T) {
+	snapshot := reviewSnapshot()
+	repository := new(memoryRepository)
+	service := NewService(artifactStub{snapshot: snapshot}, repository, func() time.Time { return time.Date(2026, 9, 7, 8, 0, 0, 0, time.UTC) })
+	initial, err := service.List(context.Background(), "alice", Query{Status: "pending", Page: 1, PageSize: 1})
+	if err != nil || initial.Progress.Total != 3 || initial.Progress.Pending != 3 || initial.FilteredTotal != 3 || len(initial.Cases) != 1 || initial.Cases[0].ID != "case-1" {
+		t.Fatalf("unexpected initial workbench: %+v err=%v", initial, err)
+	}
+	command := ReviewCommand{
+		CatalogSHA256: snapshot.CatalogSHA256, CaseID: "case-1", CaseSHA256: snapshot.Cases[0].CaseSHA256,
+		ExpectedRevision: 0, Decision: "approved", ReasonCodes: []string{"label_verified"},
+		IdempotencyKey: "catalog-review-case-1-v1", Acknowledgment: Acknowledgment,
+	}
+	first, err := service.Submit(context.Background(), "alice", command)
+	if err != nil || !first.Created || first.Review.Revision != 1 || first.Progress.Reviewed != 1 || first.Progress.Approved != 1 || first.Progress.ReadyForMaterializing {
+		t.Fatalf("unexpected first review: %+v err=%v", first, err)
+	}
+	replayed, err := service.Submit(context.Background(), "alice", command)
+	if err != nil || replayed.Created || replayed.Review.Revision != 1 || len(repository.rows) != 1 {
+		t.Fatalf("idempotent replay failed: %+v err=%v rows=%d", replayed, err, len(repository.rows))
+	}
+	command.ExpectedRevision = 1
+	command.Decision = "rejected"
+	command.ReasonCodes = []string{"missing_context", "ambiguous_input"}
+	command.IdempotencyKey = "catalog-review-case-1-v2"
+	corrected, err := service.Submit(context.Background(), "alice", command)
+	if err != nil || !corrected.Created || corrected.Review.Revision != 2 || corrected.Progress.Rejected != 1 || corrected.Progress.Approved != 0 {
+		t.Fatalf("append-only correction failed: %+v err=%v", corrected, err)
+	}
+	oldReplay := ReviewCommand{
+		CatalogSHA256: snapshot.CatalogSHA256, CaseID: "case-1", CaseSHA256: snapshot.Cases[0].CaseSHA256,
+		ExpectedRevision: 0, Decision: "approved", ReasonCodes: []string{"label_verified"},
+		IdempotencyKey: "catalog-review-case-1-v1", Acknowledgment: Acknowledgment,
+	}
+	replayedAfterCorrection, err := service.Submit(context.Background(), "alice", oldReplay)
+	if err != nil || replayedAfterCorrection.Created || replayedAfterCorrection.Review.Revision != 1 || replayedAfterCorrection.Progress.Rejected != 1 || replayedAfterCorrection.Progress.Approved != 0 {
+		t.Fatalf("old replay changed latest progress: %+v err=%v", replayedAfterCorrection, err)
+	}
+	alice, _ := service.List(context.Background(), "alice", Query{Slice: "intent", Status: "rejected", Page: 1, PageSize: 5})
+	bob, _ := service.List(context.Background(), "bob", Query{Status: "pending", Page: 1, PageSize: 5})
+	if alice.FilteredTotal != 1 || alice.Cases[0].Review.Revision != 2 || alice.Progress.Reviewed != 1 || bob.Progress.Reviewed != 0 || bob.FilteredTotal != 3 {
+		t.Fatalf("reviewer scope or filter failed: alice=%+v bob=%+v", alice, bob)
+	}
+}
+
+func TestServiceRejectsStaleUnsafeAndConflictingReviews(t *testing.T) {
+	snapshot := reviewSnapshot()
+	repository := new(memoryRepository)
+	service := NewService(artifactStub{snapshot: snapshot}, repository, time.Now)
+	valid := ReviewCommand{
+		CatalogSHA256: snapshot.CatalogSHA256, CaseID: "case-1", CaseSHA256: snapshot.Cases[0].CaseSHA256,
+		ExpectedRevision: 0, Decision: "approved", ReasonCodes: []string{"label_verified"},
+		IdempotencyKey: "catalog-review-safety-0001", Acknowledgment: Acknowledgment,
+	}
+	cases := []ReviewCommand{
+		func() ReviewCommand { value := valid; value.Acknowledgment = "yes"; return value }(),
+		func() ReviewCommand {
+			value := valid
+			value.Decision = "rejected"
+			value.ReasonCodes = []string{"label_verified"}
+			return value
+		}(),
+		func() ReviewCommand {
+			value := valid
+			value.Decision = "approved"
+			value.ReasonCodes = nil
+			return value
+		}(),
+		func() ReviewCommand { value := valid; value.IdempotencyKey = "short"; return value }(),
+	}
+	for _, command := range cases {
+		if _, err := service.Submit(context.Background(), "alice", command); !errors.Is(err, ErrInvalidReview) {
+			t.Fatalf("unsafe review was accepted: %+v err=%v", command, err)
+		}
+	}
+	stale := valid
+	stale.CatalogSHA256 = strings.Repeat("f", 64)
+	if _, err := service.Submit(context.Background(), "alice", stale); !errors.Is(err, ErrRevisionConflict) {
+		t.Fatalf("stale catalog was accepted: %v", err)
+	}
+	if _, err := service.Submit(context.Background(), "alice", valid); err != nil {
+		t.Fatal(err)
+	}
+	conflict := valid
+	conflict.Decision = "rejected"
+	conflict.ReasonCodes = []string{"schema_issue"}
+	if _, err := service.Submit(context.Background(), "alice", conflict); !errors.Is(err, ErrRevisionConflict) && !errors.Is(err, ErrIdempotencyConflict) {
+		t.Fatalf("conflicting replay was accepted: %v", err)
+	}
+	staleRevision := valid
+	staleRevision.IdempotencyKey = "catalog-review-safety-0002"
+	if _, err := service.Submit(context.Background(), "alice", staleRevision); !errors.Is(err, ErrRevisionConflict) {
+		t.Fatalf("stale revision was accepted: %v", err)
+	}
+}
+
+func TestServiceRejectsInvalidPaginationAndFilters(t *testing.T) {
+	service := NewService(artifactStub{snapshot: reviewSnapshot()}, new(memoryRepository), time.Now)
+	for _, query := range []Query{{Page: -1}, {PageSize: 21}, {Status: "forged"}, {Slice: "missing", Status: "all", Page: 1, PageSize: 1}} {
+		if _, err := service.List(context.Background(), "alice", query); !errors.Is(err, ErrInvalidQuery) {
+			t.Fatalf("invalid query was accepted: %+v err=%v", query, err)
+		}
+	}
+}
+
+func reviewSnapshot() Snapshot {
+	return Snapshot{
+		DatasetVersion: "dataset-v1", CatalogSHA256: strings.Repeat("a", 64),
+		Cases: []Case{
+			{ID: "case-1", Slice: "intent", DatasetVersion: "slice-v1", CaseSHA256: strings.Repeat("1", 64), Prompt: "first", Content: map[string]any{"question": "first", "expected": map[string]any{"intent": "project_qa"}}},
+			{ID: "case-2", Slice: "intent", DatasetVersion: "slice-v1", CaseSHA256: strings.Repeat("2", 64), Prompt: "second", Content: map[string]any{"question": "second"}},
+			{ID: "case-3", Slice: "rag", DatasetVersion: "slice-v2", CaseSHA256: strings.Repeat("3", 64), Prompt: "third", Content: map[string]any{"question": "third"}},
+		},
+	}
+}
