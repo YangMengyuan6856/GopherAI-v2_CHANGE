@@ -687,6 +687,56 @@
                   <span v-for="guardrail in faultCampaignAudit.guardrails" :key="guardrail" class="dependency-ready">{{ guardrail }}</span>
                 </div>
               </details>
+              <details class="reliability-acceptance-card">
+                <summary>
+                  查看 Agent 恢复与 SSE 取消验收（{{ reliabilityAcceptance ? (reliabilityAcceptance.passed ? '2/2 通过' : '未通过') : '尚未运行' }}）
+                </summary>
+                <div class="metric-catalog-heading">
+                  <div>
+                    <strong>Agent Reliability Fault Injection</strong>
+                    <span>隔离进程重启语义 + 20 路 SSE 断连 · 复用生产 Harness/AppService</span>
+                  </div>
+                  <button :disabled="runningReliabilityAcceptance" @click="runReliabilityAcceptance">
+                    {{ runningReliabilityAcceptance ? '正在验证恢复与取消...' : '运行可靠性验收' }}
+                  </button>
+                </div>
+                <p>不会重启生产服务，不调用外部模型或工具；只在隔离仓库和阻塞 Strategy 中验证 Checkpoint/CAS 幂等恢复与 Context 取消传播。</p>
+                <template v-if="reliabilityAcceptance">
+                  <div class="reliability-result-grid">
+                    <article :class="reliabilityAcceptance.agent_recovery.passed ? 'passed' : 'failed'">
+                      <div class="evaluation-run-heading">
+                        <strong>Checkpoint 进程恢复</strong>
+                        <span>{{ metricPercent(reliabilityAcceptance.agent_recovery.recovery_rate) }} 恢复率</span>
+                      </div>
+                      <div class="diagnostic-evaluation-grid">
+                        <div><strong>{{ reliabilityAcceptance.agent_recovery.checkpoint_recovered ? '是' : '否' }}</strong><span>Checkpoint 已恢复</span></div>
+                        <div><strong>{{ reliabilityAcceptance.agent_recovery.duplicate_resume_executions }}</strong><span>重复 Resume 执行</span></div>
+                        <div><strong>{{ reliabilityAcceptance.agent_recovery.final_state }}</strong><span>最终状态</span></div>
+                        <div><strong>{{ reliabilityAcceptance.agent_recovery.checkpoint_version_before }} → {{ reliabilityAcceptance.agent_recovery.final_state_version }}</strong><span>状态版本</span></div>
+                      </div>
+                      <small>{{ reliabilityAcceptance.agent_recovery.injected_fault }} · 状态版本单调={{ reliabilityAcceptance.agent_recovery.state_versions_monotonic }}</small>
+                    </article>
+                    <article :class="reliabilityAcceptance.sse_cancellation.passed ? 'passed' : 'failed'">
+                      <div class="evaluation-run-heading">
+                        <strong>SSE 断连取消传播</strong>
+                        <span>{{ reliabilityAcceptance.sse_cancellation.cancellation_observed }}/{{ reliabilityAcceptance.sse_cancellation.streams }} 已取消</span>
+                      </div>
+                      <div class="diagnostic-evaluation-grid">
+                        <div><strong>{{ reliabilityAcceptance.sse_cancellation.p50_propagation_ms.toFixed(3) }}ms</strong><span>取消 P50</span></div>
+                        <div><strong>{{ reliabilityAcceptance.sse_cancellation.p95_propagation_ms.toFixed(3) }}ms</strong><span>取消 P95</span></div>
+                        <div><strong>{{ reliabilityAcceptance.sse_cancellation.p99_propagation_ms.toFixed(3) }}ms</strong><span>取消 P99</span></div>
+                        <div><strong>{{ reliabilityAcceptance.sse_cancellation.active_workers_after }}</strong><span>结束后活跃 Worker</span></div>
+                      </div>
+                      <small>预算 {{ reliabilityAcceptance.sse_cancellation.propagation_budget_ms }}ms · Peak {{ reliabilityAcceptance.sse_cancellation.peak_active_workers }} · 重复 final {{ reliabilityAcceptance.sse_cancellation.duplicate_final_events }} · 资源收敛={{ reliabilityAcceptance.sse_cancellation.resource_converged }}</small>
+                    </article>
+                  </div>
+                  <div class="evaluation-decision-strip">
+                    <span v-for="guardrail in reliabilityAcceptance.guardrails" :key="guardrail" class="dependency-ready">{{ reliabilityGuardrailLabel(guardrail) }}</span>
+                  </div>
+                  <small>Report SHA-256 {{ reliabilityAcceptance.report_sha256 }}</small>
+                </template>
+                <div v-else class="strategy-control-empty">尚无本轮报告；验收在请求内运行且不持久化，不会污染生产指标或策略。</div>
+              </details>
               <details v-if="onlineEvaluationAudit" class="online-evaluation-card">
                 <summary>
                   查看线上分层采样与异步 Judge（24h {{ onlineEvaluationAudit.last_24_hours.total }} 个生产样本）
@@ -1735,6 +1785,8 @@ export default {
     const faultCampaignAudit = ref(null)
     const faultCampaignResult = ref(null)
     const runningFaultCampaign = ref(false)
+    const reliabilityAcceptance = ref(null)
+    const runningReliabilityAcceptance = ref(false)
     const activeFaultCampaign = computed(() => faultCampaignResult.value || faultCampaignAudit.value?.latest || null)
     const onlineEvaluationAudit = ref(null)
     const onlineEvaluationAcceptance = ref(null)
@@ -3171,6 +3223,27 @@ export default {
       }
     }
 
+    const runReliabilityAcceptance = async () => {
+      if (runningReliabilityAcceptance.value) return
+      try {
+        runningReliabilityAcceptance.value = true
+        const response = await api.post('/evaluations/reliability/acceptance', {})
+        reliabilityAcceptance.value = response.data
+        if (response.data?.passed) ElMessage.success('Agent Checkpoint 恢复与 SSE 取消传播均已通过')
+        else ElMessage.warning('可靠性验收未全部通过，请查看恢复与取消指标')
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || '可靠性故障验收暂不可用')
+      } finally {
+        runningReliabilityAcceptance.value = false
+      }
+    }
+
+    const reliabilityGuardrailLabel = (value) => ({
+      isolated_repository: '隔离仓库', same_production_harness_service: '复用生产 Harness', same_production_stream_service: '复用生产流式服务',
+      no_external_model_calls: '不调用外部模型', no_tool_calls: '不调用工具', no_production_state_write: '不写生产状态',
+      bounded_500ms_cancel_gate: '取消 P95 ≤ 500ms'
+    }[value] || value)
+
     const onlineEvaluationStatusLabel = (status) => ({
       pending: '等待 Outbox', evaluating: 'Judge 处理中', completed: '评测完成', judge_failed: 'Judge 失败（未伪造分数）', dead: '进入死信'
     }[status] || status)
@@ -3620,6 +3693,8 @@ export default {
       faultCampaignAudit,
       faultCampaignResult,
       runningFaultCampaign,
+      reliabilityAcceptance,
+      runningReliabilityAcceptance,
       activeFaultCampaign,
       onlineEvaluationAudit,
       onlineEvaluationAcceptance,
@@ -3788,6 +3863,8 @@ export default {
       runControllerAcceptance,
       loadFaultCampaignAudit,
       runFaultCampaignAcceptance,
+      runReliabilityAcceptance,
+      reliabilityGuardrailLabel,
       onlineEvaluationStatusLabel,
       onlineEvaluationStageLabel,
       refreshOnlineEvaluationAudit,
@@ -5766,6 +5843,39 @@ export default {
   color: #4d57a8;
   font-weight: 800;
 }
+
+.reliability-acceptance-card {
+  margin-top: 10px;
+  padding: 9px;
+  border: 1px dashed rgba(35, 142, 151, 0.38);
+  border-radius: 8px;
+  background: #f4feff;
+}
+
+.reliability-acceptance-card > summary {
+  cursor: pointer;
+  color: #177b83;
+  font-weight: 800;
+}
+
+.reliability-result-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 9px;
+  margin: 9px 0;
+}
+
+.reliability-result-grid > article {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(35, 142, 151, 0.2);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.reliability-result-grid > article.passed { border-color: rgba(36, 154, 98, 0.4); }
+.reliability-result-grid > article.failed { border-color: rgba(207, 72, 72, 0.45); }
 
 .fault-campaign-card p {
   margin: 6px 0;
