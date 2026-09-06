@@ -2482,6 +2482,10 @@ export default {
     const currentInterviewDemoStep = computed(() => interviewDemoSteps[interviewDemoStep.value] || interviewDemoSteps[0])
     const evaluationCatalogOpen = ref(false)
     const loadingEvaluationCatalog = ref(false)
+    // The compact interview guide intentionally preloads only four reports.
+    // Keep a separate marker for the full workbench so that a preloaded catalog
+    // does not suppress G10, Judge, control-loop, or evolution requests.
+    const evaluationWorkbenchLoaded = ref(false)
     const evaluationCatalog = ref(null)
     const evaluationRun = ref(null)
     const pairedComparison = ref(null)
@@ -3841,7 +3845,7 @@ export default {
       const opening = !evaluationCatalogOpen.value
       closeUtilityWorkspaces(opening ? 'evaluation' : '')
       evaluationCatalogOpen.value = opening
-      if (!evaluationCatalogOpen.value || evaluationCatalog.value || loadingEvaluationCatalog.value) return
+      if (!evaluationCatalogOpen.value || evaluationWorkbenchLoaded.value || loadingEvaluationCatalog.value) return
       try {
         loadingEvaluationCatalog.value = true
         const [catalogResponse, runResponse, pairedResponse, judgeCalibrationResponse, interviewEvidenceResponse, g10ReviewResponse, cleanupAuditResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse, reliabilityResponse, onlineEvaluationResponse, failurePoolResponse, evolutionResponse, evolutionSplitResponse, evolutionComparisonResponse, evolutionPromotionResponse, evolutionControlResponse, evolutionShadowControlResponse, performanceResponse] = await Promise.all([
@@ -3895,6 +3899,7 @@ export default {
         evolutionControlAcceptance.value = evolutionControlResponse?.data || null
         evolutionShadowControlAudit.value = evolutionShadowControlResponse?.data || null
         performanceReport.value = performanceResponse?.data || null
+        evaluationWorkbenchLoaded.value = true
       } catch (error) {
         evaluationCatalogOpen.value = false
         ElMessage.error(error.response?.data?.message || '评测数据目录暂时不可用')
