@@ -892,7 +892,7 @@
                   </div>
                   <small>Report SHA-256 {{ reliabilityAcceptance.report_sha256 }}</small>
                 </template>
-                <div v-else class="strategy-control-empty">尚无本轮报告；验收在请求内运行且不持久化，不会污染生产指标或策略。</div>
+                <div v-else class="strategy-control-empty">尚无已落盘报告；运行后会保存带 SHA 校验的不可变证据，但不会污染生产指标或策略。</div>
               </details>
               <details class="reliability-acceptance-card performance-acceptance-card">
                 <summary>
@@ -3459,7 +3459,7 @@ export default {
       if (metric.numerator !== undefined && metric.denominator !== undefined) {
         return `${metric.numerator}/${metric.denominator}（${metricPercent(metric.value)}）`
       }
-      if (metric.unit === 'ms') return `${metric.value.toFixed(0)}ms`
+      if (metric.unit === 'ms') return `${metric.value < 1 ? metric.value.toFixed(3) : metric.value.toFixed(0)}ms`
       if (metric.unit === 'seconds') return `${metric.value.toFixed(0)}s`
       if (metric.unit === 'boolean') return metric.value === 1 ? '是' : '否'
       if (metric.unit === 'ratio') {
