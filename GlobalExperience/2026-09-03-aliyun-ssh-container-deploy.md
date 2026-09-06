@@ -1548,3 +1548,10 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 真实页面在服务再次发布后无需重跑就恢复 `6/10` 证据，证明运行报告位于 Release 目录外且可跨版本读取。当前 Package SHA 前缀 `aac3cbb55f02a412…`；新增五条全部可用，但必须保留隔离/Observe-only/Applied=0 限制，质量类四条仍受人工复核或负收益阻断。
 - 首次页面复核把 `0.099ms` 用整数格式显示成 `0ms`，虽然后端正确但会破坏可信度；`1a9c257f` 对小于 1ms 的指标保留三位，并同步修正“报告不持久化”的过时文案。指标展示格式也是证据契约的一部分，尤其不能把非零尾延迟显示为零。
 - 远端最小容器没有 `jq`。只读运维检查应使用 `grep`、服务原始 JSON、Python（确认存在后）或把解析放在本地；不得在生产检查脚本中默认依赖未安装工具，也不应为了一个检查临时修改容器软件集合。
+
+## 78. 2026-09-06 Harness Evolution 首切片：真实输入为空也是有效验收结果
+
+- `5cc86ca3` 增加不可变 Harness Artifact/Review 谱系、确定性最小 Patch Proposer 和静态安全校验。候选只允许 Prompt Template、Context Policy、Diagnostic Playbook 的固定 JSON Pointer，操作必须是 `replace` 且 `variable_count=1`；生成阶段预算固定为模型调用 0、Token 0、一次确定性搜索。Artifact 内容寻址包含 parent、patch、来源、数据 split/hash、预算和回滚版本，重复点击只会命中同一个 ID。
+- 输入不只校验 Hash 关联，还必须保持 Failure Pool 原始状态：`pending_human_review`、需要人工复核、Offline Gate 未通过、Isolation Canary 未通过、Applied=false。Evolver 没有 active pointer 模型或写接口，也不能表示源码、权限、安全策略、数据库迁移、Secret、部署和外部写入变更；Dataset 提案属于后续数据治理范围，不能被强行转换为 Harness Patch。
+- Release `20260906195435-5cc86ca30110`，bundle SHA-256 `de17dcd76aafbc499850395cbcd91d24b4759e4f83a7749df1ba4db362fb2991`，全量 Go、定向 Race、Vue build、Prometheus 19 条规则、Grafana 和五个核心进程健康门通过。真实线上 Failure Pool 当时只有 `low_confidence_boundary_case` 与 `user_rejected_answer_case` 两个 Dataset 提案，所以物化结果是来源 2、新建 0、复用 0、安全跳过 2，Artifact/active/applied 均为 0。
+- “没有生成候选”不能一律当成失败，也不能为了让演示好看而往生产失败池塞合成记录。正确做法是页面同时展示提案类别、跳过数和 reason code，并另用不落库、不污染生产指标的确定性验收覆盖 Prompt/Rule/Parameter 正例与越界反例。后续 M9-22 的 frozen split 与 M9-23 的公平 A/B 仍应使用版本化离线数据，不借真实用户流量凑样本。
