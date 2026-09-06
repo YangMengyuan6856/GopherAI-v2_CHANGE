@@ -73,7 +73,7 @@ io_full_avg10="$(awk '/^full / { for (i=1; i<=NF; i++) if ($i ~ /^avg10=/) { spl
 [ -n "$io_full_avg10" ] || io_full_avg10=0
 memory_available_kib="$(awk '/^MemAvailable:/ { print $2 }' /proc/meminfo)"
 printf '[preflight] remote capacity: load1=%s/%s cores=%s io_full_avg10=%s%% mem_available=%s KiB\n' "$load_one" "$load_limit" "$cores" "$io_full_avg10" "$memory_available_kib"
-awk -v load="$load_one" -v limit="$load_limit" -v io="$io_full_avg10" 'BEGIN { exit !((load + 0) <= (limit + 0) && (io + 0) <= 10) }' || {
+awk -v current_load="$load_one" -v limit="$load_limit" -v io_pressure="$io_full_avg10" 'BEGIN { exit !((current_load + 0) <= (limit + 0) && (io_pressure + 0) <= 10) }' || {
   echo "remote capacity guard rejected deployment before upload; wait for load/I/O pressure to recover" >&2
   exit 75
 }
