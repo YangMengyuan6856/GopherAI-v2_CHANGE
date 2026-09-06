@@ -137,7 +137,9 @@ func (builder *Builder) Build(ctx context.Context, releaseID, gitSHA string) (Re
 		}
 	}
 	report.Summary.AllChecksPassed = report.Summary.Blocked == 0 && observation.CoverageSufficient
-	report.Summary.DeletionPlanReady = report.Summary.AllChecksPassed && observation.ZeroCalls && report.Summary.EligibleToDelete > 0
+	// Independent zero-reference candidates may be removed in their own
+	// reversible commit while a different candidate remains deferred.
+	report.Summary.DeletionPlanReady = observation.CoverageSufficient && observation.ZeroCalls && report.Summary.EligibleToDelete > 0
 	report.ReportSHA256 = reportHash(report)
 	if err := Validate(report); err != nil {
 		return Report{}, err

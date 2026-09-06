@@ -91,6 +91,35 @@ func TestBuilderBlocksExternalReference(t *testing.T) {
 	}
 }
 
+func TestDeletionPlanAllowsIndependentSafeSubset(t *testing.T) {
+	root := t.TempDir()
+	for name, contents := range map[string]string{
+		"router/router.go":                         `LEGACY_SKILL_RETIRED`,
+		"common/mcp/main.go":                       `package main`,
+		"common/mcp/server/server.go":              `deployment_manifest_source`,
+		"internal/toolruntime/mcp_adapter_tool.go": `mcp_deployment_evidence`,
+		"common/mcp/gopherai-mcp":                  `binary`,
+		"common/aihelper/tool_source.go":           `NewToolAggregator`,
+		"service/session/session.go":               `func f(){ NewToolAggregator() }`,
+	} {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		_ = os.MkdirAll(filepath.Dir(path), 0o755)
+		_ = os.WriteFile(path, []byte(contents), 0o644)
+	}
+	reader := fakeObservationReader{observation: observability.LegacyEntryObservation{
+		SchemaVersion: "legacy-entry-observation-v1", Entry: "skill_api", WindowSeconds: 86400,
+		ObservedAt: time.Now().UTC(), SampleCount: 4000, ExpectedSampleCount: 5760, MinimumSampleCount: 2880,
+		CoverageSufficient: true, ZeroCalls: true, Status: "zero_calls_verified",
+	}}
+	report, err := NewBuilder(root, reader, time.Now).Build(context.Background(), "release-1", "abcdef")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Summary.Blocked != 1 || report.Summary.EligibleToDelete != 1 || !report.Summary.DeletionPlanReady || report.Summary.AllChecksPassed {
+		t.Fatalf("safe subset should remain independently deletable: %+v", report.Summary)
+	}
+}
+
 func TestFileStoreRejectsTampering(t *testing.T) {
 	root := t.TempDir()
 	for name, contents := range map[string]string{
