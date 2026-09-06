@@ -15,6 +15,7 @@ import (
 
 func main() {
 	manifestPath := flag.String("manifest", "evals/devsupport-eval-v1.manifest.json", "Full 320 evaluation catalog manifest")
+	reviewManifestPath := flag.String("review-manifest", "evals/devsupport-eval-v1.review.json", "dataset provenance and human-review manifest")
 	intentPath := flag.String("intent", "evals/reports/devsupport-intent-cascade-latest.json", "intent source report")
 	ragPath := flag.String("rag", "evals/reports/devsupport-rag-core-latest.json", "RAG source report")
 	diagnosticPath := flag.String("diagnosis", "evals/results/devsupport-diagnostic-v1-candidate.json", "diagnostic source report")
@@ -26,6 +27,10 @@ func main() {
 	flag.Parse()
 
 	catalog, err := evaluation.ValidateEvalCatalogFile(*manifestPath)
+	if err != nil {
+		fatal(err)
+	}
+	review, err := evaluation.ValidateReviewManifestFile(*reviewManifestPath, *manifestPath)
 	if err != nil {
 		fatal(err)
 	}
@@ -51,7 +56,7 @@ func main() {
 	}
 
 	report, err := evaluation.BuildUnifiedEvaluationReport(evaluation.UnifiedEvaluationInput{
-		CandidateVersion: *candidate, GeneratedAt: time.Now(), Catalog: catalog,
+		CandidateVersion: *candidate, GeneratedAt: time.Now(), Catalog: catalog, Review: review,
 		Artifacts: []evaluation.EvaluationArtifact{
 			evaluation.NewEvaluationArtifact("intent", intent.DatasetVersion, intentBytes, intent.CaseCount),
 			evaluation.NewEvaluationArtifact("rag", rag.DatasetVersion, ragBytes, rag.CaseCount),

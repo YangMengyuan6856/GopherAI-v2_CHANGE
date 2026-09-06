@@ -30,6 +30,9 @@ func TestCatalogLatestExposesReviewGateSeparatelyFromSchema(t *testing.T) {
 	if response.HumanReviewed || response.BaselineEligible {
 		t.Fatalf("pending labels must not become a baseline: %+v", response)
 	}
+	if !response.ReviewManifest.Passed || !response.ReviewManifest.CatalogMatched || response.ReviewManifest.PendingCases != 320 || response.ReviewManifest.BaselineEligible {
+		t.Fatalf("review manifest must be valid but pending: %+v", response.ReviewManifest)
+	}
 	if len(response.Slices) != 6 {
 		t.Fatalf("expected six frozen slices, got %d", len(response.Slices))
 	}

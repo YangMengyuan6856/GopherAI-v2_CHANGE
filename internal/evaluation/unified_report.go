@@ -51,25 +51,27 @@ type EvaluationDecision struct {
 }
 
 type UnifiedEvaluationReport struct {
-	SchemaVersion    string                     `json:"schema_version"`
-	RunnerVersion    string                     `json:"runner_version"`
-	RunID            string                     `json:"run_id"`
-	CandidateVersion string                     `json:"candidate_version"`
-	GeneratedAt      time.Time                  `json:"generated_at"`
-	DatasetVersion   string                     `json:"dataset_version"`
-	ManifestSHA256   string                     `json:"manifest_sha256"`
-	Artifacts        []EvaluationArtifact       `json:"artifacts"`
-	Coverage         EvaluationCoverage         `json:"coverage"`
-	Scorecard        DeterministicScorecard     `json:"scorecard"`
-	FailureClusters  []EvaluationFailureCluster `json:"failure_clusters"`
-	Decision         EvaluationDecision         `json:"decision"`
-	Limitations      []string                   `json:"limitations"`
+	SchemaVersion        string                     `json:"schema_version"`
+	RunnerVersion        string                     `json:"runner_version"`
+	RunID                string                     `json:"run_id"`
+	CandidateVersion     string                     `json:"candidate_version"`
+	GeneratedAt          time.Time                  `json:"generated_at"`
+	DatasetVersion       string                     `json:"dataset_version"`
+	ManifestSHA256       string                     `json:"manifest_sha256"`
+	ReviewManifestSHA256 string                     `json:"review_manifest_sha256"`
+	Artifacts            []EvaluationArtifact       `json:"artifacts"`
+	Coverage             EvaluationCoverage         `json:"coverage"`
+	Scorecard            DeterministicScorecard     `json:"scorecard"`
+	FailureClusters      []EvaluationFailureCluster `json:"failure_clusters"`
+	Decision             EvaluationDecision         `json:"decision"`
+	Limitations          []string                   `json:"limitations"`
 }
 
 type UnifiedEvaluationInput struct {
 	CandidateVersion string
 	GeneratedAt      time.Time
 	Catalog          EvalCatalogValidationReport
+	Review           ReviewManifestValidationReport
 	Artifacts        []EvaluationArtifact
 	Intent           IntentCascadeReport
 	RAG              RAGReport
@@ -82,8 +84,8 @@ func BuildUnifiedEvaluationReport(input UnifiedEvaluationInput) (UnifiedEvaluati
 	if strings.TrimSpace(input.CandidateVersion) == "" || input.GeneratedAt.IsZero() {
 		return UnifiedEvaluationReport{}, errors.New("candidate version and generation time are required")
 	}
-	if !input.Catalog.Passed || input.Catalog.ActualTotal < 1 || len(input.Artifacts) != 5 {
-		return UnifiedEvaluationReport{}, errors.New("a valid catalog and five executable source artifacts are required")
+	if !input.Catalog.Passed || input.Catalog.ActualTotal < 1 || !input.Review.Passed || !input.Review.CatalogMatched || input.Review.DatasetVersion != input.Catalog.DatasetVersion || len(input.Review.ManifestSHA256) != 64 || len(input.Artifacts) != 5 {
+		return UnifiedEvaluationReport{}, errors.New("a valid catalog, bound review manifest and five executable source artifacts are required")
 	}
 	artifacts := append([]EvaluationArtifact(nil), input.Artifacts...)
 	sort.Slice(artifacts, func(left, right int) bool { return artifacts[left].Name < artifacts[right].Name })
@@ -98,7 +100,7 @@ func BuildUnifiedEvaluationReport(input UnifiedEvaluationInput) (UnifiedEvaluati
 	for _, slice := range input.Catalog.Slices {
 		reviewedCatalogCases += slice.ReviewCounts["human"]
 	}
-	humanReviewed := reviewedCatalogCases == input.Catalog.ActualTotal && input.Catalog.ActualTotal == input.Catalog.ExpectedTotal && scorecard.HumanReviewed
+	humanReviewed := reviewedCatalogCases == input.Catalog.ActualTotal && input.Catalog.ActualTotal == input.Catalog.ExpectedTotal && scorecard.HumanReviewed && input.Review.HumanReviewed && input.Review.BaselineEligible
 	baselineEligible := input.Catalog.Passed && scorecard.TechnicalGatesPassed && humanReviewed && scorecard.CompletionRate >= MinimumEvaluationCompletion
 	blockers := []string{}
 	if !scorecard.TechnicalGatesPassed {
@@ -116,7 +118,7 @@ func BuildUnifiedEvaluationReport(input UnifiedEvaluationInput) (UnifiedEvaluati
 	report := UnifiedEvaluationReport{
 		SchemaVersion: UnifiedEvaluationSchemaVersion, RunnerVersion: UnifiedEvaluationRunnerVersion,
 		CandidateVersion: strings.TrimSpace(input.CandidateVersion), GeneratedAt: input.GeneratedAt.UTC(),
-		DatasetVersion: input.Catalog.DatasetVersion, ManifestSHA256: input.Catalog.ManifestSHA256,
+		DatasetVersion: input.Catalog.DatasetVersion, ManifestSHA256: input.Catalog.ManifestSHA256, ReviewManifestSHA256: input.Review.ManifestSHA256,
 		Artifacts: artifacts, Scorecard: scorecard,
 		Coverage: EvaluationCoverage{
 			CatalogCases: input.Catalog.ExpectedTotal, CatalogValidatedCases: input.Catalog.ActualTotal,
@@ -144,7 +146,7 @@ func ValidateUnifiedEvaluationReport(report UnifiedEvaluationReport) error {
 	if report.SchemaVersion != UnifiedEvaluationSchemaVersion || report.RunnerVersion != UnifiedEvaluationRunnerVersion || !strings.HasPrefix(report.RunID, "evalrun-") || report.CandidateVersion == "" || report.GeneratedAt.IsZero() {
 		return errors.New("unified evaluation report identity is invalid")
 	}
-	if len(report.ManifestSHA256) != 64 || report.Coverage.CatalogCases < 1 || report.Coverage.CatalogValidatedCases != report.Coverage.CatalogCases || report.Coverage.ExecutableCases != report.Scorecard.CaseCount || report.Coverage.CompletedCases != report.Scorecard.CompletedCases {
+	if len(report.ManifestSHA256) != 64 || len(report.ReviewManifestSHA256) != 64 || report.Coverage.CatalogCases < 1 || report.Coverage.CatalogValidatedCases != report.Coverage.CatalogCases || report.Coverage.ExecutableCases != report.Scorecard.CaseCount || report.Coverage.CompletedCases != report.Scorecard.CompletedCases {
 		return errors.New("unified evaluation report coverage is inconsistent")
 	}
 	if len(report.Artifacts) != 5 {
@@ -180,6 +182,7 @@ func WriteUnifiedEvaluationMarkdown(writer io.Writer, report UnifiedEvaluationRe
 - Run: %s
 - Candidate: %s
 - Generated: %s
+- Review manifest SHA-256: %s
 - Decision: %s
 - Technical gates: %t
 - Human reviewed: %t
@@ -195,7 +198,7 @@ func WriteUnifiedEvaluationMarkdown(writer io.Writer, report UnifiedEvaluationRe
 
 | Slice | Cases | Completion | Technical gate | Human reviewed | Passed |
 |---|---:|---:|---:|---:|---:|
-`, report.RunID, report.CandidateVersion, report.GeneratedAt.Format(time.RFC3339), status,
+`, report.RunID, report.CandidateVersion, report.GeneratedAt.Format(time.RFC3339), report.ReviewManifestSHA256, status,
 		report.Decision.TechnicalGatesPassed, report.Decision.HumanReviewed, report.Decision.BaselineEligible,
 		report.Coverage.CatalogCases, report.Coverage.CatalogValidatedCases, report.Coverage.ExecutableCases,
 		report.Coverage.CompletedCases, report.Coverage.CatalogOnlyCases, report.Coverage.ExecutionCoverage*100)
@@ -338,10 +341,11 @@ func collectEvaluationFailureClusters(input UnifiedEvaluationInput) []Evaluation
 
 func unifiedRunID(report UnifiedEvaluationReport) string {
 	identity := struct {
-		Candidate string               `json:"candidate"`
-		Manifest  string               `json:"manifest"`
-		Artifacts []EvaluationArtifact `json:"artifacts"`
-	}{report.CandidateVersion, report.ManifestSHA256, report.Artifacts}
+		Candidate      string               `json:"candidate"`
+		Manifest       string               `json:"manifest"`
+		ReviewManifest string               `json:"review_manifest"`
+		Artifacts      []EvaluationArtifact `json:"artifacts"`
+	}{report.CandidateVersion, report.ManifestSHA256, report.ReviewManifestSHA256, report.Artifacts}
 	encoded, _ := json.Marshal(identity)
 	digest := sha256.Sum256(encoded)
 	return "evalrun-" + hex.EncodeToString(digest[:])[:16]

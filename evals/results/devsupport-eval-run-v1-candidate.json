@@ -1,11 +1,12 @@
 {
   "schema_version": "unified-evaluation-report-v1",
   "runner_version": "unified-eval-runner-v1",
-  "run_id": "evalrun-fbdcff3b4b14d611",
+  "run_id": "evalrun-7ee68856a4784f82",
   "candidate_version": "5f9614a978b8",
-  "generated_at": "2026-09-05T09:26:40.7358533Z",
+  "generated_at": "2026-09-06T04:58:01.3272747Z",
   "dataset_version": "devsupport-eval-v1",
   "manifest_sha256": "6f5cff1cfb3c0c683ac5241fd9ceb117337833085626e4b8785d80f8b7108cd7",
+  "review_manifest_sha256": "991756db933118fcfacccfb68ebca852394ce6dcd3ca477a11fe70a1dbdbf46d",
   "artifacts": [
     {
       "name": "diagnosis",
@@ -51,7 +52,7 @@
     "schema_version": "deterministic-scorecard-v1",
     "evaluator_version": "deterministic-scorecard-v1",
     "candidate_version": "5f9614a978b8",
-    "generated_at": "2026-09-05T09:26:40.7358533Z",
+    "generated_at": "2026-09-06T04:58:01.3272747Z",
     "case_count": 300,
     "completed_cases": 300,
     "completion_rate": 1,

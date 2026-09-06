@@ -67,20 +67,21 @@ type FailureClusterSummary struct {
 }
 
 type UnifiedSummaryResponse struct {
-	SchemaVersion    string                            `json:"schema_version"`
-	RunnerVersion    string                            `json:"runner_version"`
-	RunID            string                            `json:"run_id"`
-	CandidateVersion string                            `json:"candidate_version"`
-	GeneratedAt      time.Time                         `json:"generated_at"`
-	ReportSHA256     string                            `json:"report_sha256"`
-	DatasetVersion   string                            `json:"dataset_version"`
-	ManifestSHA256   string                            `json:"manifest_sha256"`
-	Artifacts        []evaldomain.EvaluationArtifact   `json:"artifacts"`
-	Coverage         evaldomain.EvaluationCoverage     `json:"coverage"`
-	Scorecard        evaldomain.DeterministicScorecard `json:"scorecard"`
-	FailureClusters  []FailureClusterSummary           `json:"failure_clusters"`
-	Decision         evaldomain.EvaluationDecision     `json:"decision"`
-	Limitations      []string                          `json:"limitations"`
+	SchemaVersion        string                            `json:"schema_version"`
+	RunnerVersion        string                            `json:"runner_version"`
+	RunID                string                            `json:"run_id"`
+	CandidateVersion     string                            `json:"candidate_version"`
+	GeneratedAt          time.Time                         `json:"generated_at"`
+	ReportSHA256         string                            `json:"report_sha256"`
+	DatasetVersion       string                            `json:"dataset_version"`
+	ManifestSHA256       string                            `json:"manifest_sha256"`
+	ReviewManifestSHA256 string                            `json:"review_manifest_sha256"`
+	Artifacts            []evaldomain.EvaluationArtifact   `json:"artifacts"`
+	Coverage             evaldomain.EvaluationCoverage     `json:"coverage"`
+	Scorecard            evaldomain.DeterministicScorecard `json:"scorecard"`
+	FailureClusters      []FailureClusterSummary           `json:"failure_clusters"`
+	Decision             evaldomain.EvaluationDecision     `json:"decision"`
+	Limitations          []string                          `json:"limitations"`
 }
 
 func NewUnifiedHandler(store UnifiedReportStore) *UnifiedHandler {
@@ -115,7 +116,7 @@ func (handler *UnifiedHandler) Latest(context *gin.Context) {
 	context.JSON(http.StatusOK, UnifiedSummaryResponse{
 		SchemaVersion: unifiedResponseSchemaVersion, RunnerVersion: report.RunnerVersion, RunID: report.RunID,
 		CandidateVersion: report.CandidateVersion, GeneratedAt: report.GeneratedAt, ReportSHA256: reportSHA,
-		DatasetVersion: report.DatasetVersion, ManifestSHA256: report.ManifestSHA256, Artifacts: report.Artifacts,
+		DatasetVersion: report.DatasetVersion, ManifestSHA256: report.ManifestSHA256, ReviewManifestSHA256: report.ReviewManifestSHA256, Artifacts: report.Artifacts,
 		Coverage: report.Coverage, Scorecard: report.Scorecard, FailureClusters: clusters, Decision: report.Decision,
 		Limitations: report.Limitations,
 	})

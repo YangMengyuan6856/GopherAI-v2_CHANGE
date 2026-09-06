@@ -961,6 +961,34 @@
             <div><strong>{{ evaluationCatalog.sensitive_hits }}</strong><span>凭据特征命中</span></div>
             <div><strong>{{ evaluationCatalog.slices.length }}</strong><span>冻结切片</span></div>
           </div>
+          <article v-if="evaluationCatalog.review_manifest" class="review-manifest-card">
+            <div class="metric-catalog-heading">
+              <div>
+                <strong>人工复核 Manifest · {{ evaluationCatalog.review_manifest.manifest_version }}</strong>
+                <span>SHA {{ evaluationCatalog.review_manifest.manifest_sha256.slice(0, 16) }}… · 绑定 Catalog / Slice / Fixture</span>
+              </div>
+              <span :class="['evaluation-gate', evaluationCatalog.review_manifest.passed ? 'passed' : 'failed']">
+                {{ evaluationCatalog.review_manifest.passed ? '来源与 Hash 校验通过' : '复核 Manifest 失败' }}
+              </span>
+            </div>
+            <div class="diagnostic-evaluation-grid">
+              <div><strong>{{ evaluationCatalog.review_manifest.reviewed_cases }} / {{ evaluationCatalog.review_manifest.total_cases }}</strong><span>逐例人工复核</span></div>
+              <div><strong>{{ evaluationCatalog.review_manifest.pending_cases }}</strong><span>pending_user</span></div>
+              <div><strong>{{ evaluationCatalog.review_manifest.fixtures.length }}</strong><span>固定 Fixture Hash</span></div>
+              <div><strong>{{ evaluationCatalog.review_manifest.catalog_matched ? '一致' : '不一致' }}</strong><span>Catalog Hash</span></div>
+            </div>
+            <details class="review-fixture-list">
+              <summary>查看数据来源、Reviewer 状态与 Fixture Hash</summary>
+              <div class="failure-acceptance-grid">
+                <span v-for="slice in evaluationCatalog.review_manifest.slices" :key="slice.name" :class="slice.review_status === 'reviewed' ? 'dependency-ready' : 'dependency-down'">
+                  {{ evaluationSliceLabel(slice.name) }} · {{ reviewStatusLabel(slice.review_status) }} · reviewer={{ slice.reviewer || '未指定' }} · {{ slice.source_category }}
+                </span>
+                <span v-for="fixture in evaluationCatalog.review_manifest.fixtures" :key="fixture.name" class="dependency-ready">
+                  {{ fixture.name }} · SHA {{ fixture.sha256.slice(0, 12) }}…
+                </span>
+              </div>
+            </details>
+          </article>
           <div class="strategy-registry-grid evaluation-catalog-grid">
             <article v-for="slice in evaluationCatalog.slices" :key="slice.name">
               <div class="strategy-card-title">
@@ -968,7 +996,7 @@
                 <span :class="slice.passed ? 'dependency-ready' : 'dependency-down'">{{ slice.passed ? 'Hash/Schema 通过' : '失败' }}</span>
               </div>
               <p>{{ slice.actual_count }} / {{ slice.expected_count }} 条 · pending_user {{ slice.review_counts.pending_user || 0 }} · human {{ slice.review_counts.human || 0 }}</p>
-              <small>SHA {{ slice.actual_sha256.slice(0, 12) }}…</small>
+              <small>SHA {{ slice.actual_sha256.slice(0, 12) }}… · {{ reviewStatusLabel(reviewSliceFor(slice.name)?.review_status) }}</small>
             </article>
           </div>
           <div class="evaluation-candidate-warning">
@@ -3008,6 +3036,12 @@ export default {
       intent: '意图识别', rag: 'RAG', diagnosis: '故障诊断', tool: '工具治理', memory: '三级记忆', insufficient_evidence: '证据不足'
     }[slice] || slice)
 
+    const reviewSliceFor = (name) => evaluationCatalog.value?.review_manifest?.slices?.find(item => item.name === name) || null
+
+    const reviewStatusLabel = (status) => ({
+      pending_user: '待用户逐例复核', reviewed: '已完成人工复核', rejected: '人工拒绝'
+    }[status] || status || '复核状态缺失')
+
     const evaluationStatusLabel = (status) => ({
       technical_candidate: '技术候选 · 不可切流', rejected: '技术门拒绝', baseline_eligible: '可冻结基线 · 仍不可自动切流'
     }[status] || status)
@@ -3727,6 +3761,8 @@ export default {
       toggleParentContextEvaluation,
       toggleEvaluationCatalog,
       evaluationSliceLabel,
+      reviewSliceFor,
+      reviewStatusLabel,
       evaluationStatusLabel,
       evaluationFailureLabel,
       metricDomainLabel,
@@ -5907,6 +5943,26 @@ export default {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
   gap: 6px;
+}
+
+.review-manifest-card {
+  display: grid;
+  gap: 9px;
+  margin: 10px 0;
+  padding: 10px;
+  border: 1px solid rgba(58, 132, 101, 0.24);
+  border-radius: 9px;
+  background: #f7fffb;
+}
+
+.review-fixture-list > summary {
+  cursor: pointer;
+  color: #346d58;
+  font-weight: 700;
+}
+
+.review-fixture-list > div {
+  margin-top: 8px;
 }
 
 .fault-campaign-result,

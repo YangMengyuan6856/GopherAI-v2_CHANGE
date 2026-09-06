@@ -1,8 +1,9 @@
 # GopherAI Unified Evaluation Report
 
-- Run: evalrun-fbdcff3b4b14d611
+- Run: evalrun-7ee68856a4784f82
 - Candidate: 5f9614a978b8
-- Generated: 2026-09-05T09:26:40Z
+- Generated: 2026-09-06T04:58:01Z
+- Review manifest SHA-256: 991756db933118fcfacccfb68ebca852394ce6dcd3ca477a11fe70a1dbdbf46d
 - Decision: 技术候选
 - Technical gates: true
 - Human reviewed: false

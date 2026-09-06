@@ -35,8 +35,12 @@ func TestBuildUnifiedEvaluationReportKeepsTechnicalAndHumanGatesSeparate(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
+	review, err := ValidateReviewManifestFile(filepath.Join(root, "evals/devsupport-eval-v1.review.json"), filepath.Join(root, "evals/devsupport-eval-v1.manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	report, err := BuildUnifiedEvaluationReport(UnifiedEvaluationInput{
-		CandidateVersion: "test-candidate", GeneratedAt: time.Date(2026, 9, 5, 8, 0, 0, 0, time.UTC), Catalog: catalog,
+		CandidateVersion: "test-candidate", GeneratedAt: time.Date(2026, 9, 5, 8, 0, 0, 0, time.UTC), Catalog: catalog, Review: review,
 		Artifacts: []EvaluationArtifact{
 			NewEvaluationArtifact("intent", intent.DatasetVersion, intentBytes, intent.CaseCount),
 			NewEvaluationArtifact("rag", rag.DatasetVersion, ragBytes, rag.CaseCount),
@@ -56,6 +60,9 @@ func TestBuildUnifiedEvaluationReportKeepsTechnicalAndHumanGatesSeparate(t *test
 	}
 	if len(report.RunID) != len("evalrun-")+16 || len(report.FailureClusters) == 0 {
 		t.Fatalf("run identity or clusters missing: %+v", report)
+	}
+	if len(report.ReviewManifestSHA256) != 64 {
+		t.Fatalf("review manifest provenance missing: %+v", report)
 	}
 	var markdown strings.Builder
 	if err := WriteUnifiedEvaluationMarkdown(&markdown, report); err != nil {
