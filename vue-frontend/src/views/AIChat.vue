@@ -687,6 +687,7 @@
                 <div class="evaluation-decision-strip">
                   <span :class="cleanupAudit.legacy_entry_observation.zero_calls ? 'dependency-ready' : 'dependency-down'">{{ cleanupObservationLabel(cleanupAudit.legacy_entry_observation.status) }}</span>
                   <span :class="cleanupAudit.summary.deletion_plan_ready ? 'dependency-ready' : 'dependency-down'">删除清单 {{ cleanupAudit.summary.deletion_plan_ready ? '已具备证据' : '尚未就绪' }}</span>
+                  <span>Tracked {{ cleanupAudit.tracked_source_count }} · Inventory {{ shortRevision(cleanupAudit.source_inventory_sha256) }}</span>
                   <span>Report {{ shortRevision(cleanupAudit.report_sha256) }}</span>
                 </div>
                 <div class="cleanup-candidate-grid">

@@ -47,17 +47,19 @@ type Summary struct {
 }
 
 type Report struct {
-	SchemaVersion string                               `json:"schema_version"`
-	ReportSHA256  string                               `json:"report_sha256"`
-	ReleaseID     string                               `json:"release_id"`
-	GitSHA        string                               `json:"git_sha"`
-	GeneratedAt   time.Time                            `json:"generated_at"`
-	SourceScope   string                               `json:"source_scope"`
-	Observation   observability.LegacyEntryObservation `json:"legacy_entry_observation"`
-	Summary       Summary                              `json:"summary"`
-	Candidates    []Candidate                          `json:"candidates"`
-	Guardrails    []string                             `json:"guardrails"`
-	Limitations   []string                             `json:"limitations"`
+	SchemaVersion         string                               `json:"schema_version"`
+	ReportSHA256          string                               `json:"report_sha256"`
+	ReleaseID             string                               `json:"release_id"`
+	GitSHA                string                               `json:"git_sha"`
+	GeneratedAt           time.Time                            `json:"generated_at"`
+	SourceScope           string                               `json:"source_scope"`
+	SourceInventorySHA256 string                               `json:"source_inventory_sha256"`
+	TrackedSourceCount    int                                  `json:"tracked_source_count"`
+	Observation           observability.LegacyEntryObservation `json:"legacy_entry_observation"`
+	Summary               Summary                              `json:"summary"`
+	Candidates            []Candidate                          `json:"candidates"`
+	Guardrails            []string                             `json:"guardrails"`
+	Limitations           []string                             `json:"limitations"`
 }
 
 type Builder struct {
@@ -89,6 +91,10 @@ func (builder *Builder) Build(ctx context.Context, releaseID, gitSHA string) (Re
 	if info, err := os.Stat(builder.root); err != nil || !info.IsDir() {
 		return Report{}, errors.New("cleanup audit source root is unavailable")
 	}
+	trackedSources, inventorySHA, err := builder.loadSourceInventory()
+	if err != nil {
+		return Report{}, err
+	}
 	observation, err := builder.observer.ObserveRetiredSkillAPI(ctx)
 	if err != nil {
 		return Report{}, err
@@ -100,18 +106,19 @@ func (builder *Builder) Build(ctx context.Context, releaseID, gitSHA string) (Re
 		{id: "legacy_aihelper_tool_source", title: "旧动态 ToolSource 聚合器", decision: "delete_candidate", replacement: "internal/toolruntime.Registry", authorized: true, artifacts: []string{"common/aihelper/tool_source.go"}, needles: []string{"NewMCPToolSource", "NewCustomToolSource", "NewToolAggregator"}, excludes: []string{"common/aihelper/tool_source.go"}},
 		{id: "legacy_mcp_client_package", title: "重复 MCP client 包", decision: "delete_candidate", replacement: "internal/toolruntime.MCPClient", authorized: true, artifacts: []string{"common/mcp/client/client.go"}, needles: []string{"github.com/kaitai/gopherai-mcp/client"}, excludes: []string{"common/mcp/client"}},
 		{id: "generic_mcp_web_helpers", title: "未注册的通用搜索与网页读取 helper", decision: "delete_candidate", replacement: "official_document_search allowlist", authorized: true, artifacts: []string{"common/mcp/server/web_tools.go"}, needles: []string{"DuckDuckGoSearch", "FetchURLContent", "FormatSearchResults"}, excludes: []string{"common/mcp/server/web_tools.go"}},
-		{id: "checked_in_mcp_binary", title: "误提交的 MCP 构建二进制", decision: "delete_candidate", replacement: "scripts/deploy/deploy-aliyun.ps1 local cross-build", authorized: true, artifacts: []string{"common/mcp/gopherai-mcp"}},
+		{id: "checked_in_mcp_binary", title: "误提交的 MCP 构建二进制", decision: "delete_candidate", replacement: "scripts/deploy/deploy-aliyun.ps1 local cross-build", authorized: true, artifacts: []string{"tracked::common/mcp/gopherai-mcp"}},
 		{id: "legacy_mcp_base_url_config", title: "未消费的旧 mcpBaseURL 配置", decision: "delete_candidate", replacement: "fixed loopback adapter endpoint", authorized: true, artifacts: []string{"config/config.go::McpBaseURL", "config/config.toml::mcpBaseURL"}, needles: []string{"McpBaseURL", "mcpBaseURL"}, excludes: []string{"config/config.go", "config/config.toml"}},
 		{id: "governed_mcp_protocol_host", title: "场景化 MCP 协议边界", decision: "retain", replacement: "not_applicable", retained: true, artifacts: []string{"common/mcp/main.go", "common/mcp/server/server.go", "internal/toolruntime/mcp_adapter_tool.go"}, needles: []string{"mcp_deployment_evidence", "deployment_manifest_source"}},
 	}
 	report := Report{
 		SchemaVersion: SchemaVersion, ReleaseID: releaseID, GitSHA: gitSHA, GeneratedAt: builder.clock().UTC(), SourceScope: "packaged_runtime_source",
+		SourceInventorySHA256: inventorySHA, TrackedSourceCount: len(trackedSources),
 		Observation: observation,
 		Guardrails:  []string{"只扫描固定源码根与固定符号，不执行 shell", "运行调用量只读取固定 PromQL，调用方不能提交查询", "删除候选仍需独立提交、全量构建、Smoke 和可恢复 Git 历史", "MCP 协议适配器与场景化协议宿主明确保留"},
 		Limitations: []string{"24 小时窗口达到至少 50% scrape 覆盖才可用于零调用判断。", "本报告只批准列出的源码候选，不批准数据库 Contract migration。", "already_removed 只证明当前树无运行产物，恢复能力来自 Git/Release 历史。"},
 	}
 	for _, spec := range specs {
-		candidate, err := builder.inspect(spec)
+		candidate, err := builder.inspect(spec, trackedSources)
 		if err != nil {
 			return Report{}, err
 		}
@@ -147,8 +154,8 @@ func (builder *Builder) Build(ctx context.Context, releaseID, gitSHA string) (Re
 	return report, nil
 }
 
-func (builder *Builder) inspect(spec candidateSpec) (Candidate, error) {
-	present, err := builder.presentArtifacts(spec.artifacts)
+func (builder *Builder) inspect(spec candidateSpec, trackedSources map[string]struct{}) (Candidate, error) {
+	present, err := builder.presentArtifacts(spec.artifacts, trackedSources)
 	if err != nil {
 		return Candidate{}, err
 	}
@@ -181,9 +188,15 @@ func (builder *Builder) inspect(spec candidateSpec) (Candidate, error) {
 	return candidate, nil
 }
 
-func (builder *Builder) presentArtifacts(probes []string) ([]string, error) {
+func (builder *Builder) presentArtifacts(probes []string, trackedSources map[string]struct{}) ([]string, error) {
 	result := []string{}
 	for _, probe := range probes {
+		if strings.HasPrefix(probe, "tracked::") {
+			if _, exists := trackedSources[strings.TrimPrefix(probe, "tracked::")]; exists {
+				result = append(result, probe)
+			}
+			continue
+		}
 		parts := strings.SplitN(probe, "::", 2)
 		path := filepath.Join(builder.root, filepath.FromSlash(parts[0]))
 		info, err := os.Stat(path)
@@ -226,6 +239,33 @@ func (builder *Builder) presentArtifacts(probes []string) ([]string, error) {
 	}
 	sort.Strings(result)
 	return result, nil
+}
+
+func (builder *Builder) loadSourceInventory() (map[string]struct{}, string, error) {
+	path := filepath.Join(builder.root, ".release-source-files.txt")
+	contents, err := os.ReadFile(path)
+	if err != nil || len(contents) == 0 || len(contents) > 2<<20 {
+		return nil, "", errors.New("tracked source inventory is unavailable")
+	}
+	lines := strings.Split(strings.ReplaceAll(string(contents), "\r\n", "\n"), "\n")
+	tracked := map[string]struct{}{}
+	previous := ""
+	for _, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		if filepath.IsAbs(line) || strings.Contains(line, "\\") || strings.HasPrefix(line, "../") || strings.Contains(line, "/../") || (previous != "" && previous >= line) {
+			return nil, "", errors.New("tracked source inventory violated the sorted relative-path contract")
+		}
+		tracked[line] = struct{}{}
+		previous = line
+	}
+	if len(tracked) == 0 {
+		return nil, "", errors.New("tracked source inventory is empty")
+	}
+	digest := sha256.Sum256(contents)
+	return tracked, hex.EncodeToString(digest[:]), nil
 }
 
 func (builder *Builder) references(needles, excludes []string) ([]string, error) {
@@ -309,7 +349,7 @@ func reportHash(report Report) string {
 }
 
 func Validate(report Report) error {
-	if report.SchemaVersion != SchemaVersion || report.GeneratedAt.IsZero() || strings.TrimSpace(report.ReleaseID) == "" || strings.TrimSpace(report.GitSHA) == "" || len(report.ReportSHA256) != 64 || report.ReportSHA256 != reportHash(report) {
+	if report.SchemaVersion != SchemaVersion || report.GeneratedAt.IsZero() || strings.TrimSpace(report.ReleaseID) == "" || strings.TrimSpace(report.GitSHA) == "" || len(report.SourceInventorySHA256) != 64 || report.TrackedSourceCount <= 0 || len(report.ReportSHA256) != 64 || report.ReportSHA256 != reportHash(report) {
 		return errors.New("cleanup audit identity or hash is invalid")
 	}
 	if report.Observation.SchemaVersion != "legacy-entry-observation-v1" || report.Observation.Entry != "skill_api" || report.Observation.WindowSeconds != 86400 || report.Observation.ExpectedSampleCount != 5760 || report.Observation.MinimumSampleCount != 2880 {

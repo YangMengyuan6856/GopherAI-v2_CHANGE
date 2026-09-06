@@ -279,6 +279,7 @@ $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) "gopherai-deploy-$timest
 $payloadRoot = Join-Path $tempRoot "payload"
 $artifactDirectory = Join-Path $payloadRoot ".deploy-bin"
 $manifestPath = Join-Path $payloadRoot "release-manifest.json"
+$sourceInventoryPath = Join-Path $payloadRoot ".release-source-files.txt"
 $bundlePath = Join-Path $tempRoot $bundleName
 $checksumPath = "$bundlePath.sha256"
 $remoteBundlePath = "$RemoteHostBundleDir/$bundleName"
@@ -357,6 +358,13 @@ try {
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
     [System.IO.File]::WriteAllText($manifestPath, $manifestJson + [Environment]::NewLine, $utf8NoBom)
 
+    $trackedSourceFiles = @(& git -C $repoRoot ls-files)
+    if ($LASTEXITCODE -ne 0 -or $trackedSourceFiles.Count -eq 0) {
+        throw "Unable to create the tracked source inventory."
+    }
+    $trackedSourceFiles = @($trackedSourceFiles | ForEach-Object { $_ -replace '\\', '/' } | Sort-Object -Unique)
+    [System.IO.File]::WriteAllLines($sourceInventoryPath, $trackedSourceFiles, $utf8NoBom)
+
     $tarArgs = @(
         "-czf", $bundlePath,
 		"--exclude=.git", "--exclude=.claude", "--exclude=.codex-tmp", "--exclude=uploads",
@@ -364,7 +372,7 @@ try {
         "--exclude=backend.log", "--exclude=index-worker.log", "--exclude=mcp.log", "--exclude=frontend.log"
     )
     if (-not $DeployConfig) { $tarArgs += "--exclude=config/config.toml" }
-    $tarArgs += @("-C", $repoRoot, ".", "-C", $payloadRoot, "release-manifest.json")
+    $tarArgs += @("-C", $repoRoot, ".", "-C", $payloadRoot, "release-manifest.json", ".release-source-files.txt")
     if (-not $BuildInContainer -and -not $DryRun) { $tarArgs += ".deploy-bin" }
     Invoke-Checked -FilePath "tar" -Arguments $tarArgs -WorkingDirectory $repoRoot
 

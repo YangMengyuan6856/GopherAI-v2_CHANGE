@@ -21,6 +21,7 @@ func (reader fakeObservationReader) ObserveRetiredSkillAPI(context.Context) (obs
 func TestBuilderProducesBoundedDeletionPlan(t *testing.T) {
 	root := t.TempDir()
 	files := map[string]string{
+		".release-source-files.txt":                 "common/mcp/gopherai-mcp\n",
 		"router/router.go":                          `LEGACY_SKILL_RETIRED`,
 		"common/aihelper/tool_source.go":            `NewMCPToolSource NewCustomToolSource NewToolAggregator`,
 		"common/mcp/client/client.go":               `package mcp`,
@@ -66,6 +67,7 @@ func TestBuilderProducesBoundedDeletionPlan(t *testing.T) {
 func TestBuilderBlocksExternalReference(t *testing.T) {
 	root := t.TempDir()
 	for name, contents := range map[string]string{
+		".release-source-files.txt":                "router/router.go\n",
 		"common/aihelper/tool_source.go":           `NewToolAggregator`,
 		"service/session/session.go":               `func f(){ NewToolAggregator() }`,
 		"router/router.go":                         `LEGACY_SKILL_RETIRED`,
@@ -94,6 +96,7 @@ func TestBuilderBlocksExternalReference(t *testing.T) {
 func TestDeletionPlanAllowsIndependentSafeSubset(t *testing.T) {
 	root := t.TempDir()
 	for name, contents := range map[string]string{
+		".release-source-files.txt":                "common/mcp/gopherai-mcp\n",
 		"router/router.go":                         `LEGACY_SKILL_RETIRED`,
 		"common/mcp/main.go":                       `package main`,
 		"common/mcp/server/server.go":              `deployment_manifest_source`,
@@ -123,6 +126,7 @@ func TestDeletionPlanAllowsIndependentSafeSubset(t *testing.T) {
 func TestFileStoreRejectsTampering(t *testing.T) {
 	root := t.TempDir()
 	for name, contents := range map[string]string{
+		".release-source-files.txt":                "common/mcp/main.go\ncommon/mcp/server/server.go\ninternal/toolruntime/mcp_adapter_tool.go\nrouter/router.go\n",
 		"router/router.go":                         `LEGACY_SKILL_RETIRED`,
 		"common/mcp/main.go":                       `package main`,
 		"common/mcp/server/server.go":              `deployment_manifest_source`,
