@@ -1644,3 +1644,11 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 确认记录按登录主体隔离并追加写入 MySQL；主体和幂等键只保存 SHA-256，原值不落库。同一幂等键同一请求安全重放，不同请求返回冲突。有效确认只把简历事实门从 pending 改为 passed，使总计从 `1/4` 变为 `2/4`；它不会绕过 Full 320/Judge 人工门，也不会把单实例生产回滚标记为完成。
 - Release `20260907062048-32feda25d200`，bundle SHA-256 `dd683bf806abf6838e46d45a5cf9fa10b80f1896f1ee5d1027e31205e053280a`，703 个可追溯条目；自动清理报告 SHA `014aeec73b58c3977a4696f2f7531e0db06e9d54bfbab5452e0469c7f1db3d3c`、Tracked Source `555`。全量 Go/Vet/Race、Vue lint/build、Linux 构建、Prometheus `2/2`、Grafana、MCP 与前端门通过，浏览器控制台错误为 0。
 - 新增表是向后兼容的 expand migration：旧应用不会读取它，回滚应用版本不要求立即收缩表。当前单实例环境仍不具备安全执行 contract migration 和百分比生产灰度的条件，不能借新表上线宣称 M10-06～10 已完成。
+
+## 91. 2026-09-07 Full 320 人工门必须先有可执行队列，再谈基线完成
+
+- `54ac71dd` 增加按登录用户隔离的 Full 320 逐例复核队列。服务每次先验证 Catalog、六个 Slice 的实际 SHA/Schema/320 个唯一 ID，再按页返回单例输入、期望结果和 Case SHA；默认只展示 pending，可按六个切片与 pending/approved/rejected/reviewed/all 筛选，避免一次把 320 条堆进长页面。
+- 每次提交必须绑定 Catalog SHA、Case SHA、当前 revision、固定确认语和 16～128 字符幂等键。通过只接受 `label_verified`；退回只接受五类白名单原因且不开放自由文本，避免把凭据或个人信息写入审计。记录按 revision 追加，CAS 防止两页覆盖，旧请求重放返回原收据但总进度始终按最新修订计算。
+- 复核进度与 Git 中冻结的 Review Manifest 故意分开展示：当前用户队列为 `0/320`，Review Set SHA 是空集合 Hash；即使未来达到 `320/320 approved`，状态也只会变成 `ready_for_sealed_materialization`，不会自动改数据集、冻结基线、写 active policy 或声称双人独立标注。
+- Release `20260907070048-54ac71dd9151`，bundle SHA-256 `9b4f25044d21402eab14dc71e7e4ce2f2823111bfa5362613bbfb769d5f84195`，710 个可追溯条目；自动清理报告 SHA `b9c3fc1c9662594624f557d9c76098cc2cfffaded60b3404827b01cc997b811a`、Tracked Source `561`。全量 Go、Vet、定向 Race、Vue lint/build、Prometheus `2/2`、Grafana、MCP 与前端门通过。
+- 真实浏览器验证第 1→2 例翻页、RAG 切片 `60` 条过滤、`rag-v2-001` 内容、确认框前后按钮禁用/启用和控制台错误 `0`；随后取消确认，未提交任何标签。人工证据必须由实际复核者产生，自动化只能验证门禁，不能代做判断。
