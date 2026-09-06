@@ -19,6 +19,7 @@ import (
 	"GopherAI/common/mysql"
 	"GopherAI/internal/controlrecommendation"
 	evaldomain "GopherAI/internal/evaluation"
+	"GopherAI/internal/evolution"
 	"GopherAI/internal/faultcampaign"
 	"GopherAI/internal/judgecalibration"
 	"GopherAI/internal/metriccatalog"
@@ -31,7 +32,7 @@ import (
 )
 
 const (
-	interviewEvidenceSchemaVersion = "interview-evidence-package-v2"
+	interviewEvidenceSchemaVersion = "interview-evidence-package-v3"
 	defaultReleaseManifestPath     = "release-manifest.json"
 	maxReleaseManifestBytes        = 64 << 10
 )
@@ -107,20 +108,30 @@ type InterviewEvidencePackage struct {
 }
 
 type interviewEvidenceInputs struct {
-	Release          interviewReleaseManifest
-	ReleaseSHA       string
-	Unified          evaldomain.UnifiedEvaluationReport
-	UnifiedSHA       string
-	Paired           PairedSummaryResponse
-	Performance      perfeval.Report
-	JudgeCalibration judgecalibration.Audit
-	FaultCampaign    faultcampaign.CampaignReport
-	FaultGeneratedAt time.Time
-	Reliability      reliabilityeval.Report
-	MetricCatalog    metriccatalog.CatalogReport
-	Grafana          observability.GrafanaRuntimeSnapshot
-	Control          controlrecommendation.AuditSnapshot
-	ControlSHA       string
+	Release               interviewReleaseManifest
+	ReleaseSHA            string
+	Unified               evaldomain.UnifiedEvaluationReport
+	UnifiedSHA            string
+	Paired                PairedSummaryResponse
+	Performance           perfeval.Report
+	JudgeCalibration      judgecalibration.Audit
+	FaultCampaign         faultcampaign.CampaignReport
+	FaultGeneratedAt      time.Time
+	Reliability           reliabilityeval.Report
+	MetricCatalog         metriccatalog.CatalogReport
+	Grafana               observability.GrafanaRuntimeSnapshot
+	Control               controlrecommendation.AuditSnapshot
+	ControlSHA            string
+	EvolutionLineage      evolution.Audit
+	EvolutionLineageSHA   string
+	EvolutionSplit        evolution.SplitAudit
+	EvolutionSplitSHA     string
+	EvolutionComparison   evolution.ComparisonReport
+	EvolutionControl      evolution.ControlAcceptanceReport
+	EvolutionPromotion    evolution.PromotionAudit
+	EvolutionPromotionSHA string
+	EvolutionShadow       evolution.ShadowControlAudit
+	EvolutionShadowSHA    string
 }
 
 type InterviewEvidenceService interface {
@@ -128,24 +139,32 @@ type InterviewEvidenceService interface {
 }
 
 type fileInterviewEvidenceService struct {
-	releasePath   string
-	unified       UnifiedReportStore
-	collaboration CollaborationReportStore
-	parentContext ParentContextReportStore
-	performance   PerformanceReportStore
-	judge         *judgecalibration.Service
-	faultCampaign FaultCampaignService
-	reliability   reliabilityeval.ReportStore
-	metricCatalog metriccatalog.CatalogReport
-	metricErr     error
-	grafana       GrafanaRuntimeReader
-	control       RecommendationController
+	releasePath         string
+	unified             UnifiedReportStore
+	collaboration       CollaborationReportStore
+	parentContext       ParentContextReportStore
+	performance         PerformanceReportStore
+	judge               *judgecalibration.Service
+	faultCampaign       FaultCampaignService
+	reliability         reliabilityeval.ReportStore
+	metricCatalog       metriccatalog.CatalogReport
+	metricErr           error
+	grafana             GrafanaRuntimeReader
+	control             RecommendationController
+	evolution           EvolutionService
+	evolutionComparison evolution.ComparisonStore
+	evolutionControl    evolution.ControlAcceptanceStore
+	evolutionPromotion  *evolution.PromotionService
+	evolutionShadow     *evolution.ShadowControlService
 }
 
 func newDefaultInterviewEvidenceService() *fileInterviewEvidenceService {
 	faultService, _ := faultcampaign.NewDefaultService()
 	recommendation, _ := controlrecommendation.NewDefaultController()
 	metricHandler := NewDefaultMetricCatalogHandler()
+	evolutionService, _ := evolution.NewDefaultService()
+	promotionService, _ := evolution.NewPromotionService(evolution.NewFileComparisonStore(defaultEvolutionComparisonPath), evolution.NewGormPromotionRepository(mysql.DB), evolution.NewGormPromotionAuthorizer(mysql.DB), time.Now)
+	shadowService, _ := evolution.NewShadowControlService(evolution.NewFileComparisonStore(defaultEvolutionComparisonPath), evolution.NewGormShadowControlRepository(mysql.DB), evolution.NewGormPromotionAuthorizer(mysql.DB), evolution.DeterministicShadowEvaluator{}, time.Now)
 	return &fileInterviewEvidenceService{
 		releasePath:   defaultReleaseManifestPath,
 		unified:       NewFileUnifiedReportStore(defaultUnifiedReportPath),
@@ -156,18 +175,23 @@ func newDefaultInterviewEvidenceService() *fileInterviewEvidenceService {
 			judgecalibration.NewFileArtifactStore(judgecalibration.DefaultDatasetPath, judgecalibration.DefaultReportPath),
 			judgecalibration.NewGormRepository(mysql.DB), time.Now,
 		),
-		faultCampaign: faultService,
-		reliability:   reliabilityeval.NewFileStore(defaultReliabilityReportPath),
-		metricCatalog: metricHandler.report,
-		metricErr:     metricHandler.err,
-		grafana:       observability.NewDefaultGrafanaRuntimeClient(),
-		control:       recommendation,
+		faultCampaign:       faultService,
+		reliability:         reliabilityeval.NewFileStore(defaultReliabilityReportPath),
+		metricCatalog:       metricHandler.report,
+		metricErr:           metricHandler.err,
+		grafana:             observability.NewDefaultGrafanaRuntimeClient(),
+		control:             recommendation,
+		evolution:           evolutionService,
+		evolutionComparison: evolution.NewFileComparisonStore(defaultEvolutionComparisonPath),
+		evolutionControl:    evolution.NewFileControlAcceptanceStore(defaultEvolutionControlAcceptancePath),
+		evolutionPromotion:  promotionService,
+		evolutionShadow:     shadowService,
 	}
 }
 
 func (service *fileInterviewEvidenceService) Build(ctx context.Context, reviewer string) (InterviewEvidencePackage, error) {
 	if service == nil || service.unified == nil || service.collaboration == nil || service.parentContext == nil || service.performance == nil || service.judge == nil ||
-		service.faultCampaign == nil || service.reliability == nil || service.metricErr != nil || service.grafana == nil || service.control == nil {
+		service.faultCampaign == nil || service.reliability == nil || service.metricErr != nil || service.grafana == nil || service.control == nil || service.evolution == nil || service.evolutionComparison == nil || service.evolutionControl == nil || service.evolutionPromotion == nil || service.evolutionShadow == nil {
 		return InterviewEvidencePackage{}, errors.New("interview evidence service is unavailable")
 	}
 	release, releaseSHA, err := loadInterviewReleaseManifest(service.releasePath)
@@ -218,12 +242,55 @@ func (service *fileInterviewEvidenceService) Build(ctx context.Context, reviewer
 	if err != nil {
 		return InterviewEvidencePackage{}, err
 	}
+	evolutionLineage, err := service.evolution.Audit(ctx)
+	if err != nil {
+		return InterviewEvidencePackage{}, err
+	}
+	evolutionLineageSHA, err := digestInterviewEvidenceValue(evolutionLineage)
+	if err != nil {
+		return InterviewEvidencePackage{}, err
+	}
+	evolutionSplit, err := evolution.LoadSplitAudit(defaultEvolutionDatasetPath, defaultEvolutionCatalogPath)
+	if err != nil {
+		return InterviewEvidencePackage{}, err
+	}
+	evolutionSplitSHA, err := digestInterviewEvidenceValue(evolutionSplit)
+	if err != nil {
+		return InterviewEvidencePackage{}, err
+	}
+	evolutionComparison, err := service.evolutionComparison.Load()
+	if err != nil {
+		return InterviewEvidencePackage{}, err
+	}
+	evolutionControl, err := service.evolutionControl.Load()
+	if err != nil {
+		return InterviewEvidencePackage{}, err
+	}
+	evolutionPromotion, err := service.evolutionPromotion.Audit(ctx, reviewer)
+	if err != nil {
+		return InterviewEvidencePackage{}, err
+	}
+	evolutionPromotionSHA, err := digestInterviewEvidenceValue(evolutionPromotion)
+	if err != nil {
+		return InterviewEvidencePackage{}, err
+	}
+	evolutionShadow, err := service.evolutionShadow.Audit(ctx, reviewer)
+	if err != nil {
+		return InterviewEvidencePackage{}, err
+	}
+	evolutionShadowSHA, err := digestInterviewEvidenceValue(evolutionShadow)
+	if err != nil {
+		return InterviewEvidencePackage{}, err
+	}
 	return buildInterviewEvidencePackage(interviewEvidenceInputs{
 		Release: release, ReleaseSHA: releaseSHA, Unified: unified, UnifiedSHA: unifiedSHA,
 		Paired: paired, Performance: performance, JudgeCalibration: judgeAudit,
 		FaultCampaign: *faultAudit.Latest, FaultGeneratedAt: faultAudit.LatestCreatedAt,
 		Reliability: reliability, MetricCatalog: service.metricCatalog, Grafana: grafana,
 		Control: control, ControlSHA: controlSHA,
+		EvolutionLineage: evolutionLineage, EvolutionLineageSHA: evolutionLineageSHA, EvolutionSplit: evolutionSplit, EvolutionSplitSHA: evolutionSplitSHA,
+		EvolutionComparison: evolutionComparison, EvolutionControl: evolutionControl, EvolutionPromotion: evolutionPromotion, EvolutionPromotionSHA: evolutionPromotionSHA,
+		EvolutionShadow: evolutionShadow, EvolutionShadowSHA: evolutionShadowSHA,
 	})
 }
 
@@ -296,6 +363,24 @@ func buildInterviewEvidencePackage(input interviewEvidenceInputs) (InterviewEvid
 		input.Control.ActivePolicy.Version == "" || len(input.Control.ActivePolicy.SHA256) != 64 || len(input.ControlSHA) != 64 {
 		return InterviewEvidencePackage{}, errors.New("control evidence input is invalid")
 	}
+	if input.EvolutionLineage.SchemaVersion != evolution.SchemaVersion || input.EvolutionLineage.Mode != evolution.Mode || input.EvolutionLineage.ActivePointers != 0 || input.EvolutionLineage.AppliedCount != 0 || len(input.EvolutionLineageSHA) != 64 {
+		return InterviewEvidencePackage{}, errors.New("harness evolution lineage evidence is invalid")
+	}
+	if input.EvolutionSplit.SchemaVersion != evolution.SplitSchemaVersion || input.EvolutionSplit.PolicyVersion != evolution.SplitPolicyVersion || !input.EvolutionSplit.SourceHashVerified || input.EvolutionSplit.TotalCases != evolution.SplitTotalCases || input.EvolutionSplit.CoveredCases != evolution.SplitTotalCases || input.EvolutionSplit.OverlapCount != 0 || input.EvolutionSplit.DuplicateIDCount != 0 || input.EvolutionSplit.HoldoutOpenCount != 0 || len(input.EvolutionSplitSHA) != 64 {
+		return InterviewEvidencePackage{}, errors.New("harness evolution split evidence is invalid")
+	}
+	if err := evolution.ValidateComparisonReport(input.EvolutionComparison); err != nil {
+		return InterviewEvidencePackage{}, err
+	}
+	if err := evolution.ValidateControlAcceptanceReport(input.EvolutionControl); err != nil {
+		return InterviewEvidencePackage{}, err
+	}
+	if input.EvolutionPromotion.SchemaVersion != evolution.PromotionSchemaVersion || input.EvolutionPromotion.Mode != evolution.PromotionMode || input.EvolutionPromotion.ActivePointers != 0 || input.EvolutionPromotion.AttemptCount < input.EvolutionPromotion.RecordedCount+input.EvolutionPromotion.BlockedCount || len(input.EvolutionPromotionSHA) != 64 {
+		return InterviewEvidencePackage{}, errors.New("harness promotion evidence is invalid")
+	}
+	if input.EvolutionShadow.SchemaVersion != evolution.ShadowControlSchemaVersion || input.EvolutionShadow.Mode != evolution.ShadowControlMode || input.EvolutionShadow.Scope != evolution.ShadowPointerScope || input.EvolutionShadow.AffectsLiveTraffic || input.EvolutionShadow.EventCount < input.EvolutionShadow.AppliedCount+input.EvolutionShadow.BlockedCount || len(input.EvolutionShadowSHA) != 64 {
+		return InterviewEvidencePackage{}, errors.New("harness shadow control evidence is invalid")
+	}
 	collaboration, ok := pairedComparisonByName(input.Paired, "collaboration_target_quality")
 	if !ok {
 		return InterviewEvidencePackage{}, errors.New("collaboration paired evidence is missing")
@@ -316,6 +401,12 @@ func buildInterviewEvidencePackage(input interviewEvidenceInputs) (InterviewEvid
 		{Name: "metric_catalog", Kind: "observability_contract", Version: input.MetricCatalog.CatalogVersion, SHA256: input.MetricCatalog.CatalogSHA256, GeneratedAt: input.Release.BuiltAt.UTC(), HumanReviewStatus: "not_applicable"},
 		{Name: "grafana_runtime", Kind: "observability_runtime", Version: input.Grafana.GrafanaVersion, SHA256: input.Grafana.Dashboard.DashboardSHA, GeneratedAt: input.Release.BuiltAt.UTC(), HumanReviewStatus: "not_applicable"},
 		{Name: "recommend_only_controller", Kind: "control_guardrail", Version: input.Control.ActivePolicy.Version, SHA256: input.ControlSHA, GeneratedAt: controlEvidenceGeneratedAt(input.Control, input.Release.BuiltAt), HumanReviewStatus: "not_applicable"},
+		{Name: "harness_evolution_lineage", Kind: "harness_lineage", Version: input.EvolutionLineage.SchemaVersion, SHA256: input.EvolutionLineageSHA, GeneratedAt: input.Release.BuiltAt.UTC(), HumanReviewStatus: "governed"},
+		{Name: "harness_evolution_split", Kind: "dataset_split", Version: input.EvolutionSplit.PolicyVersion, SHA256: input.EvolutionSplitSHA, GeneratedAt: input.Release.BuiltAt.UTC(), HumanReviewStatus: "pending_user"},
+		{Name: "harness_evolution_comparison", Kind: "paired_evaluation", Version: input.EvolutionComparison.ExperimentVersion, SHA256: input.EvolutionComparison.ReportSHA256, GeneratedAt: input.EvolutionComparison.GeneratedAt.UTC(), HumanReviewStatus: reviewStatus(input.EvolutionComparison.Promotion.HumanReviewComplete)},
+		{Name: "harness_control_acceptance", Kind: "control_acceptance", Version: input.EvolutionControl.TransitionVersion, SHA256: input.EvolutionControl.ReportSHA256, GeneratedAt: input.EvolutionControl.GeneratedAt.UTC(), HumanReviewStatus: "not_applicable"},
+		{Name: "harness_promotion_audit", Kind: "human_gate", Version: input.EvolutionPromotion.SchemaVersion, SHA256: input.EvolutionPromotionSHA, GeneratedAt: harnessPromotionGeneratedAt(input.EvolutionPromotion, input.Release.BuiltAt), HumanReviewStatus: fmt.Sprintf("attempts_%d", input.EvolutionPromotion.AttemptCount)},
+		{Name: "harness_shadow_control", Kind: "isolated_control", Version: input.EvolutionShadow.Mode, SHA256: input.EvolutionShadowSHA, GeneratedAt: harnessShadowGeneratedAt(input.EvolutionShadow, input.Release.BuiltAt), HumanReviewStatus: "governed"},
 	}
 	for _, source := range input.Paired.Sources {
 		sources = append(sources, InterviewEvidenceSource{Name: source.Name + "_ab", Kind: "paired_source", Version: source.CandidateVersion, SHA256: source.ReportSHA256, GeneratedAt: source.GeneratedAt.UTC(), HumanReviewStatus: reviewStatus(source.HumanReviewed)})
@@ -338,6 +429,7 @@ func buildInterviewEvidencePackage(input interviewEvidenceInputs) (InterviewEvid
 		buildMetricCatalogEvidenceStatement(input.MetricCatalog),
 		buildGrafanaEvidenceStatement(input.Grafana),
 		buildControlEvidenceStatement(input.Control),
+		buildHarnessEvolutionEvidenceStatement(input),
 	}
 	resumeReady := 0
 	for _, statement := range statements {
@@ -353,12 +445,13 @@ func buildInterviewEvidencePackage(input interviewEvidenceInputs) (InterviewEvid
 		SchemaVersion: interviewEvidenceSchemaVersion, ReleaseID: input.Release.ReleaseID, GitSHA: input.Release.GitSHA,
 		BuildStrategy: input.Release.BuildStrategy, Target: input.Release.Target, AllSourcesVerified: true,
 		ResumeReadyClaims: resumeReady, TotalClaims: len(statements), Status: status, Sources: sources, Statements: statements,
-		Guardrails: []string{"source_hash_required", "numerator_denominator_required_for_rates", "negative_results_preserved", "pending_human_review_blocks_resume_metric", "simulation_scope_disclosed", "no_active_policy_write"},
+		Guardrails: []string{"source_hash_required", "numerator_denominator_required_for_rates", "negative_results_preserved", "pending_human_review_blocks_resume_metric", "simulation_scope_disclosed", "no_active_policy_write", "harness_candidate_rejection_preserved", "isolated_shadow_not_live_traffic"},
 		Limitations: []string{
 			"证据包聚合已存在的不可变报告，不会把多个不同任务、模型调用或成本口径合并成一个总体收益率。",
 			"ResumeMetricEligible 只表示该条数字具备当前证据链；表述时仍必须同时披露样本量、环境和限制。",
 			"当前多 Agent、父子 RAG、Full 320 与 Judge 人工一致性仍受人工复核阻塞，不能写成已上线收益。",
 			"故障、恢复与控制器数字来自隔离验收或只建议审计，只能按其边界陈述，不能称为真实线上事故或自动优化收益。",
+			"Harness Evolution 当前证据证明了可复现的候选拒绝与控制治理，不证明自动候选提升质量，也不证明 Sealed Holdout 已被打开。",
 		},
 	}
 	if err := finalizeInterviewEvidencePackage(&result); err != nil {
@@ -602,6 +695,88 @@ func buildControlEvidenceStatement(audit controlrecommendation.AuditSnapshot) In
 	}
 }
 
+func buildHarnessEvolutionEvidenceStatement(input interviewEvidenceInputs) InterviewEvidenceStatement {
+	evolutionComparison, evolutionOK := harnessEvolvedComparison(input.EvolutionComparison, evolution.SplitEvolution)
+	validationComparison, validationOK := harnessEvolvedComparison(input.EvolutionComparison, evolution.SplitValidation)
+	promotionRejected, approvalBlocked := false, false
+	for _, attempt := range input.EvolutionPromotion.Latest {
+		promotionRejected = promotionRejected || attempt.RequestedDecision == evolution.PromotionDecisionReject && attempt.Outcome == evolution.PromotionOutcomeRecorded
+		approvalBlocked = approvalBlocked || attempt.RequestedDecision == evolution.PromotionDecisionApprove && attempt.Outcome == evolution.PromotionOutcomeBlocked
+	}
+	shadowCandidateBlocked, rollbackBlocked := false, false
+	for _, event := range input.EvolutionShadow.Latest {
+		shadowCandidateBlocked = shadowCandidateBlocked || event.Operation == evolution.ControlOperationShadow && event.Outcome == evolution.ControlOutcomeBlocked && event.ReasonCode == "controlled_fixture_not_promotable"
+		rollbackBlocked = rollbackBlocked || event.Operation == evolution.ControlOperationRollback && event.Outcome == evolution.ControlOutcomeBlocked && event.ReasonCode == "rollback_unavailable"
+	}
+	ready := evolutionOK && validationOK && input.EvolutionSplit.CoveredCases == input.EvolutionSplit.TotalCases && input.EvolutionSplit.OverlapCount == 0 &&
+		input.EvolutionComparison.Promotion.Decision == "rejected" && !input.EvolutionComparison.Promotion.Eligible && !input.EvolutionComparison.Candidate.ProductionCandidate && input.EvolutionComparison.Holdout.OpenCount == 0 &&
+		input.EvolutionControl.PassedCount == input.EvolutionControl.CaseCount && input.EvolutionControl.ProductionWrites == 0 && input.EvolutionControl.ProductionActivePointers == 0 &&
+		promotionRejected && approvalBlocked && input.EvolutionPromotion.ActivePointers == 0 && shadowCandidateBlocked && rollbackBlocked && input.EvolutionShadow.AppliedCount == 0 && len(input.EvolutionShadow.ActivePointers) == 0 && !input.EvolutionShadow.AffectsLiveTraffic
+	status, blockers := "verified_negative_control_result", []string{}
+	if !ready {
+		status, blockers = "technical_gate_failed", []string{"harness_evolution_evidence_incomplete_or_inconsistent"}
+	}
+	metrics := []InterviewEvidenceMetric{
+		{Name: "production_lineage_artifacts", Value: float64(input.EvolutionLineage.ArtifactCount), Unit: "count"},
+		rateMetric("split_coverage", input.EvolutionSplit.CoveredCases, input.EvolutionSplit.TotalCases),
+		{Name: "holdout_open_count", Value: float64(input.EvolutionComparison.Holdout.OpenCount), Unit: "count"},
+		rateMetric("control_state_machine_acceptance", input.EvolutionControl.PassedCount, input.EvolutionControl.CaseCount),
+		{Name: "human_rejections_recorded", Value: float64(input.EvolutionPromotion.RejectedCount), Unit: "count"},
+		{Name: "approval_attempts_blocked", Value: float64(input.EvolutionPromotion.BlockedCount), Unit: "count"},
+		{Name: "shadow_control_events_blocked", Value: float64(input.EvolutionShadow.BlockedCount), Unit: "count"},
+		{Name: "isolated_shadow_active_pointers", Value: float64(len(input.EvolutionShadow.ActivePointers)), Unit: "count"},
+	}
+	if evolutionOK {
+		pValue := evolutionComparison.Analysis.McNemarExactTwoSidedPValue
+		metrics = append(metrics, InterviewEvidenceMetric{Name: "evolution_candidate_mean_delta", Value: evolutionComparison.Analysis.MeanDelta, Unit: "ratio", CI95: &InterviewEvidenceInterval{Lower: evolutionComparison.Analysis.DeltaCI95Lower, Upper: evolutionComparison.Analysis.DeltaCI95Upper}, PValue: &pValue})
+	}
+	if validationOK {
+		pValue := validationComparison.Analysis.McNemarExactTwoSidedPValue
+		metrics = append(metrics, InterviewEvidenceMetric{Name: "validation_candidate_mean_delta", Value: validationComparison.Analysis.MeanDelta, Unit: "ratio", CI95: &InterviewEvidenceInterval{Lower: validationComparison.Analysis.DeltaCI95Lower, Upper: validationComparison.Analysis.DeltaCI95Upper}, PValue: &pValue})
+	}
+	return InterviewEvidenceStatement{
+		ID: "gated_harness_evolution_negative_result", Category: "harness_evolution", Title: "受门禁 Harness Evolution 的可复现负结果", Status: status, ResumeMetricEligible: ready,
+		Claim:      fmt.Sprintf("固定 %d/%d/%d 三分区对受控候选四方同预算比较：Evolution Δ%.1f%%、Validation Δ%.1f%%，上游收益门拒绝候选且 Holdout 打开 %d 次；CAS/rollback 状态机 %d/%d 通过，真实控制面 blocked=%d、isolated pointer=%d、线上流量未改变。", evolution.EvolutionCaseCount, evolution.ValidationCaseCount, evolution.HoldoutCaseCount, evolutionComparison.Analysis.MeanDelta*100, validationComparison.Analysis.MeanDelta*100, input.EvolutionComparison.Holdout.OpenCount, input.EvolutionControl.PassedCount, input.EvolutionControl.CaseCount, input.EvolutionShadow.BlockedCount, len(input.EvolutionShadow.ActivePointers)),
+		Metrics:    metrics,
+		SourceRefs: []string{"harness_evolution_lineage", "harness_evolution_split", "harness_evolution_comparison", "harness_control_acceptance", "harness_promotion_audit", "harness_shadow_control"}, Blockers: blockers,
+		ForbiddenOverclaims: []string{"不得称自动候选提升了质量或自进化成功", "不得称 Sealed Holdout 已执行或得到泛化收益", "不得把受控 Fixture 冒充生产失败池候选", "不得把隔离 Shadow 指针说成生产路由切流"},
+	}
+}
+
+func harnessEvolvedComparison(report evolution.ComparisonReport, splitName string) (evolution.NamedEvolutionComparison, bool) {
+	for _, split := range report.Splits {
+		if split.Split != splitName {
+			continue
+		}
+		for _, comparison := range split.Comparisons {
+			if comparison.CandidateVariant == evolution.VariantEvolved {
+				return comparison, true
+			}
+		}
+	}
+	return evolution.NamedEvolutionComparison{}, false
+}
+
+func harnessPromotionGeneratedAt(audit evolution.PromotionAudit, fallback time.Time) time.Time {
+	latest := fallback.UTC()
+	for _, attempt := range audit.Latest {
+		if attempt.CreatedAt.After(latest) {
+			latest = attempt.CreatedAt.UTC()
+		}
+	}
+	return latest
+}
+
+func harnessShadowGeneratedAt(audit evolution.ShadowControlAudit, fallback time.Time) time.Time {
+	latest := fallback.UTC()
+	for _, event := range audit.Latest {
+		if event.CreatedAt.After(latest) {
+			latest = event.CreatedAt.UTC()
+		}
+	}
+	return latest
+}
+
 func controlEvidenceGeneratedAt(audit controlrecommendation.AuditSnapshot, fallback time.Time) time.Time {
 	latest := fallback.UTC()
 	for _, item := range audit.Latest {
@@ -629,7 +804,7 @@ func rateMetric(name string, numerator, denominator int) InterviewEvidenceMetric
 }
 
 func finalizeInterviewEvidencePackage(report *InterviewEvidencePackage) error {
-	if report == nil || report.SchemaVersion != interviewEvidenceSchemaVersion || report.ReleaseID == "" || len(report.GitSHA) != 40 || !report.AllSourcesVerified || report.TotalClaims != len(report.Statements) || report.ResumeReadyClaims < 0 || report.ResumeReadyClaims > report.TotalClaims || len(report.Sources) < 12 || len(report.Statements) != 10 {
+	if report == nil || report.SchemaVersion != interviewEvidenceSchemaVersion || report.ReleaseID == "" || len(report.GitSHA) != 40 || !report.AllSourcesVerified || report.TotalClaims != len(report.Statements) || report.ResumeReadyClaims < 0 || report.ResumeReadyClaims > report.TotalClaims || len(report.Sources) < 18 || len(report.Statements) != 11 {
 		return errors.New("interview evidence package is invalid")
 	}
 	sourceNames := make(map[string]struct{}, len(report.Sources))

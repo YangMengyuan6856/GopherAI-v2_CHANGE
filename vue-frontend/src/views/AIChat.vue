@@ -3716,7 +3716,7 @@ export default {
 
     const interviewEvidenceStatusLabel = (status) => ({
       resume_ready: '简历指标就绪', candidate_only: '技术候选 · 待人工', negative_result: '负结果 · 保留',
-      calibration_pending: '人工校准未完成', technical_gate_failed: '技术门失败'
+      calibration_pending: '人工校准未完成', technical_gate_failed: '技术门失败', verified_negative_control_result: '负结果与治理证据就绪'
     }[status] || status)
 
     const interviewEvidenceMetricLabel = (name) => ({
@@ -3732,7 +3732,11 @@ export default {
       required_metric_contract_coverage: '核心契约覆盖', forbidden_label_hits: '高基数标签命中', series_budget_utilization: '序列预算使用',
       grafana_panel_count: 'Grafana 面板', grafana_query_count: 'PromQL 查询', grafana_group_count: '看板分组',
       grafana_public_exposure: '公网暴露', control_recommended_total: '累计建议', control_blocked_total: '累计阻断',
-      recent_control_applied: '最近实际应用', acceptance_recommended_present: '建议分支已验收', acceptance_blocked_present: '阻断分支已验收'
+      recent_control_applied: '最近实际应用', acceptance_recommended_present: '建议分支已验收', acceptance_blocked_present: '阻断分支已验收',
+      production_lineage_artifacts: '生产谱系候选', split_coverage: '分区覆盖', holdout_open_count: 'Holdout 打开次数',
+      control_state_machine_acceptance: 'CAS/回滚状态机验收', human_rejections_recorded: '人工拒绝记录', approval_attempts_blocked: '批准阻断',
+      shadow_control_events_blocked: 'Shadow 控制阻断', isolated_shadow_active_pointers: '隔离活动指针',
+      evolution_candidate_mean_delta: 'Evolution 候选质量差', validation_candidate_mean_delta: 'Validation 候选质量差'
     }[name] || name)
 
     const formatInterviewEvidenceMetric = (metric) => {

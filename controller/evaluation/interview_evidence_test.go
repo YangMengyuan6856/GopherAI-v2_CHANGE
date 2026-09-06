@@ -13,6 +13,7 @@ import (
 
 	"GopherAI/internal/controlrecommendation"
 	evaldomain "GopherAI/internal/evaluation"
+	"GopherAI/internal/evolution"
 	"GopherAI/internal/faultcampaign"
 	"GopherAI/internal/judgecalibration"
 	"GopherAI/internal/observability"
@@ -28,7 +29,7 @@ func TestBuildInterviewEvidencePackagePreservesProvenanceAndHumanBlockers(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(report.PackageSHA256) != 64 || !report.AllSourcesVerified || report.ResumeReadyClaims != 6 || report.TotalClaims != 10 || len(report.Sources) != 12 {
+	if len(report.PackageSHA256) != 64 || !report.AllSourcesVerified || report.ResumeReadyClaims != 7 || report.TotalClaims != 11 || len(report.Sources) != 18 {
 		t.Fatalf("unexpected evidence package: %+v", report)
 	}
 	byID := map[string]InterviewEvidenceStatement{}
@@ -46,6 +47,9 @@ func TestBuildInterviewEvidencePackagePreservesProvenanceAndHumanBlockers(t *tes
 			t.Fatalf("expected verified operational claim %s: %+v", id, byID[id])
 		}
 	}
+	if statement := byID["gated_harness_evolution_negative_result"]; !statement.ResumeMetricEligible || statement.Status != "verified_negative_control_result" || len(statement.SourceRefs) != 6 {
+		t.Fatalf("gated harness negative result was not preserved: %+v", statement)
+	}
 	encoded, _ := json.Marshal(report)
 	for _, forbidden := range []string{"OPENAI_API_KEY", "Bearer ", "question\"", "answer\""} {
 		if bytes.Contains(encoded, []byte(forbidden)) {
@@ -56,7 +60,7 @@ func TestBuildInterviewEvidencePackagePreservesProvenanceAndHumanBlockers(t *tes
 	if err := writeInterviewEvidenceMarkdown(&markdown, report); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(markdown.String(), report.PackageSHA256) || !strings.Contains(markdown.String(), "禁止夸大") || !strings.Contains(markdown.String(), "6/10") {
+	if !strings.Contains(markdown.String(), report.PackageSHA256) || !strings.Contains(markdown.String(), "禁止夸大") || !strings.Contains(markdown.String(), "7/11") {
 		t.Fatalf("markdown export is incomplete: %s", markdown.String())
 	}
 }
@@ -149,6 +153,31 @@ func validInterviewEvidenceInputs(t *testing.T) interviewEvidenceInputs {
 	if err != nil {
 		t.Fatal(err)
 	}
+	evolutionSplit, err := evolution.LoadSplitAudit("../../evals/devsupport-diagnostic-v1.jsonl", "../../evals/devsupport-eval-v1.manifest.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	evolutionSplitSHA, _ := digestInterviewEvidenceValue(evolutionSplit)
+	evolutionComparison, _, err := evolution.RunFairComparison(context.Background(), "../../evals/devsupport-diagnostic-v1.jsonl", "../../evals/devsupport-eval-v1.manifest.json", nil, time.Unix(60, 0).UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	evolutionControl, err := evolution.RunControlAcceptance(context.Background(), time.Unix(61, 0).UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	evolutionLineage := evolution.Audit{SchemaVersion: evolution.SchemaVersion, Mode: evolution.Mode, ActivePointers: 0, AppliedCount: 0}
+	evolutionLineageSHA, _ := digestInterviewEvidenceValue(evolutionLineage)
+	evolutionPromotion := evolution.PromotionAudit{SchemaVersion: evolution.PromotionSchemaVersion, Mode: evolution.PromotionMode, CanReview: true, AttemptCount: 2, RecordedCount: 1, BlockedCount: 1, RejectedCount: 1, ActivePointers: 0, Latest: []evolution.PromotionAttemptView{
+		{ID: strings.Repeat("1", 64), RequestedDecision: evolution.PromotionDecisionReject, Outcome: evolution.PromotionOutcomeRecorded, ReasonCode: "candidate_no_measured_gain", AttemptSHA256: strings.Repeat("1", 64), CreatedAt: time.Unix(62, 0).UTC()},
+		{ID: strings.Repeat("2", 64), RequestedDecision: evolution.PromotionDecisionApprove, Outcome: evolution.PromotionOutcomeBlocked, ReasonCode: "controlled_fixture_not_promotable", AttemptSHA256: strings.Repeat("2", 64), CreatedAt: time.Unix(63, 0).UTC()},
+	}}
+	evolutionPromotionSHA, _ := digestInterviewEvidenceValue(evolutionPromotion)
+	evolutionShadow := evolution.ShadowControlAudit{SchemaVersion: evolution.ShadowControlSchemaVersion, Mode: evolution.ShadowControlMode, Scope: evolution.ShadowPointerScope, CanControl: true, EventCount: 2, AppliedCount: 0, BlockedCount: 2, ActivePointers: []evolution.ShadowPointerView{}, AffectsLiveTraffic: false, Latest: []evolution.ShadowControlEventView{
+		{ID: strings.Repeat("3", 64), Operation: evolution.ControlOperationShadow, Outcome: evolution.ControlOutcomeBlocked, ReasonCode: "controlled_fixture_not_promotable", EventSHA256: strings.Repeat("3", 64), CreatedAt: time.Unix(64, 0).UTC()},
+		{ID: strings.Repeat("4", 64), Operation: evolution.ControlOperationRollback, Outcome: evolution.ControlOutcomeBlocked, ReasonCode: "rollback_unavailable", EventSHA256: strings.Repeat("4", 64), CreatedAt: time.Unix(65, 0).UTC()},
+	}}
+	evolutionShadowSHA, _ := digestInterviewEvidenceValue(evolutionShadow)
 	return interviewEvidenceInputs{
 		Release: interviewReleaseManifest{
 			ReleaseID: "release-current", Branch: "add_eico", GitSHA: strings.Repeat("a", 40), BuiltAt: time.Unix(10, 0).UTC(),
@@ -163,6 +192,9 @@ func validInterviewEvidenceInputs(t *testing.T) interviewEvidenceInputs {
 		},
 		FaultCampaign: faultReport, FaultGeneratedAt: time.Unix(35, 0).UTC(), Reliability: reliabilityReport,
 		MetricCatalog: metricHandler.report, Grafana: grafana, Control: control, ControlSHA: controlSHA,
+		EvolutionLineage: evolutionLineage, EvolutionLineageSHA: evolutionLineageSHA, EvolutionSplit: evolutionSplit, EvolutionSplitSHA: evolutionSplitSHA,
+		EvolutionComparison: evolutionComparison, EvolutionControl: evolutionControl, EvolutionPromotion: evolutionPromotion, EvolutionPromotionSHA: evolutionPromotionSHA,
+		EvolutionShadow: evolutionShadow, EvolutionShadowSHA: evolutionShadowSHA,
 	}
 }
 
