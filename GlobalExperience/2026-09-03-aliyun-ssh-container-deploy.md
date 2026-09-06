@@ -1561,3 +1561,11 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - `e3e5ce4d` 用 Full 320 中 SHA 已冻结的 40 条诊断切片作为 Harness Evolution 专项数据源。每次读取先验证完整 Catalog 和诊断文件 SHA，再按带版本的稳定 Hash 排序固定切成 `20 evolution / 10 validation / 10 sealed holdout`；不是在每次实验中重新随机切分。集合 Hash 分别为 `02e214bd0407… / 3b39fd67adec… / 0f3fe5c8d017…`，覆盖 40/40、重复与交叉均为 0。
 - 页面/API 只返回 split 名称、数量、集合承诺 Hash、用途与 Seal 状态，不返回 Case ID 或正文。候选搜索只允许 Evolution；Validation 只有候选冻结后可读；Holdout 只允许最终评测阶段且打开过后同一实验版本拒绝再开。当前没有 Holdout 打开 API，先把门禁和 8 项确定性验收落地，避免在 M9-23 评测器尚未实现时提前暴露最终集。
 - Release `20260906204216-e3e5ce4de8c3`，bundle SHA-256 `117b1c9b0e03a1eebfd5d04b11b447f3956cf9f6526222d393d50b7faf7f6cbf`；真实浏览器显示 Source Hash 已核验、三分区 `20/10/10`、Overlap 0、Holdout 打开 0、开放 API 否，防泄漏验收 `8/8`。诊断集人工状态仍是 `pending_user`，因此后续即使技术 A/B 有提升也不能自动晋级。
+
+## 80. 2026-09-06 公平 A/B 的价值也包括可信地拒绝候选
+
+- `8b4b5a8a` 增加四方受控离线比较：旧 Harness、人工规则、同预算 test-time scaling、自动候选使用完全相同的 Evolution/Validation Case、每 Case 一次分析、0 模型调用、0 Token 和 0 估算成本；TTS 与自动候选公开标记一次反馈轮。报告继续复用既有 paired bootstrap 与精确双侧 McNemar，不允许用不同数据或隐藏预算制造优势。
+- 自动候选由同一白名单 Proposer 从受控、脱敏、不落库的失败 Fixture 生成，内容为 `minimum_citations=2`，明确标记 `ProductionCandidate=false`。这能验证 lineage、预算、统计和拒绝链路，但不是生产 Failure Pool 候选，也不是 LLM Prompt 质量实验；页面必须原样披露这个限制。
+- 真实生产运行中，Evolution 为 `97.6%→93.6%`、差值 `-4.0%`、95% CI `[-6.0%,-2.0%]`、McNemar `p=0.5000`；Validation 为 `97.9%→96.9%`、差值 `-1.0%`、95% CI `[-3.0%,0.0%]`、`p=1.0000`。人工规则和同预算 TTS 都与基线持平。Promotion 因上游收益、人工标签和 Fixture 身份被拒绝，Holdout 保持 `sealed/open_count=0`，generalization gap 不计算。
+- Release `20260906214114-8b4b5a8a60c9`，bundle SHA-256 `3e5e05e86890bbc4d2028dae82955c922d0481b918412bef33607e84d941288b`；规范报告短 Hash 为 `6e3b405ac716`，物理文件 `/root/GopherAI_Runtime/evaluation/harness-evolution-comparison-latest.json` 权限/大小为 `0640/13540 bytes`，文件 SHA-256 为 `11a6b698e0fd3e3d37a8851b12a85d9a3bfd4fd74464eb0058ae81291044c0f5`。第二次点击保持相同报告 Hash 和 Holdout 0 次，证明相同实验被复用。
+- 报告持久化校验不能只复算整体 SHA。还应重建受控候选并逐字段比较，重新推导 experiment identity，核对四方顺序/预算/成功率、成对比较的样本数和均值、CI/p 值边界、Promotion flags/reason codes 与 Holdout 状态。否则攻击者或错误代码可能在重算 SHA 后保存一份内部自相矛盾但“哈希正确”的报告。
