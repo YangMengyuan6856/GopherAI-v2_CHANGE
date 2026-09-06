@@ -1613,3 +1613,11 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 首次发布暴露 Windows `core.autocrlf=true` 的隐蔽漂移：同一个 commit 经 `git archive` 导出的六个 JSONL 全由 LF 变成 CRLF，目录仍在但 SHA 全部失败，公网页面返回 422。Git SHA 只能标识对象，若导出阶段套用机器级换行策略，最终字节仍不可复现。
 - `3aba2f04` 在归档命令上固定 `git -c core.autocrlf=false archive`，并在上传前重新验证六个 Slice 的 SHA、非空行数和 Catalog 总数 `320`。门禁是在实际待上传目录上执行，因此能覆盖工作区测试无法发现的打包转换。Release `20260907033715-3aba2f043f87`，bundle SHA-256 `b90976d401d5c69ca53c05b1d17168be806322bbe2e20f74bd44e19a059a5b1a`；真实页面恢复 `320/320`、六切片 Hash/Schema 全通过。
 - 当前发布 Backend、Worker、Prometheus `2/2` targets、Grafana、MCP 和静态前端网关均通过。监控窗口启动后直接进入 `warming`，没有再次出现首轮 capture failure；MCP 发布证据 `18ms` 返回当前 release、完整 Git SHA 与构建 flags。经验：发布成功的定义应同时包含基础健康、数据契约、受治理工具和真实浏览器关键路径，而不是只有进程存活。
+
+## 87. 2026-09-07 面试演示应使用单步导览，不应压缩整个工程工作台
+
+- `32d4b874` 增加只读的 `3～5 分钟面试导览`、根目录架构 README 和中文追问卡。导览一次只展示场景/路由、证据 RAG、有限多 Agent、工具/记忆、评测闭环中的一个步骤；每步都包含现场操作、预期证据、主动披露边界和一个高频追问。它只读取当前 Release、Full 320、统一评测、清理审计和面试证据包，不执行工具、不修改策略、不替换正式聊天。
+- Release `20260907043102-32d4b8747fde`，bundle SHA-256 `413ce49d1be68195066ddaac188dc065e948aecbdaabed810196af04684ff289`，可追溯条目 `694`。全量 Go/MCP 测试、Vue production build、Linux 交叉编译、Full 320 六切片精确 SHA、Prometheus `2/2`、Grafana 私网 Dashboard 和五进程健康门全部通过。
+- 新 Release 会让上一版本清理报告失去版本绑定，因此首次读取证据包返回 503 是正确的 fail-closed。页面运行一次只读清理审计后，报告绑定当前 Git SHA，证据包恢复为 `8/12`、19 个来源 Hash 全通过；清理状态为 11/11 终态、9 删除、2 保留、0 阻断、旧入口 24h 调用 0、覆盖率 93.2%，Tracked Source 因新增 README/讲稿从 546 变为 548。
+- 真实浏览器在 1280×720、设备缩放 100% 下确认导览面板宽 `950px`、工作区 `clientHeight=389/scrollHeight=748`、`overflow-y=auto`。页签能切到第 5 步，追问可展开，第 2 步能准确跳转“证据检索”并关闭导览。验收长工作台时应提供独立滚动容器、折叠或分页，不得要求用户把整个页面缩小到文字不可读。
+- 本次启动第一次指标采集仍出现一次 `capture_failed`，下一分钟起持续恢复为 `warming/points=2`，未再次失败且无 panic；发布健康门通过不等于可以忽略异步后台任务，仍要在至少一个调度周期后复核日志。
