@@ -16,6 +16,7 @@ import (
 type catalogReviewServiceStub struct {
 	workbench catalogreview.Workbench
 	receipt   catalogreview.Receipt
+	evidence  catalogreview.EvidenceSnapshot
 	err       error
 	reviewer  string
 	query     catalogreview.Query
@@ -30,6 +31,11 @@ func (stub *catalogReviewServiceStub) List(_ context.Context, reviewer string, q
 func (stub *catalogReviewServiceStub) Submit(_ context.Context, reviewer string, command catalogreview.ReviewCommand) (catalogreview.Receipt, error) {
 	stub.reviewer, stub.command = reviewer, command
 	return stub.receipt, stub.err
+}
+
+func (stub *catalogReviewServiceStub) Evidence(_ context.Context, reviewer string) (catalogreview.EvidenceSnapshot, error) {
+	stub.reviewer = reviewer
+	return stub.evidence, stub.err
 }
 
 func TestCatalogReviewHandlerUsesPrincipalAndStrictPagination(t *testing.T) {
@@ -77,11 +83,42 @@ func TestCatalogReviewHandlerMapsStaleRevisionToConflict(t *testing.T) {
 	}
 }
 
+func TestCatalogReviewHandlerDownloadsValidatedEvidenceFormats(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	report := catalogreview.EvidenceSnapshot{
+		SchemaVersion: catalogreview.EvidenceSchemaVersion, DatasetVersion: "dataset-v1", CatalogSHA256: strings.Repeat("a", 64),
+		ReviewerScope: "current_authenticated_reviewer", Status: "human_review_in_progress", TotalCases: 3,
+		PendingCases: 3, ReviewSetSHA256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		Entries: []catalogreview.EvidenceEntry{}, Guardrails: []string{"self_hash_verified"}, Limitations: []string{"not a baseline"},
+	}
+	if err := catalogreview.FinalizeEvidenceSnapshot(&report); err != nil {
+		t.Fatal(err)
+	}
+	stub := &catalogReviewServiceStub{evidence: report}
+	router := catalogReviewTestRouter(stub)
+	jsonResponse := httptest.NewRecorder()
+	router.ServeHTTP(jsonResponse, httptest.NewRequest(http.MethodGet, "/reviews/evidence?format=json", nil))
+	if jsonResponse.Code != http.StatusOK || stub.reviewer != "alice" || !strings.Contains(jsonResponse.Header().Get("Content-Disposition"), ".json") || !strings.Contains(jsonResponse.Body.String(), report.SnapshotSHA256) {
+		t.Fatalf("JSON evidence download failed: %d headers=%v body=%s", jsonResponse.Code, jsonResponse.Header(), jsonResponse.Body.String())
+	}
+	markdownResponse := httptest.NewRecorder()
+	router.ServeHTTP(markdownResponse, httptest.NewRequest(http.MethodGet, "/reviews/evidence?format=markdown", nil))
+	if markdownResponse.Code != http.StatusOK || !strings.Contains(markdownResponse.Header().Get("Content-Disposition"), ".md") || !strings.Contains(markdownResponse.Body.String(), "0/3") {
+		t.Fatalf("Markdown evidence download failed: %d headers=%v body=%s", markdownResponse.Code, markdownResponse.Header(), markdownResponse.Body.String())
+	}
+	invalid := httptest.NewRecorder()
+	router.ServeHTTP(invalid, httptest.NewRequest(http.MethodGet, "/reviews/evidence?format=pdf", nil))
+	if invalid.Code != http.StatusBadRequest || !strings.Contains(invalid.Body.String(), "INVALID_CATALOG_REVIEW_EVIDENCE_FORMAT") {
+		t.Fatalf("invalid evidence format was accepted: %d %s", invalid.Code, invalid.Body.String())
+	}
+}
+
 func catalogReviewTestRouter(service CatalogReviewService) *gin.Engine {
 	handler := NewCatalogReviewHandler(service)
 	router := gin.New()
 	router.Use(func(context *gin.Context) { context.Set("userName", "alice"); context.Next() })
 	router.GET("/reviews", handler.List)
 	router.POST("/reviews", handler.Submit)
+	router.GET("/reviews/evidence", handler.Evidence)
 	return router
 }

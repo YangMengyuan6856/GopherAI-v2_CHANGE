@@ -3,6 +3,7 @@ package catalogreview
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -170,6 +171,66 @@ func TestServiceRejectsInvalidPaginationAndFilters(t *testing.T) {
 		if _, err := service.List(context.Background(), "alice", query); !errors.Is(err, ErrInvalidQuery) {
 			t.Fatalf("invalid query was accepted: %+v err=%v", query, err)
 		}
+	}
+}
+
+func TestEvidenceSnapshotIsSelfHashedAndTracksLatestRevision(t *testing.T) {
+	snapshot := reviewSnapshot()
+	repository := new(memoryRepository)
+	clockValue := time.Date(2026, 9, 7, 9, 0, 0, 0, time.UTC)
+	service := NewService(artifactStub{snapshot: snapshot}, repository, func() time.Time { return clockValue })
+	empty, err := service.Evidence(context.Background(), "alice")
+	if err != nil || empty.ReviewedCases != 0 || empty.PendingCases != 3 || empty.ReadyForSealedMaterialization || len(empty.SnapshotSHA256) != 64 || len(empty.Entries) != 0 {
+		t.Fatalf("unexpected empty evidence: %+v err=%v", empty, err)
+	}
+	if err := ValidateEvidenceSnapshot(empty, true); err != nil {
+		t.Fatalf("empty evidence did not self-validate: %v", err)
+	}
+	command := ReviewCommand{CatalogSHA256: snapshot.CatalogSHA256, CaseID: "case-1", CaseSHA256: snapshot.Cases[0].CaseSHA256, ExpectedRevision: 0, Decision: "approved", ReasonCodes: []string{"label_verified"}, IdempotencyKey: "catalog-evidence-case-1-v1", Acknowledgment: Acknowledgment}
+	if _, err := service.Submit(context.Background(), "alice", command); err != nil {
+		t.Fatal(err)
+	}
+	partial, err := service.Evidence(context.Background(), "alice")
+	if err != nil || partial.ReviewedCases != 1 || partial.ApprovedCases != 1 || partial.PendingCases != 2 || len(partial.Entries) != 1 || partial.Entries[0].CaseID != "case-1" || partial.LastReviewedAt == nil || !partial.LastReviewedAt.Equal(clockValue) {
+		t.Fatalf("unexpected partial evidence: %+v err=%v", partial, err)
+	}
+	markdown, err := RenderEvidenceMarkdown(partial)
+	if err != nil || !strings.Contains(markdown, "1/3") || !strings.Contains(markdown, partial.SnapshotSHA256) || strings.Contains(markdown, "first") {
+		t.Fatalf("markdown evidence leaked payload or omitted proof: err=%v markdown=%s", err, markdown)
+	}
+	tampered := partial
+	tampered.ApprovedCases = 2
+	if err := ValidateEvidenceSnapshot(tampered, true); err == nil {
+		t.Fatal("tampered evidence unexpectedly validated")
+	}
+	staleCase := partial
+	staleCase.Entries = append([]EvidenceEntry(nil), partial.Entries...)
+	staleCase.Entries[0].CaseSHA256 = strings.Repeat("f", 64)
+	if err := FinalizeEvidenceSnapshot(&staleCase); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateEvidenceAgainstSnapshot(staleCase, snapshot); err == nil {
+		t.Fatal("self-consistent evidence with a stale case hash matched the catalog")
+	}
+}
+
+func TestEvidenceSnapshotBecomesReadyOnlyWhenEveryCaseIsApproved(t *testing.T) {
+	snapshot := reviewSnapshot()
+	repository := new(memoryRepository)
+	service := NewService(artifactStub{snapshot: snapshot}, repository, time.Now)
+	for index, item := range snapshot.Cases {
+		_, err := service.Submit(context.Background(), "alice", ReviewCommand{
+			CatalogSHA256: snapshot.CatalogSHA256, CaseID: item.ID, CaseSHA256: item.CaseSHA256,
+			ExpectedRevision: 0, Decision: "approved", ReasonCodes: []string{"label_verified"},
+			IdempotencyKey: fmt.Sprintf("catalog-evidence-ready-%04d", index), Acknowledgment: Acknowledgment,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	report, err := service.Evidence(context.Background(), "alice")
+	if err != nil || !report.ReadyForSealedMaterialization || report.Status != "ready_for_sealed_materialization" || report.ReviewedCases != 3 || report.ApprovedCases != 3 {
+		t.Fatalf("complete evidence was not ready: %+v err=%v", report, err)
 	}
 }
 

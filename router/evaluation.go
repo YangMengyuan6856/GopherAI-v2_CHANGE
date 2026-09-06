@@ -46,6 +46,7 @@ func RegisterEvaluationRouter(group *gin.RouterGroup) {
 	group.GET("/catalog/latest", catalogHandler.Latest)
 	group.GET("/catalog/reviews", catalogReviewHandler.List)
 	group.POST("/catalog/reviews", catalogReviewHandler.Submit)
+	group.GET("/catalog/reviews/evidence", catalogReviewHandler.Evidence)
 	group.GET("/unified/latest", unifiedHandler.Latest)
 	group.POST("/anomaly/simulate", anomalyHandler.Simulate)
 	group.GET("/anomaly/production/latest", anomalyHandler.ProductionLatest)

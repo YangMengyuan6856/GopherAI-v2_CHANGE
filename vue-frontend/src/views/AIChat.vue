@@ -1707,9 +1707,14 @@
                 <strong>人工逐例复核队列</strong>
                 <span>分页读取、断点续审、追加修订；不会直接改写冻结数据集</span>
               </div>
-              <button :disabled="loadingCatalogReview" @click="toggleCatalogReviewWorkbench">
-                {{ loadingCatalogReview ? '加载中...' : (catalogReviewOpen ? '收起复核台' : '打开复核台') }}
-              </button>
+              <div class="catalog-review-entry-actions">
+                <button :disabled="downloadingCatalogReviewEvidence" @click="downloadCatalogReviewEvidence('json')">
+                  {{ downloadingCatalogReviewEvidence ? '导出中...' : '导出当前证据' }}
+                </button>
+                <button :disabled="loadingCatalogReview" @click="toggleCatalogReviewWorkbench">
+                  {{ loadingCatalogReview ? '加载中...' : (catalogReviewOpen ? '收起复核台' : '打开复核台') }}
+                </button>
+              </div>
             </div>
             <section v-if="catalogReviewOpen" class="catalog-review-workbench">
               <div v-if="catalogReviewWorkbench" class="catalog-review-body">
@@ -2605,6 +2610,7 @@ export default {
     const catalogReviewOpen = ref(false)
     const loadingCatalogReview = ref(false)
     const submittingCatalogReview = ref(false)
+    const downloadingCatalogReviewEvidence = ref(false)
     const catalogReviewWorkbench = ref(null)
     const catalogReviewSlice = ref('')
     const catalogReviewStatus = ref('pending')
@@ -4143,6 +4149,28 @@ export default {
     }[reason] || reason)
     const formatCatalogReviewContent = (content) => JSON.stringify(content || {}, null, 2)
 
+    const downloadCatalogReviewEvidence = async (format) => {
+      if (downloadingCatalogReviewEvidence.value || !['json', 'markdown'].includes(format)) return
+      try {
+        downloadingCatalogReviewEvidence.value = true
+        const response = await api.get('/evaluations/catalog/reviews/evidence', { params: { format }, responseType: 'blob' })
+        const blob = new Blob([response.data], { type: format === 'json' ? 'application/json' : 'text/markdown;charset=utf-8' })
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = `gopherai-full-320-review-evidence.${format === 'json' ? 'json' : 'md'}`
+        document.body.appendChild(link)
+        link.click()
+        link.remove()
+        URL.revokeObjectURL(url)
+        ElMessage.success('当前人工复核证据已下载；未完成状态不会被包装成正式基线')
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || '人工复核证据下载失败')
+      } finally {
+        downloadingCatalogReviewEvidence.value = false
+      }
+    }
+
     const evaluationStatusLabel = (status) => ({
       technical_candidate: '技术候选 · 不可切流', rejected: '技术门拒绝', baseline_eligible: '可冻结基线 · 仍不可自动切流'
     }[status] || status)
@@ -5198,6 +5226,7 @@ export default {
       catalogReviewOpen,
       loadingCatalogReview,
       submittingCatalogReview,
+      downloadingCatalogReviewEvidence,
       catalogReviewWorkbench,
       catalogReviewSlice,
       catalogReviewStatus,
@@ -5424,6 +5453,7 @@ export default {
       catalogReviewDecisionLabel,
       catalogReviewReasonLabel,
       formatCatalogReviewContent,
+      downloadCatalogReviewEvidence,
       evaluationStatusLabel,
       evaluationFailureLabel,
       pairedComparisonLabel,
@@ -8709,6 +8739,13 @@ export default {
 .catalog-review-submit:disabled {
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+.catalog-review-entry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
 }
 
 .catalog-review-workbench,

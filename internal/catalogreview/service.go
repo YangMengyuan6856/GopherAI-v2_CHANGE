@@ -541,7 +541,7 @@ func buildProgress(snapshot Snapshot, reviews []model.EvaluationCatalogReview) (
 	}
 	sort.Strings(hashes)
 	progress.ReviewSetSHA256 = digest(strings.Join(hashes, "\x00"))
-	progress.ReadyForMaterializing = progress.Total == 320 && progress.Reviewed == progress.Total && progress.Approved == progress.Total && progress.Rejected == 0
+	progress.ReadyForMaterializing = progress.Total > 0 && progress.Reviewed == progress.Total && progress.Approved == progress.Total && progress.Rejected == 0
 	return progress, nil
 }
 

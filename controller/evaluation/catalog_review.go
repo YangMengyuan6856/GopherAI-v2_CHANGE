@@ -25,6 +25,7 @@ const (
 type CatalogReviewService interface {
 	List(context.Context, string, catalogreview.Query) (catalogreview.Workbench, error)
 	Submit(context.Context, string, catalogreview.ReviewCommand) (catalogreview.Receipt, error)
+	Evidence(context.Context, string) (catalogreview.EvidenceSnapshot, error)
 }
 
 type CatalogReviewHandler struct{ service CatalogReviewService }
@@ -125,6 +126,43 @@ func (handler *CatalogReviewHandler) Submit(ginContext *gin.Context) {
 	}
 	ginContext.Header("Cache-Control", "no-store")
 	ginContext.JSON(http.StatusOK, receipt)
+}
+
+func (handler *CatalogReviewHandler) Evidence(ginContext *gin.Context) {
+	if handler == nil || handler.service == nil {
+		writeCatalogReviewError(ginContext, http.StatusServiceUnavailable, "CATALOG_REVIEW_EVIDENCE_UNAVAILABLE", "复核证据快照暂不可用", true)
+		return
+	}
+	format := strings.TrimSpace(ginContext.DefaultQuery("format", "json"))
+	if format != "json" && format != "markdown" {
+		writeCatalogReviewError(ginContext, http.StatusBadRequest, "INVALID_CATALOG_REVIEW_EVIDENCE_FORMAT", "复核证据只支持 json 或 markdown", false)
+		return
+	}
+	ctx, cancel := context.WithTimeout(ginContext.Request.Context(), 5*time.Second)
+	defer cancel()
+	report, err := handler.service.Evidence(ctx, ginContext.GetString("userName"))
+	if err != nil {
+		writeCatalogReviewError(ginContext, http.StatusServiceUnavailable, "CATALOG_REVIEW_EVIDENCE_UNAVAILABLE", "复核证据快照暂不可用", true)
+		return
+	}
+	ginContext.Header("Cache-Control", "no-store")
+	if format == "markdown" {
+		content, renderErr := catalogreview.RenderEvidenceMarkdown(report)
+		if renderErr != nil {
+			writeCatalogReviewError(ginContext, http.StatusServiceUnavailable, "CATALOG_REVIEW_EVIDENCE_INVALID", "复核证据快照校验失败", false)
+			return
+		}
+		ginContext.Header("Content-Disposition", `attachment; filename="full-320-review-evidence.md"`)
+		ginContext.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(content))
+		return
+	}
+	content, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		writeCatalogReviewError(ginContext, http.StatusServiceUnavailable, "CATALOG_REVIEW_EVIDENCE_INVALID", "复核证据快照校验失败", false)
+		return
+	}
+	ginContext.Header("Content-Disposition", `attachment; filename="full-320-review-evidence.json"`)
+	ginContext.Data(http.StatusOK, "application/json; charset=utf-8", append(content, '\n'))
 }
 
 func positiveQueryInt(value string, fallback int) (int, error) {

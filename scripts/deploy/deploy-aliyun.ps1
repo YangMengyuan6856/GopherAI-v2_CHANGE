@@ -266,6 +266,12 @@ function Build-LocalLinuxArtifacts {
         "-o", (Join-Path $ArtifactDirectory "GopherAI-cleanup-audit"),
         "./cmd/cleanup-audit"
     )
+    Write-Host "[build] Full 320 review evidence verifier linux/amd64 CGO_ENABLED=0"
+    Invoke-Checked -FilePath $GoExecutable -Arguments @(
+        "-C", $RepoRoot, "build", "-p", "1", "-trimpath", "-ldflags=-s -w",
+        "-o", (Join-Path $ArtifactDirectory "GopherAI-catalog-review-evidence"),
+        "./cmd/catalog-review-evidence"
+    )
 }
 
 function Assert-EvaluationCatalogReleaseIntegrity {
@@ -412,7 +418,7 @@ try {
         target = "linux/amd64"
         go_version = $goVersion
         go_build_flags = @("-p=1", "-trimpath", "-ldflags=-s -w")
-        included_components = @("backend", "index-worker", "mcp", "frontend-static-gateway", "frontend-dist", "collaboration-eval", "parent-context-eval", "unified-eval-runner", "grafana-dashboard-validator", "bounded-performance-eval", "judge-calibration", "cleanup-audit-sealer")
+        included_components = @("backend", "index-worker", "mcp", "frontend-static-gateway", "frontend-dist", "collaboration-eval", "parent-context-eval", "unified-eval-runner", "grafana-dashboard-validator", "bounded-performance-eval", "judge-calibration", "cleanup-audit-sealer", "catalog-review-evidence-verifier")
         config_included = [bool]$DeployConfig
         migrations = @()
         rollback = "previous-directory"
@@ -551,6 +557,7 @@ if [ "$build_in_container" = "true" ]; then
   (cd "$new_path" && go build -p 1 -trimpath -ldflags='-s -w' -o GopherAI-perf-eval ./cmd/perf-eval)
   (cd "$new_path" && go build -p 1 -trimpath -ldflags='-s -w' -o GopherAI-judge-calibration ./cmd/judge-calibration)
   (cd "$new_path" && go build -p 1 -trimpath -ldflags='-s -w' -o GopherAI-cleanup-audit ./cmd/cleanup-audit)
+  (cd "$new_path" && go build -p 1 -trimpath -ldflags='-s -w' -o GopherAI-catalog-review-evidence ./cmd/catalog-review-evidence)
 else
   echo "[container] installing locally built Linux binaries"
   test -f "$new_path/.deploy-bin/GopherAI"
@@ -564,6 +571,7 @@ else
   test -f "$new_path/.deploy-bin/GopherAI-perf-eval"
   test -f "$new_path/.deploy-bin/GopherAI-judge-calibration"
   test -f "$new_path/.deploy-bin/GopherAI-cleanup-audit"
+  test -f "$new_path/.deploy-bin/GopherAI-catalog-review-evidence"
   cp "$new_path/.deploy-bin/GopherAI" "$new_path/GopherAI"
   cp "$new_path/.deploy-bin/GopherAI-index-worker" "$new_path/GopherAI-index-worker"
   cp "$new_path/.deploy-bin/gopherai-mcp" "$new_path/common/mcp/gopherai-mcp"
@@ -575,7 +583,8 @@ else
   cp "$new_path/.deploy-bin/GopherAI-perf-eval" "$new_path/GopherAI-perf-eval"
   cp "$new_path/.deploy-bin/GopherAI-judge-calibration" "$new_path/GopherAI-judge-calibration"
   cp "$new_path/.deploy-bin/GopherAI-cleanup-audit" "$new_path/GopherAI-cleanup-audit"
-  chmod 0755 "$new_path/GopherAI" "$new_path/GopherAI-index-worker" "$new_path/common/mcp/gopherai-mcp" "$new_path/GopherAI-frontend" "$new_path/GopherAI-collaboration-eval" "$new_path/GopherAI-parent-context-eval" "$new_path/GopherAI-eval-runner" "$new_path/GopherAI-dashboard-validator" "$new_path/GopherAI-perf-eval" "$new_path/GopherAI-judge-calibration" "$new_path/GopherAI-cleanup-audit"
+  cp "$new_path/.deploy-bin/GopherAI-catalog-review-evidence" "$new_path/GopherAI-catalog-review-evidence"
+  chmod 0755 "$new_path/GopherAI" "$new_path/GopherAI-index-worker" "$new_path/common/mcp/gopherai-mcp" "$new_path/GopherAI-frontend" "$new_path/GopherAI-collaboration-eval" "$new_path/GopherAI-parent-context-eval" "$new_path/GopherAI-eval-runner" "$new_path/GopherAI-dashboard-validator" "$new_path/GopherAI-perf-eval" "$new_path/GopherAI-judge-calibration" "$new_path/GopherAI-cleanup-audit" "$new_path/GopherAI-catalog-review-evidence"
   rm -rf -- "$new_path/.deploy-bin"
 fi
 
@@ -902,7 +911,7 @@ fi
 
 echo "[container] release active: $release_id"
 echo "[container] bundle sha256: $expected_sha"
-sha256sum "$project_path/GopherAI" "$project_path/GopherAI-index-worker" "$project_path/common/mcp/gopherai-mcp" "$project_path/GopherAI-frontend" "$project_path/GopherAI-collaboration-eval" "$project_path/GopherAI-parent-context-eval" "$project_path/GopherAI-eval-runner" "$project_path/GopherAI-dashboard-validator" "$project_path/GopherAI-cleanup-audit" 2>/dev/null || true
+sha256sum "$project_path/GopherAI" "$project_path/GopherAI-index-worker" "$project_path/common/mcp/gopherai-mcp" "$project_path/GopherAI-frontend" "$project_path/GopherAI-collaboration-eval" "$project_path/GopherAI-parent-context-eval" "$project_path/GopherAI-eval-runner" "$project_path/GopherAI-dashboard-validator" "$project_path/GopherAI-cleanup-audit" "$project_path/GopherAI-catalog-review-evidence" 2>/dev/null || true
 pgrep -af '^\./GopherAI$|^\./GopherAI-index-worker$|^prometheus .*deploy/observability/prometheus.yml|[/]usr/share/grafana/bin/grafana server .*deploy/observability/grafana/grafana.ini|^\./gopherai-mcp -mode server$|^\./GopherAI-frontend |node .*vue-cli-service.*serve' || true
 echo "[container] sanitized backend log tail"
 tail -n 30 "$project_path/backend.log" 2>/dev/null | sed -E 's#(amqp://)[^@]+@#\1***:***@#g' || true
