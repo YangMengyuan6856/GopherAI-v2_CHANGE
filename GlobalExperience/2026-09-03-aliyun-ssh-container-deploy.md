@@ -1599,3 +1599,17 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 当前受控候选在 Evolution/Validation 上分别为 `-4.0%/-1.0%`，并且 `ProductionCandidate=false`。因此新增 Claim 的状态是 `verified_negative_control_result`：展示 40/40 分区、Holdout 打开 0 次、CAS/rollback `10/10`、人工拒绝 1、批准阻断 1、Shadow 阻断 2、隔离活动指针 0；明确禁止表述“候选提升了质量”“Harness 已自进化成功”“已经打开 Holdout”或“已经影响线上路由”。可信地证明失败候选被拦截，本身就是控制系统的工程证据。
 - Release `20260907002058-98247e9a0a55`，bundle SHA-256 `54643a3c1a840d4887f2fcf1747a0fef2c18dfefec76c365338eb71df4877e99`。真实认证页面生成 Package SHA 前缀 `b7898aca8bd20811…`，18 个来源全部通过 Hash 校验，证据项由 `6/10` 扩展为 `7/11`；新增第 11 项是可直接复现的负结果与治理边界，而不是虚构质量收益。Backend/Worker/MCP/Frontend、Prometheus `2/2` 与 Grafana 均通过发布健康门。
 - 证据包中的 `ready` 不能简单等同于“所有结果都是正向收益”。可靠性、隔离控制和拒绝门的就绪标准是边界可复现、审计完整且线上零副作用；质量类 Claim 则仍必须满足人工复核和净收益门。面试展示应区分“正向业务指标”“技术候选”“负结果治理证据”三类结论。
+
+## 85. 2026-09-07 清理必须由零调用证据驱动，运行边界不能误删
+
+- M10 清理审计把 11 个候选统一成“源码探针 + Git 追踪清单 + Prometheus 24h 固定零调用窗口 + 替代链路”的可重复报告。最终真实页面为已删除并复核 `9`、明确保留边界 `2`、零外部引用候选 `0`、阻断 `0`，退役 Skill API 24h 调用 `0`、采样覆盖 `93.2%`；完成态必须独立表达，不能在候选清空后仍显示“计划尚未就绪”。
+- 删除内容包括 ONNX/无场景 Skill 既有残留、重复 MCP client、旧 ToolSource、未注册网页工具、无消费者 `mcpBaseURL` 字段、误提交的 Backend/MCP 二进制和用户上传文件。`common/mcp` 的场景化协议宿主与 Skill 410 观测哨兵分别因真实 MCP Adapter 和退役期零调用审计而保留；保留运行边界不等于清理失败。
+- 删除 Git 中 4 份误提交上传文件后，发布仍保留服务器运行目录中的 `14` 份文件，证明源码、发布物和运行数据已经分域。删除追踪文件时 `git rm` 已经把删除加入暂存区，不要再把已不存在路径传给同一次 `git add`；否则虽然删除仍可提交，命令会以 pathspec 错误结束并造成不必要的拆分提交。
+- 清理后全量 Go、定向 Race、Vue lint/build、MCP 真实协议调用和云端健康门全部通过。真实 MCP Smoke 还发现严格发布清单解析遗漏新增的 `go_build_flags` 字段；修复方式是在 Backend 与 MCP 两端都显式加入允许字段并继续拒绝未知字段，而不是关闭 `DisallowUnknownFields`。严格 Schema 的价值包括把发布契约漂移尽早暴露出来。
+
+## 86. 2026-09-07 可复现发布必须冻结 Git 字节，不只冻结 Git SHA
+
+- 发布脚本改用 clean Git tree 的 `git archive` 作为源码唯一输入，只叠加本地预构建的 Linux 二进制、Vue `dist`、发布清单与源码清单；忽略文件、`node_modules`、`.git/.idea/.claude`、用户上传和私有配置均有压包后拒绝门。实际 bundle 从约 `118MB` 降到 `91.2MB`，当前正式包含 `691` 个条目；根目录和 MCP 二进制只由发布阶段生成，不再提交进源码。
+- 首次发布暴露 Windows `core.autocrlf=true` 的隐蔽漂移：同一个 commit 经 `git archive` 导出的六个 JSONL 全由 LF 变成 CRLF，目录仍在但 SHA 全部失败，公网页面返回 422。Git SHA 只能标识对象，若导出阶段套用机器级换行策略，最终字节仍不可复现。
+- `3aba2f04` 在归档命令上固定 `git -c core.autocrlf=false archive`，并在上传前重新验证六个 Slice 的 SHA、非空行数和 Catalog 总数 `320`。门禁是在实际待上传目录上执行，因此能覆盖工作区测试无法发现的打包转换。Release `20260907033715-3aba2f043f87`，bundle SHA-256 `b90976d401d5c69ca53c05b1d17168be806322bbe2e20f74bd44e19a059a5b1a`；真实页面恢复 `320/320`、六切片 Hash/Schema 全通过。
+- 当前发布 Backend、Worker、Prometheus `2/2` targets、Grafana、MCP 和静态前端网关均通过。监控窗口启动后直接进入 `warming`，没有再次出现首轮 capture failure；MCP 发布证据 `18ms` 返回当前 release、完整 Git SHA 与构建 flags。经验：发布成功的定义应同时包含基础健康、数据契约、受治理工具和真实浏览器关键路径，而不是只有进程存活。
