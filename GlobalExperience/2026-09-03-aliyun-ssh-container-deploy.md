@@ -1555,3 +1555,9 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 输入不只校验 Hash 关联，还必须保持 Failure Pool 原始状态：`pending_human_review`、需要人工复核、Offline Gate 未通过、Isolation Canary 未通过、Applied=false。Evolver 没有 active pointer 模型或写接口，也不能表示源码、权限、安全策略、数据库迁移、Secret、部署和外部写入变更；Dataset 提案属于后续数据治理范围，不能被强行转换为 Harness Patch。
 - Release `20260906195435-5cc86ca30110`，bundle SHA-256 `de17dcd76aafbc499850395cbcd91d24b4759e4f83a7749df1ba4db362fb2991`，全量 Go、定向 Race、Vue build、Prometheus 19 条规则、Grafana 和五个核心进程健康门通过。真实线上 Failure Pool 当时只有 `low_confidence_boundary_case` 与 `user_rejected_answer_case` 两个 Dataset 提案，所以物化结果是来源 2、新建 0、复用 0、安全跳过 2，Artifact/active/applied 均为 0。
 - “没有生成候选”不能一律当成失败，也不能为了让演示好看而往生产失败池塞合成记录。正确做法是页面同时展示提案类别、跳过数和 reason code，并另用不落库、不污染生产指标的确定性验收覆盖 Prompt/Rule/Parameter 正例与越界反例。后续 M9-22 的 frozen split 与 M9-23 的公平 A/B 仍应使用版本化离线数据，不借真实用户流量凑样本。
+
+## 79. 2026-09-06 Sealed Holdout 先做访问边界，再做一次性打开
+
+- `e3e5ce4d` 用 Full 320 中 SHA 已冻结的 40 条诊断切片作为 Harness Evolution 专项数据源。每次读取先验证完整 Catalog 和诊断文件 SHA，再按带版本的稳定 Hash 排序固定切成 `20 evolution / 10 validation / 10 sealed holdout`；不是在每次实验中重新随机切分。集合 Hash 分别为 `02e214bd0407… / 3b39fd67adec… / 0f3fe5c8d017…`，覆盖 40/40、重复与交叉均为 0。
+- 页面/API 只返回 split 名称、数量、集合承诺 Hash、用途与 Seal 状态，不返回 Case ID 或正文。候选搜索只允许 Evolution；Validation 只有候选冻结后可读；Holdout 只允许最终评测阶段且打开过后同一实验版本拒绝再开。当前没有 Holdout 打开 API，先把门禁和 8 项确定性验收落地，避免在 M9-23 评测器尚未实现时提前暴露最终集。
+- Release `20260906204216-e3e5ce4de8c3`，bundle SHA-256 `117b1c9b0e03a1eebfd5d04b11b447f3956cf9f6526222d393d50b7faf7f6cbf`；真实浏览器显示 Source Hash 已核验、三分区 `20/10/10`、Overlap 0、Holdout 打开 0、开放 API 否，防泄漏验收 `8/8`。诊断集人工状态仍是 `pending_user`，因此后续即使技术 A/B 有提升也不能自动晋级。
