@@ -1584,3 +1584,11 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 回滚只恢复指针保存的直接父版本，成功后 state version 单调递增并消费 rollback slot；不允许在两个版本间反复 toggle。10 项验收覆盖四个前置门、父版本绑定、合法 CAS、过期 CAS、并发单赢家、成功回滚和二次回滚阻断，全部在隔离内存中完成，不访问生产 Pointer Repository。
 - Release `20260906225400-0b39a26c515a`，bundle SHA-256 `3c4ac43f86517c21fc79368cad50b8f67ba98065328811b201ec276c93fe5158`。真实浏览器得到 `10/10`、生产写入 `0`、生产活动指针 `0`；报告自哈希为 `3fcd3d7cf1365ccfb4887830024c1c484450a44fb21519132a2a4048d9c8d5a0`。物理文件 `/root/GopherAI_Runtime/evaluation/harness-control-acceptance-latest.json` 权限/大小为 `0640/2293 bytes`，文件 SHA-256 为 `bf703b65cf93cc2ac4abc64ef75221037cc37ab8f46a658996c054a5b71a1973`。
 - 页面用折叠子工作台明确写出“状态机语义已验证”与“当前负收益候选未进入 Shadow”两个不同事实。此切片仍不是生产激活能力：当前真实候选已被上游 Promotion Gate 拒绝，因此实际 Shadow admission、活动 Pointer Repository 和生产 rollback API 尚未执行；M9-24 继续保持进行中，不能把 `10/10` 内存验收宣传成线上策略已安全切换。
+
+## 83. 2026-09-07 隔离 Shadow 指针必须与生产路由物理分域
+
+- `d16548f9` 增加真实 `harness_control_events` 追加式审计和 `harness_active_pointers` CAS 仓储。指针固定 `scope=isolated_shadow`，模型和 API 都没有把它接入生产 `routing_policies` 的能力；因此即使未来合格候选成功激活，也只进入隔离执行域，`affects_live_traffic` 始终为 false。
+- Shadow 准入依次验证生产候选身份、Evolution/Validation 正收益、安全门、sealed holdout 单次打开与 generalization gap、数据库中已记录的人工批准，再运行公开 12 项明细的 `isolated-contract-probe-v1`。候选 parent version/hash 与当前指针和 expected state version 必须一致；GORM 事务把指针 CAS 与成功事件写入绑定，失败和并发冲突不会留下半更新。紧急 rollback 不依赖历史报告可读，但仍要求独立 reviewer、显式确认、artifact type 和 expected state version。
+- Release `20260906235752-d16548f912f6`，bundle SHA-256 `2ce7afc572d7cc2ba6f1a74029b9ba60d03ab01757750866d74e242363dec31d`。全量 Go/Vet/Race、Vue lint/build、Prometheus/Grafana 和五进程健康门通过。真实浏览器执行“请求当前候选 Shadow→重复请求→回滚”后，MySQL 为控制事件 `2`、执行 `0`、阻断 `2`、PointerChanged `0`、活动隔离指针 `0`；重复 Shadow 请求复用原 Event `b01570c1a9a6…`，回滚阻断 Event 为 `365202f5b5bf…`。
+- 当前两条 reason 分别是 `controlled_fixture_not_promotable` 与 `rollback_unavailable`，生产路由仍为 `routing-policy-v1/696c55fd8da7…`。不能为了演示成功切换而插入合成生产指针；正向 CAS/rollback 由同一服务的合格候选测试和 24B 的并发验收覆盖，线上只展示与当前真实负收益候选一致的阻断结果。
+- 使用 `.NET StandardInput.Write($text -replace "`r`n", "`n")` 时，PowerShell 可能把 `-replace` 的逗号解析为方法的第二个参数并选择格式化重载，若 Bash 含 `{}` 会报 `Input string was not in a correct format`。应先把 LF 规范化结果赋给独立变量，再调用单参数 `Write($normalized)`；这与此前长脚本使用 stdin 的结论一致。
