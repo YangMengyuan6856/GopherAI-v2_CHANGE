@@ -608,7 +608,9 @@ func (metrics *Metrics) initializeRequiredMetricSeries() {
 	metrics.toolCache.WithLabelValues("unknown", "bypass").Add(0)
 	metrics.toolValidation.WithLabelValues("unknown", "unknown").Add(0)
 	metrics.toolCancellations.WithLabelValues("unknown", "unknown").Add(0)
-	metrics.feedback.WithLabelValues("legacy_chat", "explicit", "accepted").Add(0)
+	for _, result := range []string{"accepted", "duplicate", "rejected", "error"} {
+		metrics.feedback.WithLabelValues("legacy_chat", "explicit", result).Add(0)
+	}
 	metrics.evalRegressions.WithLabelValues("unified", "completion").Add(0)
 	metrics.strategyWeights.WithLabelValues("unknown", "unknown", "other").Set(0)
 	metrics.strategyState.WithLabelValues("unknown", "unknown", "healthy").Set(0)
@@ -642,6 +644,22 @@ func (metrics *Metrics) RecordWebhookDelivery(eventType string, status string) {
 		status = "error"
 	}
 	metrics.webhookDeliveries.WithLabelValues(eventType, status).Inc()
+}
+
+func (metrics *Metrics) RecordFeedback(strategy, feedbackType, result string) {
+	if metrics == nil {
+		return
+	}
+	strategy = boundedLiveRoute(strategy)
+	if feedbackType != "explicit" {
+		feedbackType = "implicit"
+	}
+	switch result {
+	case "accepted", "duplicate", "rejected", "error":
+	default:
+		result = "error"
+	}
+	metrics.feedback.WithLabelValues(strategy, feedbackType, result).Inc()
 }
 
 func (metrics *Metrics) RecordControlAction(action string, result string) {

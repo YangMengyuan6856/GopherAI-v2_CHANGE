@@ -71,7 +71,7 @@ func testOutput(input app.ChatInput) app.ChatOutput {
 	return app.ChatOutput{
 		Request:      contract.RequestContext{TraceID: firstNonEmpty(input.TraceID, "trace-1"), RequestID: firstNonEmpty(input.RequestID, "request-1")},
 		Intent:       contract.IntentResult{Intent: "legacy"},
-		Decision:     contract.StrategyDecision{StrategyName: "legacy_chat", PolicyVersion: "policy-v0"},
+		Decision:     contract.StrategyDecision{StrategyName: "legacy_chat", StrategyVersion: "legacy-v1", PolicyVersion: "policy-v0"},
 		Result:       contract.AgentResult{SessionID: "session-1", Answer: "answer", Confidence: 1},
 		ShadowIntent: &shadow,
 	}
@@ -92,7 +92,7 @@ func TestAutoChatDoesNotRequireModelType(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if response.Message != "answer" || response.Strategy != "legacy_chat" || response.SessionID != "session-1" {
+	if response.Message != "answer" || response.Strategy != "legacy_chat" || response.StrategyVersion != "legacy-v1" || response.SessionID != "session-1" {
 		t.Fatalf("unexpected response: %#v", response)
 	}
 	if response.IntentShadow == nil || response.IntentShadow.Intent != intentdomain.Troubleshooting || response.IntentShadow.Mode != "shadow" {

@@ -54,19 +54,20 @@ type AutoChatRequest struct {
 }
 
 type AutoChatResponse struct {
-	SchemaVersion  string                        `json:"schema_version"`
-	TraceID        string                        `json:"trace_id"`
-	RequestID      string                        `json:"request_id"`
-	SessionID      string                        `json:"session_id"`
-	Message        string                        `json:"message"`
-	Intent         string                        `json:"intent"`
-	Strategy       string                        `json:"strategy"`
-	PolicyVersion  string                        `json:"policy_version"`
-	Confidence     float64                       `json:"confidence"`
-	Resolved       bool                          `json:"resolved"`
-	NeedsUserInput bool                          `json:"needs_user_input"`
-	Citations      []contract.Citation           `json:"citations,omitempty"`
-	IntentShadow   *contract.ShadowIntentSummary `json:"intent_shadow,omitempty"`
+	SchemaVersion   string                        `json:"schema_version"`
+	TraceID         string                        `json:"trace_id"`
+	RequestID       string                        `json:"request_id"`
+	SessionID       string                        `json:"session_id"`
+	Message         string                        `json:"message"`
+	Intent          string                        `json:"intent"`
+	Strategy        string                        `json:"strategy"`
+	StrategyVersion string                        `json:"strategy_version"`
+	PolicyVersion   string                        `json:"policy_version"`
+	Confidence      float64                       `json:"confidence"`
+	Resolved        bool                          `json:"resolved"`
+	NeedsUserInput  bool                          `json:"needs_user_input"`
+	Citations       []contract.Citation           `json:"citations,omitempty"`
+	IntentShadow    *contract.ShadowIntentSummary `json:"intent_shadow,omitempty"`
 }
 
 func NewAutoHandler(application ChatApplication) *AutoHandler {
@@ -109,19 +110,20 @@ func (handler *AutoHandler) Chat(context *gin.Context) {
 	setTraceHeaders(context, output)
 	handler.record(output, nil)
 	context.JSON(http.StatusOK, AutoChatResponse{
-		SchemaVersion:  contract.SchemaVersion,
-		TraceID:        output.Request.TraceID,
-		RequestID:      output.Request.RequestID,
-		SessionID:      output.Result.SessionID,
-		Message:        output.Result.Answer,
-		Intent:         output.Intent.Intent,
-		Strategy:       output.Decision.StrategyName,
-		PolicyVersion:  output.Decision.PolicyVersion,
-		Confidence:     output.Result.Confidence,
-		Resolved:       output.Result.Resolved,
-		NeedsUserInput: output.Result.NeedsUserInput,
-		Citations:      output.Result.Citations,
-		IntentShadow:   app.SummarizeShadowIntent(output.ShadowIntent),
+		SchemaVersion:   contract.SchemaVersion,
+		TraceID:         output.Request.TraceID,
+		RequestID:       output.Request.RequestID,
+		SessionID:       output.Result.SessionID,
+		Message:         output.Result.Answer,
+		Intent:          output.Intent.Intent,
+		Strategy:        output.Decision.StrategyName,
+		StrategyVersion: output.Decision.StrategyVersion,
+		PolicyVersion:   output.Decision.PolicyVersion,
+		Confidence:      output.Result.Confidence,
+		Resolved:        output.Result.Resolved,
+		NeedsUserInput:  output.Result.NeedsUserInput,
+		Citations:       output.Result.Citations,
+		IntentShadow:    app.SummarizeShadowIntent(output.ShadowIntent),
 	})
 }
 

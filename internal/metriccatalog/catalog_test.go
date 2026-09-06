@@ -29,13 +29,13 @@ func TestCatalogDiscoversEveryRegisteredApplicationCollector(t *testing.T) {
 	for _, component := range report.Components {
 		components[component.Name] = component.FamilyCount
 	}
-	if components["backend"] != 82 || components["index_worker"] != 6 {
+	if components["backend"] != 80 || components["index_worker"] != 8 {
 		t.Fatalf("unexpected component coverage: %+v", components)
 	}
 	if report.LabelKeyCount < 20 || report.MaxSeriesEstimate < report.FamilyCount || report.MaxSeriesEstimate > report.SeriesBudget {
 		t.Fatalf("invalid cardinality summary: %+v", report)
 	}
-	families, err := backendRegistry.Gather()
+	families, err := (prometheus.Gatherers{backendRegistry, workerRegistry}).Gather()
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -247,19 +247,21 @@ type ShadowIntentSummary struct {
 }
 
 type StreamEvent struct {
-	Type           StreamEventType      `json:"-"`
-	SchemaVersion  string               `json:"schema_version"`
-	TraceID        string               `json:"trace_id"`
-	RequestID      string               `json:"request_id"`
-	SessionID      string               `json:"session_id,omitempty"`
-	Intent         string               `json:"intent,omitempty"`
-	Strategy       string               `json:"strategy,omitempty"`
-	PolicyVersion  string               `json:"policy_version,omitempty"`
-	Text           string               `json:"text,omitempty"`
-	Citation       *Citation            `json:"citation,omitempty"`
-	Confidence     float64              `json:"confidence,omitempty"`
-	NeedsUserInput bool                 `json:"needs_user_input,omitempty"`
-	Usage          *ModelUsage          `json:"usage,omitempty"`
-	Error          *DomainError         `json:"error,omitempty"`
-	IntentShadow   *ShadowIntentSummary `json:"intent_shadow,omitempty"`
+	Type            StreamEventType      `json:"-"`
+	SchemaVersion   string               `json:"schema_version"`
+	TraceID         string               `json:"trace_id"`
+	RequestID       string               `json:"request_id"`
+	SessionID       string               `json:"session_id,omitempty"`
+	Intent          string               `json:"intent,omitempty"`
+	Strategy        string               `json:"strategy,omitempty"`
+	StrategyVersion string               `json:"strategy_version,omitempty"`
+	PolicyVersion   string               `json:"policy_version,omitempty"`
+	Text            string               `json:"text,omitempty"`
+	Citation        *Citation            `json:"citation,omitempty"`
+	Confidence      float64              `json:"confidence,omitempty"`
+	Resolved        bool                 `json:"resolved,omitempty"`
+	NeedsUserInput  bool                 `json:"needs_user_input,omitempty"`
+	Usage           *ModelUsage          `json:"usage,omitempty"`
+	Error           *DomainError         `json:"error,omitempty"`
+	IntentShadow    *ShadowIntentSummary `json:"intent_shadow,omitempty"`
 }

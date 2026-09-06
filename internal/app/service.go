@@ -137,6 +137,7 @@ func (service *Service) Stream(ctx context.Context, input ChatInput, emit Stream
 		event.RequestID = output.Request.RequestID
 		event.Intent = output.Intent.Intent
 		event.Strategy = output.Decision.StrategyName
+		event.StrategyVersion = output.Decision.StrategyVersion
 		event.PolicyVersion = output.Decision.PolicyVersion
 		event.IntentShadow = SummarizeShadowIntent(output.ShadowIntent)
 		return emit(event)
@@ -153,6 +154,7 @@ func (service *Service) Stream(ctx context.Context, input ChatInput, emit Stream
 		Type:           contract.StreamEventFinal,
 		SessionID:      output.Result.SessionID,
 		Confidence:     output.Result.Confidence,
+		Resolved:       output.Result.Resolved,
 		NeedsUserInput: output.Result.NeedsUserInput,
 		Usage:          &usage,
 	}); err != nil {

@@ -87,6 +87,7 @@ func migration() error {
 		new(model.ControlRecommendation),
 		new(model.FaultInjectionCampaign),
 		new(model.OnlineEvaluationSample),
+		new(model.UserFeedbackEvent),
 	)
 }
 

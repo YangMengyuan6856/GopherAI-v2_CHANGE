@@ -1535,6 +1535,16 @@
           <div class="message-header">
             <b>{{ message.role === 'user' ? '你' : 'AI' }}:</b>
             <button v-if="message.role === 'assistant'" class="tts-btn" @click="playTTS(message.content)">🔊</button>
+            <button
+              v-if="message.role === 'assistant' && message.meta?.requestId && message.meta?.status === 'done'"
+              class="answer-feedback-btn"
+              :class="{ submitted: message.meta.feedbackStatus === 'submitted' }"
+              :disabled="message.meta.feedbackStatus === 'submitting' || message.meta.feedbackStatus === 'submitted'"
+              title="点踩会以 100% 采样进入脱敏在线评测和失败池，不会直接修改线上策略"
+              @click="submitDownvote(message)"
+            >
+              {{ message.meta.feedbackStatus === 'submitted' ? '✓ 已进入失败池' : (message.meta.feedbackStatus === 'submitting' ? '提交中...' : '👎 回答未解决') }}
+            </button>
             <span v-if="message.meta && message.meta.status === 'streaming'" class="streaming-indicator"> ··</span>
           </div>
           <div class="message-content" v-html="renderMarkdown(message.content)"></div>
@@ -1935,7 +1945,7 @@ export default {
       const aiMessage = {
         role: 'assistant',
         content: '',
-        meta: { status: 'streaming', strategy: '固定路由', policyVersion: '加载中', traceId: '', intentShadow: null }
+        meta: { status: 'streaming', strategy: '固定路由', strategyVersion: '', policyVersion: '加载中', traceId: '', requestId: '', question, intentShadow: null }
       }
       const aiMessageIndex = currentMessages.value.length
       currentMessages.value.push(aiMessage)
@@ -1989,8 +1999,11 @@ export default {
             message.meta = {
               status: 'streaming',
               traceId: payload.trace_id || '',
+              requestId: payload.request_id || '',
               strategy: payload.strategy || '固定路由',
+              strategyVersion: payload.strategy_version || '',
               policyVersion: payload.policy_version || '',
+              question,
               intentShadow: payload.intent_shadow || null
             }
             if (payload.session_id && tempSession.value) {
@@ -2009,6 +2022,9 @@ export default {
             message.meta.citations = [...(message.meta.citations || []), payload.citation]
           } else if (eventType === 'final') {
             message.meta.status = 'done'
+            message.meta.confidence = Number(payload.confidence || 0)
+            message.meta.resolved = Boolean(payload.resolved)
+            message.meta.needsUserInput = Boolean(payload.needs_user_input)
           } else if (eventType === 'error') {
             throw new Error(payload.error?.message || '流式生成失败')
           }
@@ -2039,6 +2055,7 @@ export default {
             const lastIndex = sessMsgs.length - 1
             if (sessMsgs[lastIndex] && sessMsgs[lastIndex].role === 'assistant') {
               sessMsgs[lastIndex].content = currentMessages.value[aiMessageIndex].content
+              sessMsgs[lastIndex].meta = { ...currentMessages.value[aiMessageIndex].meta }
             }
           }
         }
@@ -2626,7 +2643,10 @@ export default {
             content: response.data.message || '',
             meta: {
               status: 'done', traceId: response.data.trace_id || '',
+              requestId: response.data.request_id || '', question,
               strategy: response.data.strategy || '固定路由', policyVersion: response.data.policy_version || '',
+              strategyVersion: response.data.strategy_version || '', intent: response.data.intent || '',
+              confidence: Number(response.data.confidence || 0), resolved: Boolean(response.data.resolved),
               intentShadow: response.data.intent_shadow || null,
               citations: response.data.citations || [], needsUserInput: response.data.needs_user_input || false
             }
@@ -2662,7 +2682,10 @@ export default {
             content: response.data.message || '',
             meta: {
               status: 'done', traceId: response.data.trace_id || '',
+              requestId: response.data.request_id || '', question,
               strategy: response.data.strategy || '固定路由', policyVersion: response.data.policy_version || '',
+              strategyVersion: response.data.strategy_version || '', intent: response.data.intent || '',
+              confidence: Number(response.data.confidence || 0), resolved: Boolean(response.data.resolved),
               intentShadow: response.data.intent_shadow || null,
               citations: response.data.citations || [], needsUserInput: response.data.needs_user_input || false
             }
@@ -2792,6 +2815,31 @@ export default {
       knowledgeSearchOpen.value = opening
       if (knowledgeSearchOpen.value && !knowledgeQuery.value.trim() && inputMessage.value.trim()) {
         knowledgeQuery.value = inputMessage.value.trim()
+      }
+    }
+
+    const submitDownvote = async (message) => {
+      const meta = message?.meta
+      if (!meta?.requestId || !meta?.traceId || meta.feedbackStatus === 'submitting' || meta.feedbackStatus === 'submitted') return
+      meta.feedbackStatus = 'submitting'
+      currentMessages.value = [...currentMessages.value]
+      try {
+        const response = await api.post(`/chat/messages/${encodeURIComponent(meta.requestId)}/feedback`, {
+          trace_id: meta.traceId,
+          question: meta.question || '',
+          answer: message.content || '',
+          confidence: Number(meta.confidence || 0),
+          resolved: Boolean(meta.resolved),
+          feedback: 'user_downvote'
+        })
+        meta.feedbackStatus = 'submitted'
+        meta.feedbackSampleId = response.data?.sample_id || ''
+        ElMessage.success(response.data?.created ? '反馈已可靠写入，并以 100% 采样进入异步评测' : '这条回答已经反馈过，没有重复入队')
+      } catch (error) {
+        meta.feedbackStatus = 'error'
+        ElMessage.error(error.response?.data?.message || '反馈提交失败，请稍后重试')
+      } finally {
+        currentMessages.value = [...currentMessages.value]
       }
     }
 
@@ -3583,6 +3631,7 @@ export default {
       onlineEvaluationStageLabel,
       refreshOnlineEvaluationAudit,
       runOnlineEvaluationAcceptance,
+      submitDownvote,
       faultClassLabel,
       faultPhaseLabel,
       faultMetricValue,
@@ -6360,6 +6409,31 @@ export default {
 .tts-btn:hover {
   transform: scale(1.05);
   box-shadow: 0 4px 12px rgba(103, 194, 58, 0.25);
+}
+
+.answer-feedback-btn {
+  padding: 5px 10px;
+  border: 1px solid rgba(239, 120, 107, 0.45);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #a7483d;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.answer-feedback-btn:hover:not(:disabled) {
+  background: #fff0ee;
+}
+
+.answer-feedback-btn.submitted {
+  border-color: rgba(40, 167, 112, 0.42);
+  background: rgba(40, 167, 112, 0.1);
+  color: #18784c;
+}
+
+.answer-feedback-btn:disabled {
+  cursor: default;
+  opacity: 0.8;
 }
 
 .streaming-indicator {

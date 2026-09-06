@@ -58,6 +58,18 @@ func Decide(output app.ChatOutput, requestErr error) SamplingDecision {
 	return decide(output, requestErr, "")
 }
 
+// BuildFeedbackSample is the only public path for forcing an online sample.
+// Keeping the accepted reason closed prevents callers from turning arbitrary
+// client labels into trusted sampling or failure-mining dimensions.
+func BuildFeedbackSample(output app.ChatOutput, feedbackType string, now time.Time) (model.OnlineEvaluationSample, model.OutboxEvent, SamplingDecision, error) {
+	if feedbackType != "user_downvote" {
+		return model.OnlineEvaluationSample{}, model.OutboxEvent{}, SamplingDecision{}, errors.New("unsupported online evaluation feedback type")
+	}
+	decision := decide(output, nil, feedbackType)
+	sample, event, err := BuildSample(output, nil, decision, now, false)
+	return sample, event, decision, err
+}
+
 func decide(output app.ChatOutput, requestErr error, forceReason string) SamplingDecision {
 	reasons := make([]string, 0, 4)
 	if forceReason != "" {
