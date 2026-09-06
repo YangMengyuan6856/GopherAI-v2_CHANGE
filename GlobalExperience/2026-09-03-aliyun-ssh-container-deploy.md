@@ -1652,3 +1652,11 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 复核进度与 Git 中冻结的 Review Manifest 故意分开展示：当前用户队列为 `0/320`，Review Set SHA 是空集合 Hash；即使未来达到 `320/320 approved`，状态也只会变成 `ready_for_sealed_materialization`，不会自动改数据集、冻结基线、写 active policy 或声称双人独立标注。
 - Release `20260907070048-54ac71dd9151`，bundle SHA-256 `9b4f25044d21402eab14dc71e7e4ce2f2823111bfa5362613bbfb769d5f84195`，710 个可追溯条目；自动清理报告 SHA `b9c3fc1c9662594624f557d9c76098cc2cfffaded60b3404827b01cc997b811a`、Tracked Source `561`。全量 Go、Vet、定向 Race、Vue lint/build、Prometheus `2/2`、Grafana、MCP 与前端门通过。
 - 真实浏览器验证第 1→2 例翻页、RAG 切片 `60` 条过滤、`rag-v2-001` 内容、确认框前后按钮禁用/启用和控制台错误 `0`；随后取消确认，未提交任何标签。人工证据必须由实际复核者产生，自动化只能验证门禁，不能代做判断。
+
+## 92. 2026-09-07 人工复核进度必须可导出，但 Hash 自校验不是签名
+
+- `f50d4fb2` 增加当前登录复核人的增量证据快照。JSON/中文 Markdown 同时固定 Dataset/Catalog/Review Set/Snapshot SHA、总数、通过/退回/待审计数、每例最新 revision、Case/Review SHA 和受控原因；不导出用户名哈希、幂等键、请求 Hash、题目正文或期望答案，降低证据包扩散后的隐私与数据泄漏面。
+- Snapshot 采用稳定排序和自 Hash，校验器先拒绝未知字段、尾随内容、非规范顺序、计数矛盾、重复 Case、原因码漂移和快照 Hash 篡改，再与当前不可变 Catalog 的版本、总数、Case SHA 与 Slice 交叉验证。旧快照重放到已变化 Catalog 会失败。
+- 发布包预构建 `GopherAI-catalog-review-evidence`，避免在 1.6GiB ECS 内现场编译。它证明文件内部一致且绑定当前 Catalog，不提供非对称签名，也不能证明复核人真实身份或双人一致性；面试中应称“可复验 Hash 证据”，不能称“不可抵赖数字签名”。
+- Release `20260907073353-f50d4fb25003`，bundle SHA-256 `34b314e71b6279d8ced3aecc1a26d47232b78bb97f3b098f0e65aec7a0ad7dc3`，714 个可追溯条目；自动清理报告 SHA `5640a4cedcef0baaef5510deaae800e0d3adc7749de876d0c45dc06a26c0eb62`、Tracked Source `563`。全量 Go/Vet/Race、Vue lint/build、部署脚本解析和云端全部健康门通过。
+- 真实浏览器点击“导出当前证据”成功，进度仍为 `0/320`、控制台错误为 0，导出没有写入人工结论。当前 Snapshot 是合法的未完成证据，不应为了让页面变绿而拒绝导出或伪造 reviewed 状态。
