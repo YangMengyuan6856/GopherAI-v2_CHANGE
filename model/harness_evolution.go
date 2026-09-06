@@ -46,3 +46,22 @@ type HarnessArtifactReview struct {
 	ReviewSHA256   string    `gorm:"uniqueIndex;not null;type:char(64)" json:"review_sha256"`
 	CreatedAt      time.Time `gorm:"index;not null" json:"created_at"`
 }
+
+// HarnessPromotionAttempt is an append-only human gate audit. Blocked approval
+// attempts are persisted as first-class evidence and never mutate an artifact.
+type HarnessPromotionAttempt struct {
+	ID                   string    `gorm:"primaryKey;type:char(64)" json:"id"`
+	SchemaVersion        string    `gorm:"not null;type:varchar(64)" json:"schema_version"`
+	ExperimentVersion    string    `gorm:"index;not null;type:varchar(64)" json:"experiment_version"`
+	CandidateSHA256      string    `gorm:"index;not null;type:char(64)" json:"candidate_sha256"`
+	ReportSHA256         string    `gorm:"index;not null;type:char(64)" json:"report_sha256"`
+	RequestedDecision    string    `gorm:"index;not null;type:varchar(24)" json:"requested_decision"`
+	Outcome              string    `gorm:"index;not null;type:varchar(24)" json:"outcome"`
+	ReasonCode           string    `gorm:"index;not null;type:varchar(64)" json:"reason_code"`
+	BaseVersion          string    `gorm:"not null;type:varchar(96)" json:"base_version"`
+	ReviewerHash         string    `gorm:"index;not null;type:char(64)" json:"-"`
+	IdempotencyKeyHash   string    `gorm:"uniqueIndex;not null;type:char(64)" json:"-"`
+	ActivePointerChanged bool      `gorm:"not null;default:false" json:"active_pointer_changed"`
+	AttemptSHA256        string    `gorm:"uniqueIndex;not null;type:char(64)" json:"attempt_sha256"`
+	CreatedAt            time.Time `gorm:"index;not null" json:"created_at"`
+}

@@ -94,6 +94,7 @@ func migration() error {
 		new(model.JudgeCalibrationReview),
 		new(model.HarnessArtifact),
 		new(model.HarnessArtifactReview),
+		new(model.HarnessPromotionAttempt),
 	)
 }
 

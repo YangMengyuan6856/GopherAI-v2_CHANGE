@@ -1255,6 +1255,39 @@
                         <span :class="evolutionComparisonReport.promotion.safety_passed ? 'dependency-ready' : 'dependency-down'">危险动作回归 {{ evolutionComparisonReport.promotion.safety_passed ? '0' : '存在' }}</span>
                       </div>
                       <small v-for="limitation in evolutionComparisonReport.limitations" :key="limitation" class="evolution-limitation">{{ limitation }}</small>
+                      <article v-if="evolutionPromotionAudit" class="evolution-promotion-gate">
+                        <div class="metric-catalog-heading">
+                          <div>
+                            <strong>人工 Promotion Gate · {{ evolutionPromotionAudit.mode }}</strong>
+                            <span>独立 reviewer 权限 · 报告 Hash 绑定 · 追加式幂等审计</span>
+                          </div>
+                          <div class="evolution-promotion-actions">
+                            <button :disabled="submittingPromotionReview || !evolutionPromotionAudit.can_review" @click="submitPromotionReview('rejected')">记录人工拒绝</button>
+                            <button :disabled="submittingPromotionReview || !evolutionPromotionAudit.can_review" @click="submitPromotionReview('approved')">尝试批准（门禁应拒绝）</button>
+                          </div>
+                        </div>
+                        <div class="diagnostic-evaluation-grid">
+                          <div><strong>{{ evolutionPromotionAudit.attempt_count }}</strong><span>评审尝试</span></div>
+                          <div><strong>{{ evolutionPromotionAudit.recorded_count }}</strong><span>有效决策</span></div>
+                          <div><strong>{{ evolutionPromotionAudit.blocked_count }}</strong><span>门禁阻断</span></div>
+                          <div><strong>{{ evolutionPromotionAudit.active_pointers }}</strong><span>活动指针</span></div>
+                        </div>
+                        <div v-if="!evolutionPromotionAudit.can_review" class="evaluation-candidate-warning">
+                          <strong>当前账号只有查看权限</strong>
+                          <span>人工决策必须由单独配置的 harness_reviewer 执行，普通登录不会自动获得晋级权限。</span>
+                        </div>
+                        <div v-for="attempt in evolutionPromotionAudit.latest" :key="attempt.id" class="evolution-promotion-attempt">
+                          <span>{{ evolutionPromotionDecisionLabel(attempt.requested_decision) }} · {{ evolutionPromotionOutcomeLabel(attempt.outcome) }}</span>
+                          <strong>{{ evolutionPromotionAttemptReasonLabel(attempt.reason_code) }}</strong>
+                          <small>Report {{ shortRevision(attempt.report_sha256) }} · Attempt {{ shortRevision(attempt.attempt_sha256) }} · Active pointer changed={{ attempt.active_pointer_changed }}</small>
+                        </div>
+                        <div class="evaluation-decision-strip">
+                          <span class="dependency-ready">拒绝可审计</span>
+                          <span class="dependency-ready">重复提交幂等</span>
+                          <span class="dependency-ready">批准门不全则阻断</span>
+                          <span class="dependency-ready">本阶段不影响线上流量</span>
+                        </div>
+                      </article>
                     </div>
                     <div v-else class="strategy-control-empty">尚无公平比较报告。运行后会保存到 Release 目录外；同一实验再次点击只复用原报告，不会重新打开 Holdout。</div>
                   </details>
@@ -2218,6 +2251,8 @@ export default {
     const runningEvolutionSplitAcceptance = ref(false)
     const evolutionComparisonReport = ref(null)
     const runningEvolutionComparison = ref(false)
+    const evolutionPromotionAudit = ref(null)
+    const submittingPromotionReview = ref(false)
     const anomalyScenarios = [
       { value: 'healthy', label: '健康窗口' },
       { value: 'quality_drop', label: 'RAG 质量下降' },
@@ -3474,7 +3509,7 @@ export default {
       if (!evaluationCatalogOpen.value || evaluationCatalog.value || loadingEvaluationCatalog.value) return
       try {
         loadingEvaluationCatalog.value = true
-        const [catalogResponse, runResponse, pairedResponse, judgeCalibrationResponse, interviewEvidenceResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse, reliabilityResponse, onlineEvaluationResponse, failurePoolResponse, evolutionResponse, evolutionSplitResponse, evolutionComparisonResponse, performanceResponse] = await Promise.all([
+        const [catalogResponse, runResponse, pairedResponse, judgeCalibrationResponse, interviewEvidenceResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse, reliabilityResponse, onlineEvaluationResponse, failurePoolResponse, evolutionResponse, evolutionSplitResponse, evolutionComparisonResponse, evolutionPromotionResponse, performanceResponse] = await Promise.all([
           api.get('/evaluations/catalog/latest'),
           api.get('/evaluations/unified/latest'),
           api.get('/evaluations/paired/latest').catch(() => null),
@@ -3493,6 +3528,7 @@ export default {
           api.get('/evaluations/evolution/latest').catch(() => null),
           api.get('/evaluations/evolution/splits/latest').catch(() => null),
           api.get('/evaluations/evolution/comparison/latest').catch(() => null),
+          api.get('/evaluations/evolution/promotion/latest').catch(() => null),
           api.get('/evaluations/performance/latest').catch(() => null)
         ])
         evaluationCatalog.value = catalogResponse.data
@@ -3514,6 +3550,7 @@ export default {
         evolutionAudit.value = evolutionResponse?.data || null
         evolutionSplitAudit.value = evolutionSplitResponse?.data || null
         evolutionComparisonReport.value = evolutionComparisonResponse?.data || null
+        evolutionPromotionAudit.value = evolutionPromotionResponse?.data || null
         performanceReport.value = performanceResponse?.data || null
       } catch (error) {
         evaluationCatalogOpen.value = false
@@ -3974,6 +4011,43 @@ export default {
       }
     }
 
+    const submitPromotionReview = async (decision) => {
+      if (submittingPromotionReview.value || !evolutionComparisonReport.value || !evolutionPromotionAudit.value?.can_review) return
+      const report = evolutionComparisonReport.value
+      try {
+        submittingPromotionReview.value = true
+        const response = await api.post('/evaluations/evolution/promotion/review', {
+          mode: 'human_gate_no_activation',
+          experiment_version: report.experiment_version,
+          candidate_sha256: report.candidate.artifact_sha256,
+          report_sha256: report.report_sha256,
+          decision,
+          reason_code: decision === 'rejected' ? 'candidate_no_measured_gain' : 'human_approval_requested',
+          idempotency_key: `promotion-${report.report_sha256.slice(0, 32)}-${decision}`,
+          acknowledgment: 'I_CONFIRM_HUMAN_PROMOTION_REVIEW'
+        })
+        const auditResponse = await api.get('/evaluations/evolution/promotion/latest')
+        evolutionPromotionAudit.value = auditResponse.data
+        const attempt = response.data.attempt
+        if (attempt.outcome === 'blocked') ElMessage.warning(`批准请求已被门禁阻断：${evolutionPromotionAttemptReasonLabel(attempt.reason_code)}`)
+        else if (response.data.reused) ElMessage.success('相同人工决策已存在，本次幂等复用且活动指针未变化')
+        else ElMessage.success('人工拒绝已追加记录，活动指针仍为 0')
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || 'Harness 人工晋级评审暂不可用')
+      } finally {
+        submittingPromotionReview.value = false
+      }
+    }
+
+    const evolutionPromotionDecisionLabel = (value) => ({ approved: '请求批准', rejected: '人工拒绝' }[value] || value)
+    const evolutionPromotionOutcomeLabel = (value) => ({ recorded: '已记录', blocked: '已阻断' }[value] || value)
+    const evolutionPromotionAttemptReasonLabel = (value) => ({
+      candidate_no_measured_gain: '候选未证明可测量收益', risk_not_acceptable: '风险不可接受', needs_more_evidence: '需要更多证据',
+      controlled_fixture_not_promotable: '受控 Fixture 不是生产候选', offline_promotion_gate_failed: '离线收益门未通过',
+      human_labels_pending: '人工标签未完成', safety_regression: '检测到安全回归', sealed_holdout_not_passed: 'Sealed Holdout 未通过',
+      human_approved_for_shadow: '人工批准进入隔离 Shadow'
+    }[value] || value)
+
     const evolutionVariantLabel = (value) => ({
       frozen_harness: '旧 Harness', human_rule_candidate: '人工规则候选', same_budget_test_time_scaling: '同预算 TTS', evolved_candidate: '自动演化候选'
     }[value] || value)
@@ -4397,6 +4471,12 @@ export default {
       runningEvolutionSplitAcceptance,
       evolutionComparisonReport,
       runningEvolutionComparison,
+      evolutionPromotionAudit,
+      submittingPromotionReview,
+      submitPromotionReview,
+      evolutionPromotionDecisionLabel,
+      evolutionPromotionOutcomeLabel,
+      evolutionPromotionAttemptReasonLabel,
       parentContextEvaluationOpen,
       loadingParentContextEvaluation,
       parentContextEvaluation,
@@ -7176,6 +7256,36 @@ export default {
   display: grid;
   gap: 6px;
   margin-top: 8px;
+}
+
+.evolution-promotion-gate {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid rgba(180, 83, 9, 0.25);
+  border-radius: 8px;
+  background: #fffaf0;
+}
+
+.evolution-promotion-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.evolution-promotion-attempt {
+  display: grid;
+  grid-template-columns: minmax(120px, auto) minmax(180px, 1fr);
+  gap: 4px 10px;
+  margin-top: 7px;
+  padding: 8px;
+  border-radius: 7px;
+  background: #fff;
+}
+
+.evolution-promotion-attempt small {
+  grid-column: 1 / -1;
+  overflow-wrap: anywhere;
 }
 
 .failure-cluster-grid {
