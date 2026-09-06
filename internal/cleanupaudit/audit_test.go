@@ -55,7 +55,7 @@ func TestBuilderProducesBoundedDeletionPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Summary.AlreadyRemoved != 2 || report.Summary.EligibleToDelete != 5 || report.Summary.RetainedRequired != 2 || report.Summary.Blocked != 0 || !report.Summary.DeletionPlanReady {
+	if report.Summary.AlreadyRemoved != 2 || report.Summary.EligibleToDelete != 5 || report.Summary.RetainedRequired != 2 || report.Summary.Blocked != 0 || !report.Summary.DeletionPlanReady || report.Summary.CleanupComplete {
 		t.Fatalf("unexpected summary: %+v", report.Summary)
 	}
 	if err := Validate(report); err != nil {
@@ -143,6 +143,9 @@ func TestFileStoreRejectsTampering(t *testing.T) {
 	report, err := NewBuilder(root, reader, time.Now).Build(context.Background(), "release-1", "abcdef")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if report.Summary.AlreadyRemoved != 7 || report.Summary.RetainedRequired != 2 || report.Summary.EligibleToDelete != 0 || !report.Summary.AllChecksPassed || !report.Summary.CleanupComplete || report.Summary.DeletionPlanReady {
+		t.Fatalf("fully retired candidates must produce a terminal cleanup state: %+v", report.Summary)
 	}
 	store := NewFileStore(filepath.Join(root, "reports", "cleanup.json"))
 	if err := store.Save(report); err != nil {
