@@ -1592,3 +1592,10 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - Release `20260906235752-d16548f912f6`，bundle SHA-256 `2ce7afc572d7cc2ba6f1a74029b9ba60d03ab01757750866d74e242363dec31d`。全量 Go/Vet/Race、Vue lint/build、Prometheus/Grafana 和五进程健康门通过。真实浏览器执行“请求当前候选 Shadow→重复请求→回滚”后，MySQL 为控制事件 `2`、执行 `0`、阻断 `2`、PointerChanged `0`、活动隔离指针 `0`；重复 Shadow 请求复用原 Event `b01570c1a9a6…`，回滚阻断 Event 为 `365202f5b5bf…`。
 - 当前两条 reason 分别是 `controlled_fixture_not_promotable` 与 `rollback_unavailable`，生产路由仍为 `routing-policy-v1/696c55fd8da7…`。不能为了演示成功切换而插入合成生产指针；正向 CAS/rollback 由同一服务的合格候选测试和 24B 的并发验收覆盖，线上只展示与当前真实负收益候选一致的阻断结果。
 - 使用 `.NET StandardInput.Write($text -replace "`r`n", "`n")` 时，PowerShell 可能把 `-replace` 的逗号解析为方法的第二个参数并选择格式化重载，若 Bash 含 `{}` 会报 `Input string was not in a correct format`。应先把 LF 规范化结果赋给独立变量，再调用单参数 `Write($normalized)`；这与此前长脚本使用 stdin 的结论一致。
+
+## 84. 2026-09-07 面试证据包必须如实收录 Harness Evolution 负结果
+
+- `98247e9a` 将证据包升级为 v3，新增 Harness lineage、三分区、四方公平比较、10 项控制状态机验收、人工 Promotion 审计和真实隔离 Shadow 控制六类来源。聚合时重新校验来源自哈希、40/40 分区覆盖、Holdout 打开次数、Promotion/Shadow 事件计数和 Pointer 状态；来源漂移或内部计数不一致都会 fail-closed，而不是只把页面已有数字重新排版。
+- 当前受控候选在 Evolution/Validation 上分别为 `-4.0%/-1.0%`，并且 `ProductionCandidate=false`。因此新增 Claim 的状态是 `verified_negative_control_result`：展示 40/40 分区、Holdout 打开 0 次、CAS/rollback `10/10`、人工拒绝 1、批准阻断 1、Shadow 阻断 2、隔离活动指针 0；明确禁止表述“候选提升了质量”“Harness 已自进化成功”“已经打开 Holdout”或“已经影响线上路由”。可信地证明失败候选被拦截，本身就是控制系统的工程证据。
+- Release `20260907002058-98247e9a0a55`，bundle SHA-256 `54643a3c1a840d4887f2fcf1747a0fef2c18dfefec76c365338eb71df4877e99`。真实认证页面生成 Package SHA 前缀 `b7898aca8bd20811…`，18 个来源全部通过 Hash 校验，证据项由 `6/10` 扩展为 `7/11`；新增第 11 项是可直接复现的负结果与治理边界，而不是虚构质量收益。Backend/Worker/MCP/Frontend、Prometheus `2/2` 与 Grafana 均通过发布健康门。
+- 证据包中的 `ready` 不能简单等同于“所有结果都是正向收益”。可靠性、隔离控制和拒绝门的就绪标准是边界可复现、审计完整且线上零副作用；质量类 Claim 则仍必须满足人工复核和净收益门。面试展示应区分“正向业务指标”“技术候选”“负结果治理证据”三类结论。
