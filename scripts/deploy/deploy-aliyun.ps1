@@ -62,6 +62,25 @@ function New-RemoteBashCommand {
     return "printf %s '$encoded' | base64 -d | bash"
 }
 
+function Assert-RemoteDeploymentCapacity {
+    $capacityScript = @'
+set -Eeuo pipefail
+load_one="$(cut -d' ' -f1 /proc/loadavg)"
+cores="$(nproc)"
+load_limit="$((cores * 4))"
+[ "$load_limit" -ge 4 ] || load_limit=4
+io_full_avg10="$(awk '/^full / { for (i=1; i<=NF; i++) if ($i ~ /^avg10=/) { split($i, pair, "="); print pair[2] } }' /proc/pressure/io 2>/dev/null || true)"
+[ -n "$io_full_avg10" ] || io_full_avg10=0
+memory_available_kib="$(awk '/^MemAvailable:/ { print $2 }' /proc/meminfo)"
+printf '[preflight] remote capacity: load1=%s/%s cores=%s io_full_avg10=%s%% mem_available=%s KiB\n' "$load_one" "$load_limit" "$cores" "$io_full_avg10" "$memory_available_kib"
+awk -v load="$load_one" -v limit="$load_limit" -v io="$io_full_avg10" 'BEGIN { exit !((load + 0) <= (limit + 0) && (io + 0) <= 10) }' || {
+  echo "remote capacity guard rejected deployment before upload; wait for load/I/O pressure to recover" >&2
+  exit 75
+}
+'@
+    Invoke-Remote -Command (New-RemoteBashCommand -Script $capacityScript)
+}
+
 function Invoke-Remote {
     param([string]$Command)
     if ($DryRun) {
@@ -145,48 +164,48 @@ function Build-LocalLinuxArtifacts {
     $env:CGO_ENABLED = "0"
     Write-Host "[build] backend linux/amd64 CGO_ENABLED=0"
     Invoke-Checked -FilePath $GoExecutable -Arguments @(
-        "-C", $RepoRoot, "build", "-p", "1",
+        "-C", $RepoRoot, "build", "-p", "1", "-trimpath", "-ldflags=-s -w",
         "-o", (Join-Path $ArtifactDirectory "GopherAI"),
         "main.go", "pprof_server.go"
     )
     Write-Host "[build] mcp linux/amd64 CGO_ENABLED=0"
     Invoke-Checked -FilePath $GoExecutable -Arguments @(
-        "-C", (Join-Path $RepoRoot "common\mcp"), "build", "-p", "1",
+        "-C", (Join-Path $RepoRoot "common\mcp"), "build", "-p", "1", "-trimpath", "-ldflags=-s -w",
         "-o", (Join-Path $ArtifactDirectory "gopherai-mcp"), "."
     )
     Write-Host "[build] index worker linux/amd64 CGO_ENABLED=0"
     Invoke-Checked -FilePath $GoExecutable -Arguments @(
-        "-C", $RepoRoot, "build", "-p", "1",
+        "-C", $RepoRoot, "build", "-p", "1", "-trimpath", "-ldflags=-s -w",
         "-o", (Join-Path $ArtifactDirectory "GopherAI-index-worker"),
         "./cmd/index-worker"
     )
     Write-Host "[build] static frontend gateway linux/amd64 CGO_ENABLED=0"
     Invoke-Checked -FilePath $GoExecutable -Arguments @(
-        "-C", $RepoRoot, "build", "-p", "1",
+        "-C", $RepoRoot, "build", "-p", "1", "-trimpath", "-ldflags=-s -w",
         "-o", (Join-Path $ArtifactDirectory "GopherAI-frontend"),
         "./cmd/frontend-gateway"
     )
     Write-Host "[build] collaboration evaluation runner linux/amd64 CGO_ENABLED=0"
     Invoke-Checked -FilePath $GoExecutable -Arguments @(
-        "-C", $RepoRoot, "build", "-p", "1",
+        "-C", $RepoRoot, "build", "-p", "1", "-trimpath", "-ldflags=-s -w",
         "-o", (Join-Path $ArtifactDirectory "GopherAI-collaboration-eval"),
         "./cmd/collaboration-eval"
     )
     Write-Host "[build] parent-context evaluation runner linux/amd64 CGO_ENABLED=0"
     Invoke-Checked -FilePath $GoExecutable -Arguments @(
-        "-C", $RepoRoot, "build", "-p", "1",
+        "-C", $RepoRoot, "build", "-p", "1", "-trimpath", "-ldflags=-s -w",
         "-o", (Join-Path $ArtifactDirectory "GopherAI-parent-context-eval"),
         "./cmd/parent-context-eval"
     )
     Write-Host "[build] unified evaluation runner linux/amd64 CGO_ENABLED=0"
     Invoke-Checked -FilePath $GoExecutable -Arguments @(
-        "-C", $RepoRoot, "build", "-p", "1",
+        "-C", $RepoRoot, "build", "-p", "1", "-trimpath", "-ldflags=-s -w",
         "-o", (Join-Path $ArtifactDirectory "GopherAI-eval-runner"),
         "./cmd/eval-runner"
     )
     Write-Host "[build] Grafana dashboard validator linux/amd64 CGO_ENABLED=0"
     Invoke-Checked -FilePath $GoExecutable -Arguments @(
-        "-C", $RepoRoot, "build", "-p", "1",
+        "-C", $RepoRoot, "build", "-p", "1", "-trimpath", "-ldflags=-s -w",
         "-o", (Join-Path $ArtifactDirectory "GopherAI-dashboard-validator"),
         "./cmd/dashboard-validator"
     )
@@ -229,6 +248,8 @@ try {
     Write-Host "[deploy] release: $releaseId"
     Write-Host "[deploy] host: $HostAlias"
     Write-Host "[deploy] source dirty: $dirty"
+
+    Assert-RemoteDeploymentCapacity
 
     $goExecutable = $null
     $goVersion = "container-build"
@@ -275,6 +296,7 @@ try {
         build_strategy = $buildStrategy
         target = "linux/amd64"
         go_version = $goVersion
+        go_build_flags = @("-p=1", "-trimpath", "-ldflags=-s -w")
         included_components = @("backend", "index-worker", "mcp", "frontend-static-gateway", "frontend-dist", "collaboration-eval", "parent-context-eval", "unified-eval-runner", "grafana-dashboard-validator")
         config_included = [bool]$DeployConfig
         migrations = @()
@@ -374,14 +396,14 @@ fi
 
 if [ "$build_in_container" = "true" ]; then
   echo "[container] building backend, index worker, MCP and frontend gateway with -p 1"
-  (cd "$new_path" && go build -p 1 -o GopherAI main.go pprof_server.go)
-  (cd "$new_path" && go build -p 1 -o GopherAI-index-worker ./cmd/index-worker)
-  (cd "$new_path/common/mcp" && go build -p 1 -o gopherai-mcp .)
-  (cd "$new_path" && go build -p 1 -o GopherAI-frontend ./cmd/frontend-gateway)
-  (cd "$new_path" && go build -p 1 -o GopherAI-collaboration-eval ./cmd/collaboration-eval)
-  (cd "$new_path" && go build -p 1 -o GopherAI-parent-context-eval ./cmd/parent-context-eval)
-  (cd "$new_path" && go build -p 1 -o GopherAI-eval-runner ./cmd/eval-runner)
-  (cd "$new_path" && go build -p 1 -o GopherAI-dashboard-validator ./cmd/dashboard-validator)
+  (cd "$new_path" && go build -p 1 -trimpath -ldflags='-s -w' -o GopherAI main.go pprof_server.go)
+  (cd "$new_path" && go build -p 1 -trimpath -ldflags='-s -w' -o GopherAI-index-worker ./cmd/index-worker)
+  (cd "$new_path/common/mcp" && go build -p 1 -trimpath -ldflags='-s -w' -o gopherai-mcp .)
+  (cd "$new_path" && go build -p 1 -trimpath -ldflags='-s -w' -o GopherAI-frontend ./cmd/frontend-gateway)
+  (cd "$new_path" && go build -p 1 -trimpath -ldflags='-s -w' -o GopherAI-collaboration-eval ./cmd/collaboration-eval)
+  (cd "$new_path" && go build -p 1 -trimpath -ldflags='-s -w' -o GopherAI-parent-context-eval ./cmd/parent-context-eval)
+  (cd "$new_path" && go build -p 1 -trimpath -ldflags='-s -w' -o GopherAI-eval-runner ./cmd/eval-runner)
+  (cd "$new_path" && go build -p 1 -trimpath -ldflags='-s -w' -o GopherAI-dashboard-validator ./cmd/dashboard-validator)
 else
   echo "[container] installing locally built Linux binaries"
   test -f "$new_path/.deploy-bin/GopherAI"

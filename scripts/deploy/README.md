@@ -19,6 +19,12 @@ After the first verified test run for a change, a retry may omit
 
 ## Release flow
 
+Before the build or upload, the script reads the ECS one-minute load and Linux
+full-I/O pressure. It exits without changing remote state when load is above
+four times the CPU count (minimum 4) or full-I/O PSI `avg10` is above 10%.
+Release binaries use `-trimpath` and stripped symbol/debug tables to reduce the
+transfer and extraction footprint while retaining runtime pprof labels.
+
 The default path is:
 
 1. Optionally run root-module and MCP-module tests with `-p 1`.
