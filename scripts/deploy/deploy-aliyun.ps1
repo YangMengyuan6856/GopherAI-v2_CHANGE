@@ -260,6 +260,12 @@ function Build-LocalLinuxArtifacts {
         "-o", (Join-Path $ArtifactDirectory "GopherAI-judge-calibration"),
         "./cmd/judge-calibration"
     )
+    Write-Host "[build] post-release cleanup evidence sealer linux/amd64 CGO_ENABLED=0"
+    Invoke-Checked -FilePath $GoExecutable -Arguments @(
+        "-C", $RepoRoot, "build", "-p", "1", "-trimpath", "-ldflags=-s -w",
+        "-o", (Join-Path $ArtifactDirectory "GopherAI-cleanup-audit"),
+        "./cmd/cleanup-audit"
+    )
 }
 
 function Assert-EvaluationCatalogReleaseIntegrity {
@@ -406,7 +412,7 @@ try {
         target = "linux/amd64"
         go_version = $goVersion
         go_build_flags = @("-p=1", "-trimpath", "-ldflags=-s -w")
-        included_components = @("backend", "index-worker", "mcp", "frontend-static-gateway", "frontend-dist", "collaboration-eval", "parent-context-eval", "unified-eval-runner", "grafana-dashboard-validator", "bounded-performance-eval", "judge-calibration")
+        included_components = @("backend", "index-worker", "mcp", "frontend-static-gateway", "frontend-dist", "collaboration-eval", "parent-context-eval", "unified-eval-runner", "grafana-dashboard-validator", "bounded-performance-eval", "judge-calibration", "cleanup-audit-sealer")
         config_included = [bool]$DeployConfig
         migrations = @()
         rollback = "previous-directory"
@@ -507,6 +513,7 @@ bundle_path="__CONTAINER_BUNDLE_DIR_RAW__/__BUNDLE_NAME_RAW__"
 project_path="__PROJECT_PATH_RAW__"
 runtime_path="__RUNTIME_PATH_RAW__"
 release_id="__RELEASE_ID_RAW__"
+git_sha="__GIT_SHA_RAW__"
 expected_sha="__EXPECTED_SHA_RAW__"
 skip_frontend="__SKIP_FRONTEND_RAW__"
 deploy_config="__DEPLOY_CONFIG_RAW__"
@@ -543,6 +550,7 @@ if [ "$build_in_container" = "true" ]; then
   (cd "$new_path" && go build -p 1 -trimpath -ldflags='-s -w' -o GopherAI-dashboard-validator ./cmd/dashboard-validator)
   (cd "$new_path" && go build -p 1 -trimpath -ldflags='-s -w' -o GopherAI-perf-eval ./cmd/perf-eval)
   (cd "$new_path" && go build -p 1 -trimpath -ldflags='-s -w' -o GopherAI-judge-calibration ./cmd/judge-calibration)
+  (cd "$new_path" && go build -p 1 -trimpath -ldflags='-s -w' -o GopherAI-cleanup-audit ./cmd/cleanup-audit)
 else
   echo "[container] installing locally built Linux binaries"
   test -f "$new_path/.deploy-bin/GopherAI"
@@ -555,6 +563,7 @@ else
   test -f "$new_path/.deploy-bin/GopherAI-dashboard-validator"
   test -f "$new_path/.deploy-bin/GopherAI-perf-eval"
   test -f "$new_path/.deploy-bin/GopherAI-judge-calibration"
+  test -f "$new_path/.deploy-bin/GopherAI-cleanup-audit"
   cp "$new_path/.deploy-bin/GopherAI" "$new_path/GopherAI"
   cp "$new_path/.deploy-bin/GopherAI-index-worker" "$new_path/GopherAI-index-worker"
   cp "$new_path/.deploy-bin/gopherai-mcp" "$new_path/common/mcp/gopherai-mcp"
@@ -565,7 +574,8 @@ else
   cp "$new_path/.deploy-bin/GopherAI-dashboard-validator" "$new_path/GopherAI-dashboard-validator"
   cp "$new_path/.deploy-bin/GopherAI-perf-eval" "$new_path/GopherAI-perf-eval"
   cp "$new_path/.deploy-bin/GopherAI-judge-calibration" "$new_path/GopherAI-judge-calibration"
-  chmod 0755 "$new_path/GopherAI" "$new_path/GopherAI-index-worker" "$new_path/common/mcp/gopherai-mcp" "$new_path/GopherAI-frontend" "$new_path/GopherAI-collaboration-eval" "$new_path/GopherAI-parent-context-eval" "$new_path/GopherAI-eval-runner" "$new_path/GopherAI-dashboard-validator" "$new_path/GopherAI-perf-eval" "$new_path/GopherAI-judge-calibration"
+  cp "$new_path/.deploy-bin/GopherAI-cleanup-audit" "$new_path/GopherAI-cleanup-audit"
+  chmod 0755 "$new_path/GopherAI" "$new_path/GopherAI-index-worker" "$new_path/common/mcp/gopherai-mcp" "$new_path/GopherAI-frontend" "$new_path/GopherAI-collaboration-eval" "$new_path/GopherAI-parent-context-eval" "$new_path/GopherAI-eval-runner" "$new_path/GopherAI-dashboard-validator" "$new_path/GopherAI-perf-eval" "$new_path/GopherAI-judge-calibration" "$new_path/GopherAI-cleanup-audit"
   rm -rf -- "$new_path/.deploy-bin"
 fi
 
@@ -884,9 +894,15 @@ if [ -d "$backup_path" ]; then move_runtime_dir uploads; fi
 echo "[container] starting release"
 if ! start_release "$project_path"; then rollback_release; exit 1; fi
 
+echo "[container] sealing current-release cleanup evidence"
+if ! (cd "$project_path" && ./GopherAI-cleanup-audit -release-id "$release_id" -git-sha "$git_sha" -root . -report "$runtime_path/evaluation/cleanup-audit-latest.json" -timeout 12s); then
+  rollback_release
+  exit 1
+fi
+
 echo "[container] release active: $release_id"
 echo "[container] bundle sha256: $expected_sha"
-sha256sum "$project_path/GopherAI" "$project_path/GopherAI-index-worker" "$project_path/common/mcp/gopherai-mcp" "$project_path/GopherAI-frontend" "$project_path/GopherAI-collaboration-eval" "$project_path/GopherAI-parent-context-eval" "$project_path/GopherAI-eval-runner" "$project_path/GopherAI-dashboard-validator" 2>/dev/null || true
+sha256sum "$project_path/GopherAI" "$project_path/GopherAI-index-worker" "$project_path/common/mcp/gopherai-mcp" "$project_path/GopherAI-frontend" "$project_path/GopherAI-collaboration-eval" "$project_path/GopherAI-parent-context-eval" "$project_path/GopherAI-eval-runner" "$project_path/GopherAI-dashboard-validator" "$project_path/GopherAI-cleanup-audit" 2>/dev/null || true
 pgrep -af '^\./GopherAI$|^\./GopherAI-index-worker$|^prometheus .*deploy/observability/prometheus.yml|[/]usr/share/grafana/bin/grafana server .*deploy/observability/grafana/grafana.ini|^\./gopherai-mcp -mode server$|^\./GopherAI-frontend |node .*vue-cli-service.*serve' || true
 echo "[container] sanitized backend log tail"
 tail -n 30 "$project_path/backend.log" 2>/dev/null | sed -E 's#(amqp://)[^@]+@#\1***:***@#g' || true
@@ -920,6 +936,7 @@ find "$host_bundle_dir" -maxdepth 1 -type f ! -name "$bundle_name" ! -name "$bun
         Replace("__PROJECT_PATH_RAW__", $ContainerProjectPath).
         Replace("__RUNTIME_PATH_RAW__", $ContainerRuntimePath).
         Replace("__RELEASE_ID_RAW__", $releaseId).
+        Replace("__GIT_SHA_RAW__", $gitSha).
         Replace("__EXPECTED_SHA_RAW__", $bundleHash).
         Replace("__SKIP_FRONTEND_RAW__", $skipFrontendText).
         Replace("__DEPLOY_CONFIG_RAW__", $deployConfigText).

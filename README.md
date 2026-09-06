@@ -108,7 +108,7 @@ npm run lint
 npm run build
 ```
 
-正式发布脚本从 clean Git SHA 生成归档，固定 LF 字节，校验 Full 320 六个切片的数量与 SHA-256，交叉编译三个 Linux 二进制，再通过 SSH 完成版本目录切换、健康检查和失败回滚：
+正式发布脚本从 clean Git SHA 生成归档，固定 LF 字节，校验 Full 320 六个切片的数量与 SHA-256，交叉编译全部 Linux 运行/评测二进制，再通过 SSH 完成版本目录切换、健康检查、当次 Release 清理证据封存和失败回滚：
 
 ```powershell
 .\scripts\deploy\deploy-aliyun.ps1 -RunLocalTests

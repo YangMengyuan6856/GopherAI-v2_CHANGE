@@ -28,11 +28,13 @@ transfer and extraction footprint while retaining runtime pprof labels.
 The default path is:
 
 1. Optionally run root-module and MCP-module tests with `-p 1`.
-2. Build the backend, index worker, and MCP as `linux/amd64`,
+2. Build the backend, index worker, MCP, static frontend gateway, bounded
+   evaluation runners, and post-release evidence sealer as `linux/amd64`,
    `CGO_ENABLED=0` binaries.
 3. Create a release manifest and SHA-256 checksum.
-4. Package source plus the three binaries, excluding `.git`, `.claude`, runtime
-   uploads, remote configuration, logs, frontend `node_modules`, and `dist`.
+4. Package source plus the prebuilt binaries, excluding `.git`, `.claude`,
+   runtime uploads, remote configuration, logs, frontend `node_modules`, and
+   the local development tree outside the controlled production `dist` assets.
 5. Upload through the SSH alias and verify the checksum on the host and again
    inside `gopherai2`.
 6. Extract into a new versioned directory before stopping the current release.
@@ -41,8 +43,13 @@ The default path is:
 8. Switch `/root/GopherAI-`, start MySQL/backend/index worker/Prometheus/
    Grafana/MCP/frontend with PID files, and wait for application ports plus the
    loopback-only observability ports 9092 and 9093.
-9. Keep the previous directory for rollback. If startup fails after switching,
-   restore the previous directory and runtime folders automatically.
+9. After every service health gate passes, run the bounded cleanup evidence
+   sealer against the packaged source inventory and the fixed Prometheus
+   24-hour observation. It atomically binds the report to this release and Git
+   SHA; it is not exposed as an unauthenticated deployment API.
+10. Keep the previous directory for rollback. If startup or evidence sealing
+    fails after switching, restore the previous directory and runtime folders
+    automatically. A release is not printed as active before both phases pass.
 
 The script never deletes Docker containers or images.
 
@@ -97,6 +104,7 @@ MCP      127.0.0.1:8081         -> TCP ready
 Prometheus 127.0.0.1:9092        -> ready, 2/2 scrape targets
 Grafana  container-private :9093 -> healthy, dashboard provisioned, no host port
 public   :8080/api/...           -> proxied backend JSON
+cleanup  current release/Git SHA -> complete, 0 eligible, 0 blocked
 ```
 
 `/mcp` is a streaming endpoint and can keep an HTTP request open, so use TCP
