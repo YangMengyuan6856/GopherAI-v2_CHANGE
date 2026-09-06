@@ -738,6 +738,56 @@
                 <span>质量收益仍受人工复核或净收益门阻断；可靠性、故障演练与控制器数字必须保留“隔离验收 / Observe-only / 不切流”边界。</span>
               </div>
             </details>
+            <details v-if="g10Review" class="interview-evidence-card g10-review-card">
+              <summary>打开 G10 发布事实核验（{{ g10Review.passed_gates }}/{{ g10Review.total_gates }} 门通过 · {{ g10ReviewStatusLabel(g10Review.status) }}）</summary>
+              <div class="metric-catalog-heading">
+                <div>
+                  <strong>G10 Release Review · {{ g10Review.release_id }}</strong>
+                  <span>Evidence {{ shortRevision(g10Review.evidence_package_sha256) }} · Report {{ shortRevision(g10Review.report_sha256) }}</span>
+                </div>
+                <div class="interview-evidence-actions">
+                  <button :disabled="downloadingG10Review" @click="downloadG10Review('json')">下载 JSON</button>
+                  <button :disabled="downloadingG10Review" @click="downloadG10Review('markdown')">下载中文核验表</button>
+                </div>
+              </div>
+              <div class="interview-evidence-summary">
+                <div><strong>{{ g10Review.passed_gates }}/{{ g10Review.total_gates }}</strong><span>G10 总门</span></div>
+                <div><strong>{{ g10Review.resume_fact_count }}</strong><span>通过技术证据门</span></div>
+                <div><strong>{{ g10Review.excluded_fact_count }}</strong><span>禁止写入简历</span></div>
+                <div><strong>{{ g10Review.production_release_ready ? '允许' : '禁止' }}</strong><span>生产总门</span></div>
+              </div>
+              <div class="g10-gate-grid">
+                <article v-for="gate in g10Review.gates" :key="gate.id">
+                  <div class="interview-evidence-heading">
+                    <strong>{{ gate.title }}</strong>
+                    <span :class="g10GateStatusClass(gate.status)">{{ g10GateStatusLabel(gate.status) }}</span>
+                  </div>
+                  <p>{{ gate.conclusion }}</p>
+                  <small>证据：{{ gate.evidence_refs.join(' · ') }}</small>
+                  <small>下一步：{{ gate.next_action }}</small>
+                </article>
+              </div>
+              <details class="g10-fact-list">
+                <summary>查看 {{ g10Review.resume_fact_count }} 条通过技术证据门的事实（仍需用户选择最终 3～5 条）</summary>
+                <article v-for="fact in g10Review.resume_facts" :key="fact.statement_id">
+                  <strong>{{ fact.title }}</strong>
+                  <p>{{ fact.claim }}</p>
+                  <small>来源：{{ fact.source_refs.join(' · ') }}</small>
+                  <small>表述必须保留：{{ fact.required_qualifiers.join('；') }}</small>
+                </article>
+              </details>
+              <details class="g10-fact-list excluded">
+                <summary>查看 {{ g10Review.excluded_fact_count }} 条当前禁止写入简历的事实</summary>
+                <article v-for="fact in g10Review.excluded_facts" :key="fact.statement_id">
+                  <strong>{{ fact.title }} · {{ interviewEvidenceStatusLabel(fact.status) }}</strong>
+                  <small>阻塞：{{ fact.blockers.length ? fact.blockers.join(' · ') : '当前结论属于负结果，不作为质量提升表述' }}</small>
+                </article>
+              </details>
+              <div class="evaluation-candidate-warning">
+                <strong>当前 G10 明确未通过，不把“技术可运行”包装成“生产发布完成”</strong>
+                <span>待办：人工标签/Judge 校准、用户确认最终简历数字；环境延期：真实生产回滚和百分比灰度。</span>
+              </div>
+            </details>
             <details class="cleanup-audit-card">
               <summary>打开清理依赖与零调用审计（{{ cleanupAudit ? (cleanupAudit.summary.cleanup_complete ? '清理闭环已完成' : `${cleanupAudit.summary.eligible_to_delete} 个可删除候选`) : '尚未运行' }}）</summary>
               <div class="metric-catalog-heading">
@@ -2440,6 +2490,8 @@ export default {
     const submittingJudgeReview = ref(false)
     const interviewEvidence = ref(null)
     const downloadingInterviewEvidence = ref(false)
+    const g10Review = ref(null)
+    const downloadingG10Review = ref(false)
     const cleanupAudit = ref(null)
     const runningCleanupAudit = ref(false)
     const judgeCalibrationIndex = ref(0)
@@ -3792,12 +3844,13 @@ export default {
       if (!evaluationCatalogOpen.value || evaluationCatalog.value || loadingEvaluationCatalog.value) return
       try {
         loadingEvaluationCatalog.value = true
-        const [catalogResponse, runResponse, pairedResponse, judgeCalibrationResponse, interviewEvidenceResponse, cleanupAuditResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse, reliabilityResponse, onlineEvaluationResponse, failurePoolResponse, evolutionResponse, evolutionSplitResponse, evolutionComparisonResponse, evolutionPromotionResponse, evolutionControlResponse, evolutionShadowControlResponse, performanceResponse] = await Promise.all([
+        const [catalogResponse, runResponse, pairedResponse, judgeCalibrationResponse, interviewEvidenceResponse, g10ReviewResponse, cleanupAuditResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse, reliabilityResponse, onlineEvaluationResponse, failurePoolResponse, evolutionResponse, evolutionSplitResponse, evolutionComparisonResponse, evolutionPromotionResponse, evolutionControlResponse, evolutionShadowControlResponse, performanceResponse] = await Promise.all([
           api.get('/evaluations/catalog/latest'),
           api.get('/evaluations/unified/latest'),
           api.get('/evaluations/paired/latest').catch(() => null),
           api.get('/evaluations/judge-calibration/latest').catch(() => null),
           api.get('/evaluations/interview-evidence/latest').catch(() => null),
+          api.get('/evaluations/g10/latest').catch(() => null),
           api.get('/evaluations/cleanup/latest').catch(() => null),
           api.get('/evaluations/metrics/catalog'),
           api.get('/evaluations/metrics/runtime').catch(() => null),
@@ -3823,6 +3876,7 @@ export default {
         judgeCalibrationAudit.value = judgeCalibrationResponse?.data || null
         if (judgeCalibrationAudit.value) initializeJudgeCalibrationSelection()
         interviewEvidence.value = interviewEvidenceResponse?.data || null
+        g10Review.value = g10ReviewResponse?.data || null
         cleanupAudit.value = cleanupAuditResponse?.data || null
         metricCatalog.value = metricCatalogResponse.data.report
         prometheusRuntime.value = prometheusRuntimeResponse?.data?.snapshot || null
@@ -4001,6 +4055,43 @@ export default {
       }
     }
 
+    const g10ReviewStatusLabel = (status) => ({
+      g10_blocked_by_human_and_environment_gates: '人工与环境门阻断',
+      g10_pending_user_and_environment_gates: '等待用户与环境门'
+    }[status] || status || '状态未知')
+
+    const g10GateStatusLabel = (status) => ({
+      passed: '通过', blocked: '阻断', pending_user: '待用户确认', deferred_environment: '环境延期'
+    }[status] || status || '未知')
+
+    const g10GateStatusClass = (status) => ({
+      ready: status === 'passed',
+      blocked: status === 'blocked',
+      pending: status === 'pending_user' || status === 'deferred_environment'
+    })
+
+    const downloadG10Review = async (format) => {
+      if (downloadingG10Review.value || !['json', 'markdown'].includes(format)) return
+      try {
+        downloadingG10Review.value = true
+        const response = await api.get('/evaluations/g10/latest', { params: { format }, responseType: 'blob' })
+        const blob = new Blob([response.data], { type: format === 'json' ? 'application/json' : 'text/markdown;charset=utf-8' })
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = `gopherai-g10-release-review.${format === 'json' ? 'json' : 'md'}`
+        document.body.appendChild(link)
+        link.click()
+        link.remove()
+        URL.revokeObjectURL(url)
+        ElMessage.success('G10 发布事实核验已下载')
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || 'G10 发布事实核验下载失败')
+      } finally {
+        downloadingG10Review.value = false
+      }
+    }
+
     const runCleanupAudit = async () => {
       if (runningCleanupAudit.value) return
       try {
@@ -4010,6 +4101,8 @@ export default {
         if (response.data.summary.cleanup_complete) {
           const evidenceResponse = await api.get('/evaluations/interview-evidence/latest').catch(() => null)
           interviewEvidence.value = evidenceResponse?.data || interviewEvidence.value
+          const g10Response = await api.get('/evaluations/g10/latest').catch(() => null)
+          g10Review.value = g10Response?.data || g10Review.value
           ElMessage.success(evidenceResponse?.data ? '清理闭环完成，并已刷新可复现面试证据包' : '清理闭环完成：授权候选已删除，必要协议边界仍保留')
         }
         else if (response.data.summary.deletion_plan_ready) ElMessage.success('清理前审计通过：候选仍将通过独立提交删除')
@@ -4844,6 +4937,8 @@ export default {
       submittingJudgeReview,
       interviewEvidence,
       downloadingInterviewEvidence,
+      g10Review,
+      downloadingG10Review,
       cleanupAudit,
       runningCleanupAudit,
       judgeCalibrationIndex,
@@ -5054,6 +5149,10 @@ export default {
       interviewEvidenceMetricLabel,
       formatInterviewEvidenceMetric,
       downloadInterviewEvidence,
+      g10ReviewStatusLabel,
+      g10GateStatusLabel,
+      g10GateStatusClass,
+      downloadG10Review,
       runCleanupAudit,
       cleanupObservationLabel,
       cleanupCandidateStatusLabel,
@@ -7347,6 +7446,75 @@ export default {
   color: #9a6a16;
 }
 
+.interview-evidence-heading > span.pending {
+  background: #eef1ff;
+  color: #5968a8;
+}
+
+.g10-review-card {
+  border-style: solid;
+  border-color: rgba(126, 76, 170, 0.28);
+  background: linear-gradient(145deg, #fbf9ff 0%, #f5f8ff 100%);
+}
+
+.g10-review-card .interview-evidence-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.g10-gate-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.g10-gate-grid > article,
+.g10-fact-list > article {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(70, 84, 167, 0.16);
+  border-radius: 8px;
+  background: #fff;
+  overflow-wrap: anywhere;
+}
+
+.g10-gate-grid p,
+.g10-fact-list p {
+  margin: 0;
+  color: #3f4d63;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.g10-gate-grid small,
+.g10-fact-list small {
+  color: #68748c;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.g10-fact-list {
+  margin-top: 10px;
+  color: #5d518d;
+  font-size: 12px;
+}
+
+.g10-fact-list > summary {
+  margin-bottom: 7px;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.g10-fact-list > article + article {
+  margin-top: 7px;
+}
+
+.g10-fact-list.excluded > article {
+  border-color: rgba(197, 132, 36, 0.22);
+  background: #fffaf0;
+}
+
 .interview-evidence-metrics span {
   padding: 4px 7px;
   border-radius: 6px;
@@ -7398,6 +7566,11 @@ export default {
     grid-template-columns: repeat(2, minmax(140px, 1fr));
   }
 
+  .g10-review-card .interview-evidence-summary,
+  .g10-gate-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .interview-evidence-summary {
     grid-template-columns: 1fr;
   }
@@ -7405,6 +7578,11 @@ export default {
 
 @media (max-width: 560px) {
   .judge-score-form {
+    grid-template-columns: 1fr;
+  }
+
+  .g10-review-card .interview-evidence-summary,
+  .g10-gate-grid {
     grid-template-columns: 1fr;
   }
 
