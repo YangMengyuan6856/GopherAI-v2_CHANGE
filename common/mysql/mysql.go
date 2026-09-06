@@ -95,6 +95,8 @@ func migration() error {
 		new(model.HarnessArtifact),
 		new(model.HarnessArtifactReview),
 		new(model.HarnessPromotionAttempt),
+		new(model.HarnessActivePointer),
+		new(model.HarnessControlEvent),
 	)
 }
 

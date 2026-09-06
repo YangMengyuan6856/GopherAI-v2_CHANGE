@@ -86,7 +86,7 @@ func ActivateHarnessPointer(current ActiveHarnessPointer, candidate ControlCandi
 	if current.StateVersion != expectedStateVersion {
 		return ActiveHarnessPointer{}, ErrPointerStateConflict
 	}
-	if !validControlPointer(current) || !validControlCandidate(candidate) || current.ArtifactType != candidate.ArtifactType ||
+	if !validControlActivationParent(current) || !validControlCandidate(candidate) || current.ArtifactType != candidate.ArtifactType ||
 		current.CurrentVersion != candidate.ParentVersion || current.CurrentSHA256 != candidate.ParentSHA256 {
 		return ActiveHarnessPointer{}, ErrParentVersionMismatch
 	}
@@ -224,6 +224,10 @@ func controlCandidate(version, sha string) ControlCandidate {
 
 func validControlPointer(pointer ActiveHarnessPointer) bool {
 	return pointer.ArtifactType != "" && pointer.CurrentVersion != "" && len(pointer.CurrentSHA256) == 64 && pointer.StateVersion > 0
+}
+
+func validControlActivationParent(pointer ActiveHarnessPointer) bool {
+	return pointer.ArtifactType != "" && pointer.CurrentVersion != "" && len(pointer.CurrentSHA256) == 64
 }
 
 func validControlCandidate(candidate ControlCandidate) bool {

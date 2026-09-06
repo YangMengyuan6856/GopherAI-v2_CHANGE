@@ -1312,6 +1312,41 @@
                           </div>
                           <div v-else class="strategy-control-empty">尚无控制状态机验收报告；运行时只使用隔离的内存指针，不读写生产策略。</div>
                         </details>
+                        <details v-if="evolutionShadowControlAudit" class="evolution-shadow-control">
+                          <summary>查看隔离 Shadow / rollback 控制面（{{ evolutionShadowControlAudit.active_pointers.length }} 个指针 · {{ evolutionShadowControlAudit.blocked_count }} 次阻断）</summary>
+                          <div class="metric-catalog-heading">
+                            <div>
+                              <strong>真实治理控制面 · {{ evolutionShadowControlAudit.scope }}</strong>
+                              <span>追加式 MySQL 审计 · 独立 reviewer · CAS state version · 不接管线上路由</span>
+                            </div>
+                            <div class="evolution-promotion-actions">
+                              <button :disabled="submittingShadowControl || !evolutionShadowControlAudit.can_control" @click="requestEvolutionShadow">请求当前候选进入 Shadow</button>
+                              <button :disabled="submittingShadowControl || !evolutionShadowControlAudit.can_control" @click="rollbackEvolutionShadow">回滚隔离指针</button>
+                            </div>
+                          </div>
+                          <div class="diagnostic-evaluation-grid">
+                            <div><strong>{{ evolutionShadowControlAudit.event_count }}</strong><span>控制事件</span></div>
+                            <div><strong>{{ evolutionShadowControlAudit.applied_count }}</strong><span>已执行</span></div>
+                            <div><strong>{{ evolutionShadowControlAudit.blocked_count }}</strong><span>已阻断</span></div>
+                            <div><strong>{{ evolutionShadowControlAudit.active_pointers.length }}</strong><span>隔离 Shadow 指针</span></div>
+                          </div>
+                          <article v-for="pointer in evolutionShadowControlAudit.active_pointers" :key="pointer.artifact_type" class="evolution-shadow-pointer">
+                            <strong>{{ evolutionArtifactLabel(pointer.artifact_type) }} · {{ pointer.current_version }}</strong>
+                            <span>State v{{ pointer.state_version }} · Previous {{ pointer.previous_version || '已消费' }} · {{ pointer.last_transition }}</span>
+                          </article>
+                          <div v-for="event in evolutionShadowControlAudit.latest" :key="event.id" class="evolution-promotion-attempt">
+                            <span>{{ evolutionShadowOperationLabel(event.operation) }} · {{ evolutionShadowOutcomeLabel(event.outcome) }}</span>
+                            <strong>{{ evolutionShadowReasonLabel(event.reason_code) }}</strong>
+                            <small>Event {{ shortRevision(event.event_sha256) }} · Expected v{{ event.expected_state_version }} · Pointer changed={{ event.pointer_changed }}</small>
+                          </div>
+                          <div class="evaluation-decision-strip">
+                            <span class="dependency-ready">Scope=isolated_shadow</span>
+                            <span class="dependency-ready">Affects live traffic=false</span>
+                            <span class="dependency-ready">阻断也保留审计</span>
+                            <span class="dependency-ready">回滚不依赖旧报告</span>
+                          </div>
+                          <small v-for="limitation in evolutionShadowControlAudit.limitations" :key="limitation" class="evolution-limitation">{{ limitation }}</small>
+                        </details>
                       </article>
                     </div>
                     <div v-else class="strategy-control-empty">尚无公平比较报告。运行后会保存到 Release 目录外；同一实验再次点击只复用原报告，不会重新打开 Holdout。</div>
@@ -2280,6 +2315,8 @@ export default {
     const submittingPromotionReview = ref(false)
     const evolutionControlAcceptance = ref(null)
     const runningEvolutionControlAcceptance = ref(false)
+    const evolutionShadowControlAudit = ref(null)
+    const submittingShadowControl = ref(false)
     const anomalyScenarios = [
       { value: 'healthy', label: '健康窗口' },
       { value: 'quality_drop', label: 'RAG 质量下降' },
@@ -3536,7 +3573,7 @@ export default {
       if (!evaluationCatalogOpen.value || evaluationCatalog.value || loadingEvaluationCatalog.value) return
       try {
         loadingEvaluationCatalog.value = true
-        const [catalogResponse, runResponse, pairedResponse, judgeCalibrationResponse, interviewEvidenceResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse, reliabilityResponse, onlineEvaluationResponse, failurePoolResponse, evolutionResponse, evolutionSplitResponse, evolutionComparisonResponse, evolutionPromotionResponse, evolutionControlResponse, performanceResponse] = await Promise.all([
+        const [catalogResponse, runResponse, pairedResponse, judgeCalibrationResponse, interviewEvidenceResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse, reliabilityResponse, onlineEvaluationResponse, failurePoolResponse, evolutionResponse, evolutionSplitResponse, evolutionComparisonResponse, evolutionPromotionResponse, evolutionControlResponse, evolutionShadowControlResponse, performanceResponse] = await Promise.all([
           api.get('/evaluations/catalog/latest'),
           api.get('/evaluations/unified/latest'),
           api.get('/evaluations/paired/latest').catch(() => null),
@@ -3557,6 +3594,7 @@ export default {
           api.get('/evaluations/evolution/comparison/latest').catch(() => null),
           api.get('/evaluations/evolution/promotion/latest').catch(() => null),
           api.get('/evaluations/evolution/promotion/control/latest').catch(() => null),
+          api.get('/evaluations/evolution/promotion/shadow/latest').catch(() => null),
           api.get('/evaluations/performance/latest').catch(() => null)
         ])
         evaluationCatalog.value = catalogResponse.data
@@ -3580,6 +3618,7 @@ export default {
         evolutionComparisonReport.value = evolutionComparisonResponse?.data || null
         evolutionPromotionAudit.value = evolutionPromotionResponse?.data || null
         evolutionControlAcceptance.value = evolutionControlResponse?.data || null
+        evolutionShadowControlAudit.value = evolutionShadowControlResponse?.data || null
         performanceReport.value = performanceResponse?.data || null
       } catch (error) {
         evaluationCatalogOpen.value = false
@@ -4100,6 +4139,67 @@ export default {
       rollback_restored_previous: '回滚恢复父版本', rollback_target_consumed: '回滚目标消费后不可反复切换'
     }[value] || value)
 
+    const refreshEvolutionShadowControl = async () => {
+      const response = await api.get('/evaluations/evolution/promotion/shadow/latest')
+      evolutionShadowControlAudit.value = response.data
+    }
+
+    const requestEvolutionShadow = async () => {
+      if (submittingShadowControl.value || !evolutionComparisonReport.value || !evolutionShadowControlAudit.value?.can_control) return
+      const report = evolutionComparisonReport.value
+      const pointer = evolutionShadowControlAudit.value.active_pointers.find(item => item.artifact_type === report.candidate.artifact_type)
+      try {
+        submittingShadowControl.value = true
+        const response = await api.post('/evaluations/evolution/promotion/shadow/request', {
+          mode: 'governed_isolated_shadow', experiment_version: report.experiment_version, artifact_type: report.candidate.artifact_type,
+          candidate_version: report.candidate.artifact_version, candidate_sha256: report.candidate.artifact_sha256, report_sha256: report.report_sha256,
+          expected_state_version: pointer?.state_version || 0, idempotency_key: `shadow-${report.report_sha256.slice(0, 24)}-${evolutionPromotionAudit.value?.attempt_count || 0}`,
+          acknowledgment: 'I_CONFIRM_HARNESS_CONTROL_OPERATION'
+        })
+        await refreshEvolutionShadowControl()
+        const event = response.data.event
+        if (event.outcome === 'blocked') ElMessage.warning(`隔离 Shadow 请求已被门禁阻断：${evolutionShadowReasonLabel(event.reason_code)}`)
+        else if (response.data.reused) ElMessage.success('相同隔离 Shadow 请求已幂等复用')
+        else ElMessage.success('候选已原子切换到隔离 Shadow；线上聊天流量未改变')
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || '隔离 Shadow 请求暂不可用')
+      } finally {
+        submittingShadowControl.value = false
+      }
+    }
+
+    const rollbackEvolutionShadow = async () => {
+      if (submittingShadowControl.value || !evolutionComparisonReport.value || !evolutionShadowControlAudit.value?.can_control) return
+      const artifactType = evolutionComparisonReport.value.candidate.artifact_type
+      const pointer = evolutionShadowControlAudit.value.active_pointers.find(item => item.artifact_type === artifactType)
+      const expectedVersion = pointer?.state_version || 0
+      try {
+        submittingShadowControl.value = true
+        const response = await api.post('/evaluations/evolution/promotion/shadow/rollback', {
+          mode: 'governed_isolated_shadow', artifact_type: artifactType, expected_state_version: expectedVersion,
+          idempotency_key: `rollback-${artifactType}-${expectedVersion}`, acknowledgment: 'I_CONFIRM_HARNESS_CONTROL_OPERATION'
+        })
+        await refreshEvolutionShadowControl()
+        const event = response.data.event
+        if (event.outcome === 'blocked') ElMessage.warning(`隔离回滚请求已被门禁阻断：${evolutionShadowReasonLabel(event.reason_code)}`)
+        else if (response.data.reused) ElMessage.success('相同回滚请求已幂等复用')
+        else ElMessage.success('隔离 Shadow 指针已原子回滚；线上聊天流量未改变')
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || '隔离 Shadow 回滚暂不可用')
+      } finally {
+        submittingShadowControl.value = false
+      }
+    }
+
+    const evolutionShadowOperationLabel = (value) => ({ shadow_admission: 'Shadow 准入', rollback: '隔离回滚' }[value] || value)
+    const evolutionShadowOutcomeLabel = (value) => ({ applied: '已执行', blocked: '已阻断' }[value] || value)
+    const evolutionShadowReasonLabel = (value) => ({
+      controlled_fixture_not_promotable: '受控 Fixture 不是生产候选', offline_promotion_gate_failed: '离线收益门未通过',
+      safety_regression: '安全回归门未通过', sealed_holdout_not_passed: 'Sealed Holdout 未通过', human_approval_required: '缺少已记录的人工批准',
+      isolated_shadow_failed: '隔离 Shadow 探针未通过', pointer_cas_conflict: '活动指针版本冲突', isolated_shadow_activated: '已进入隔离 Shadow',
+      rollback_completed: '已恢复直接父版本', rollback_unavailable: '没有可用的单步回滚目标'
+    }[value] || value)
+
     const evolutionVariantLabel = (value) => ({
       frozen_harness: '旧 Harness', human_rule_candidate: '人工规则候选', same_budget_test_time_scaling: '同预算 TTS', evolved_candidate: '自动演化候选'
     }[value] || value)
@@ -4530,6 +4630,13 @@ export default {
       runningEvolutionControlAcceptance,
       runEvolutionControlAcceptance,
       evolutionControlAcceptanceLabel,
+      evolutionShadowControlAudit,
+      submittingShadowControl,
+      requestEvolutionShadow,
+      rollbackEvolutionShadow,
+      evolutionShadowOperationLabel,
+      evolutionShadowOutcomeLabel,
+      evolutionShadowReasonLabel,
       evolutionPromotionDecisionLabel,
       evolutionPromotionOutcomeLabel,
       evolutionPromotionAttemptReasonLabel,
@@ -7356,6 +7463,30 @@ export default {
   cursor: pointer;
   color: #0f766e;
   font-weight: 800;
+}
+
+.evolution-shadow-control {
+  margin-top: 9px;
+  padding: 9px;
+  border: 1px solid rgba(37, 99, 235, 0.24);
+  border-radius: 8px;
+  background: #eff6ff;
+}
+
+.evolution-shadow-control > summary {
+  cursor: pointer;
+  color: #1d4ed8;
+  font-weight: 800;
+}
+
+.evolution-shadow-pointer {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  border-radius: 7px;
+  background: #fff;
 }
 
 .failure-cluster-grid {

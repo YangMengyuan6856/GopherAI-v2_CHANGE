@@ -65,3 +65,51 @@ type HarnessPromotionAttempt struct {
 	AttemptSHA256        string    `gorm:"uniqueIndex;not null;type:char(64)" json:"attempt_sha256"`
 	CreatedAt            time.Time `gorm:"index;not null" json:"created_at"`
 }
+
+// HarnessActivePointer selects an artifact only inside the isolated Shadow
+// runtime. It is intentionally separate from the production routing policy.
+type HarnessActivePointer struct {
+	ID              string    `gorm:"primaryKey;type:char(64)" json:"id"`
+	Scope           string    `gorm:"uniqueIndex:idx_harness_pointer_scope_type;not null;type:varchar(32)" json:"scope"`
+	ArtifactType    string    `gorm:"uniqueIndex:idx_harness_pointer_scope_type;not null;type:varchar(48)" json:"artifact_type"`
+	CurrentVersion  string    `gorm:"not null;type:varchar(96)" json:"current_version"`
+	CurrentSHA256   string    `gorm:"not null;type:char(64)" json:"current_sha256"`
+	PreviousVersion string    `gorm:"type:varchar(96)" json:"previous_version,omitempty"`
+	PreviousSHA256  string    `gorm:"type:char(64)" json:"previous_sha256,omitempty"`
+	StateVersion    uint64    `gorm:"not null" json:"state_version"`
+	LastTransition  string    `gorm:"not null;type:varchar(64)" json:"last_transition"`
+	LastEventSHA256 string    `gorm:"not null;type:char(64)" json:"last_event_sha256"`
+	UpdatedByHash   string    `gorm:"not null;type:char(64)" json:"-"`
+	UpdatedAt       time.Time `gorm:"index;not null" json:"updated_at"`
+}
+
+// HarnessControlEvent is an append-only audit for blocked and applied Shadow
+// activation/rollback requests. Raw principals and idempotency keys are never
+// stored.
+type HarnessControlEvent struct {
+	ID                   string    `gorm:"primaryKey;type:char(64)" json:"id"`
+	SchemaVersion        string    `gorm:"not null;type:varchar(64)" json:"schema_version"`
+	Operation            string    `gorm:"index;not null;type:varchar(32)" json:"operation"`
+	Scope                string    `gorm:"index;not null;type:varchar(32)" json:"scope"`
+	ArtifactType         string    `gorm:"index;not null;type:varchar(48)" json:"artifact_type"`
+	ExperimentVersion    string    `gorm:"type:varchar(64)" json:"experiment_version,omitempty"`
+	CandidateVersion     string    `gorm:"type:varchar(96)" json:"candidate_version,omitempty"`
+	CandidateSHA256      string    `gorm:"type:char(64)" json:"candidate_sha256,omitempty"`
+	ReportSHA256         string    `gorm:"type:char(64)" json:"report_sha256,omitempty"`
+	ExpectedStateVersion uint64    `gorm:"not null" json:"expected_state_version"`
+	Outcome              string    `gorm:"index;not null;type:varchar(24)" json:"outcome"`
+	ReasonCode           string    `gorm:"index;not null;type:varchar(64)" json:"reason_code"`
+	PointerChanged       bool      `gorm:"not null;default:false" json:"pointer_changed"`
+	BeforeVersion        string    `gorm:"type:varchar(96)" json:"before_version,omitempty"`
+	BeforeSHA256         string    `gorm:"type:char(64)" json:"before_sha256,omitempty"`
+	BeforeStateVersion   uint64    `gorm:"not null" json:"before_state_version"`
+	AfterVersion         string    `gorm:"type:varchar(96)" json:"after_version,omitempty"`
+	AfterSHA256          string    `gorm:"type:char(64)" json:"after_sha256,omitempty"`
+	AfterStateVersion    uint64    `gorm:"not null" json:"after_state_version"`
+	ShadowReportSHA256   string    `gorm:"type:char(64)" json:"shadow_report_sha256,omitempty"`
+	ActorHash            string    `gorm:"index;not null;type:char(64)" json:"-"`
+	IdempotencyKeyHash   string    `gorm:"uniqueIndex;not null;type:char(64)" json:"-"`
+	RequestSHA256        string    `gorm:"not null;type:char(64)" json:"request_sha256"`
+	EventSHA256          string    `gorm:"uniqueIndex;not null;type:char(64)" json:"event_sha256"`
+	CreatedAt            time.Time `gorm:"index;not null" json:"created_at"`
+}
