@@ -27,6 +27,7 @@ func RegisterEvaluationRouter(group *gin.RouterGroup) {
 	reliabilityHandler := evaluationcontroller.NewDefaultReliabilityHandler()
 	performanceHandler := evaluationcontroller.NewDefaultPerformanceHandler()
 	pairedHandler := evaluationcontroller.NewDefaultPairedHandler()
+	judgeCalibrationHandler := evaluationcontroller.NewDefaultJudgeCalibrationHandler()
 	group.GET("/diagnostic/latest", handler.LatestDiagnostic)
 	group.GET("/memory/latest", memoryHandler.LatestMemory)
 	group.GET("/context/latest", contextHandler.LatestContext)
@@ -54,4 +55,6 @@ func RegisterEvaluationRouter(group *gin.RouterGroup) {
 	group.POST("/reliability/acceptance", reliabilityHandler.Acceptance)
 	group.GET("/performance/latest", performanceHandler.Latest)
 	group.GET("/paired/latest", pairedHandler.Latest)
+	group.GET("/judge-calibration/latest", judgeCalibrationHandler.Latest)
+	group.POST("/judge-calibration/reviews", judgeCalibrationHandler.Review)
 }

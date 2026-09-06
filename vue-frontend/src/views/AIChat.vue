@@ -551,6 +551,77 @@
               </div>
               <small>Analysis SHA-256 {{ pairedComparison.analysis_sha256 }}</small>
             </details>
+            <details class="judge-calibration-card">
+              <summary>打开 LLM-as-a-Judge 人工校准（{{ judgeCalibrationAudit?.agreement?.reviewed_cases || 0 }}/30）</summary>
+              <div class="metric-catalog-heading">
+                <div>
+                  <strong>Human Calibration · {{ judgeCalibrationAudit?.judge_prompt || 'judge-rubric-v1' }}</strong>
+                  <span>30 条 / 6 个切片 · 五维人工评分 · 线性加权 Cohen’s κ ≥ 0.70</span>
+                </div>
+                <button :disabled="loadingJudgeCalibration" @click="loadJudgeCalibration">
+                  {{ loadingJudgeCalibration ? '读取中...' : '刷新校准报告' }}
+                </button>
+              </div>
+              <div v-if="!judgeCalibrationAudit" class="strategy-control-empty">真实 Judge 报告尚未生成或正在生成；不会用模拟分数冒充人工校准。</div>
+              <template v-else>
+                <div class="judge-calibration-summary">
+                  <div><strong>{{ judgeCalibrationAudit.agreement.reviewed_cases }}/{{ judgeCalibrationAudit.agreement.required_cases }}</strong><span>当前复核进度</span></div>
+                  <div><strong>{{ judgeCalibrationAudit.agreement.reviewed_cases === 30 ? judgeCalibrationAudit.agreement.linear_weighted_kappa.toFixed(4) : '待满 30 条' }}</strong><span>线性加权 κ</span></div>
+                  <div><strong>{{ metricPercent(judgeCalibrationAudit.agreement.exact_grade_agreement) }}</strong><span>综合等级精确一致</span></div>
+                  <div><strong>{{ metricPercent(judgeCalibrationAudit.agreement.within_one_grade) }}</strong><span>相差不超过一级</span></div>
+                  <div><strong>{{ judgeCalibrationAudit.agreement.calibration_gate_passed ? '通过' : '未通过' }}</strong><span>κ ≥ 0.70 门禁</span></div>
+                  <div><strong>{{ judgeCalibrationAudit.agreement.automation_use_permitted ? '允许' : '禁止' }}</strong><span>用于自动控制</span></div>
+                </div>
+                <article v-if="currentJudgeCalibrationCase" class="judge-calibration-case">
+                  <div class="evaluation-run-heading">
+                    <div>
+                      <strong>{{ currentJudgeCalibrationCase.id }} · {{ judgeCalibrationSliceLabel(currentJudgeCalibrationCase.slice) }}</strong>
+                      <span>{{ judgeCalibrationIndex + 1 }}/{{ judgeCalibrationAudit.case_count }} · {{ currentJudgeCalibrationCase.task_type }}</span>
+                    </div>
+                    <div class="judge-calibration-nav">
+                      <button :disabled="judgeCalibrationIndex === 0" @click="selectJudgeCalibrationCase(judgeCalibrationIndex - 1)">上一条</button>
+                      <button :disabled="judgeCalibrationIndex >= judgeCalibrationAudit.case_count - 1" @click="selectJudgeCalibrationCase(judgeCalibrationIndex + 1)">下一条</button>
+                    </div>
+                  </div>
+                  <div class="judge-calibration-content">
+                    <p><strong>问题：</strong>{{ currentJudgeCalibrationCase.question }}</p>
+                    <p><strong>待评答案：</strong>{{ currentJudgeCalibrationCase.answer }}</p>
+                    <div><strong>允许证据：</strong><span v-if="!currentJudgeCalibrationCase.evidence.length">无（应拒绝猜测）</span><span v-for="evidence in currentJudgeCalibrationCase.evidence" :key="evidence.id">[{{ evidence.id }}] {{ evidence.content }}</span></div>
+                    <p><strong>期望要点：</strong>{{ currentJudgeCalibrationCase.expected_facts.join('；') || '无具体事实，应正确拒答' }}</p>
+                    <p><strong>禁止声明：</strong>{{ currentJudgeCalibrationCase.forbidden_claims.join('；') }}</p>
+                  </div>
+                  <div class="judge-score-form">
+                    <label v-for="dimension in judgeCalibrationDimensions" :key="dimension.value">
+                      <span>{{ dimension.label }}</span>
+                      <select v-model="judgeCalibrationDraft[dimension.value]">
+                        <option value="" disabled>请选择</option>
+                        <option v-for="option in judgeCalibrationScoreOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div class="judge-calibration-actions">
+                    <small v-if="!currentJudgeCalibrationCase.human_scores">为避免锚定偏差，Judge 分数会在你提交人工评分后显示。</small>
+                    <small v-else>已保存 Revision {{ currentJudgeCalibrationCase.review_revision }}；再次提交不同分数会追加修订，不覆盖历史。</small>
+                    <button :disabled="submittingJudgeReview || !judgeCalibrationDraftComplete" @click="submitJudgeCalibrationReview">
+                      {{ submittingJudgeReview ? '保存中...' : (currentJudgeCalibrationCase.human_scores ? '追加评分修订' : '提交人工评分') }}
+                    </button>
+                  </div>
+                  <div v-if="currentJudgeCalibrationCase.human_scores" class="judge-score-comparison">
+                    <span v-for="dimension in judgeCalibrationDimensions" :key="dimension.value">
+                      {{ dimension.label }}：人工 {{ metricPercent(currentJudgeCalibrationCase.human_scores[dimension.value]) }} / Judge {{ metricPercent(currentJudgeCalibrationCase.judge.scores[dimension.value]) }}
+                    </span>
+                    <small>Judge confidence {{ metricPercent(currentJudgeCalibrationCase.judge.confidence) }} · {{ currentJudgeCalibrationCase.judge.status }}</small>
+                  </div>
+                </article>
+                <div class="judge-case-index" aria-label="Judge 校准用例索引">
+                  <button v-for="(item, index) in judgeCalibrationAudit.cases" :key="item.id" :class="{ reviewed: !!item.human_scores, active: index === judgeCalibrationIndex }" @click="selectJudgeCalibrationCase(index)">{{ index + 1 }}</button>
+                </div>
+                <div class="evaluation-candidate-warning">
+                  <strong>{{ judgeCalibrationAudit.agreement.status === 'rubric_revision_required' ? '一致性不足：先修 Rubric' : (judgeCalibrationAudit.agreement.calibration_gate_passed ? '校准门通过，仍需人工发布审批' : '人工校准尚未完成') }}</strong>
+                  <span>Judge={{ judgeCalibrationAudit.judge_model }}；报告 SHA {{ judgeCalibrationAudit.report_sha256.slice(0, 16) }}…；任何时候都不会直接写活动策略。</span>
+                </div>
+              </template>
+            </details>
             <details class="anomaly-workbench">
               <summary>打开固定阈值 + 滑动窗口 Z-score 验收工作台</summary>
               <p>下方五个场景是确定性 Fixture；“读取生产窗口”只读取后台定时落入 MySQL 的真实 Prometheus 聚合。两类数据不会混算，所有结果仅生成 Recommend-only 建议。</p>
@@ -1891,6 +1962,21 @@ export default {
     const evaluationCatalog = ref(null)
     const evaluationRun = ref(null)
     const pairedComparison = ref(null)
+    const judgeCalibrationAudit = ref(null)
+    const loadingJudgeCalibration = ref(false)
+    const submittingJudgeReview = ref(false)
+    const judgeCalibrationIndex = ref(0)
+    const judgeCalibrationDraft = ref({ relevance: '', completeness: '', helpfulness: '', groundedness: '', safety: '' })
+    const judgeCalibrationDimensions = [
+      { value: 'relevance', label: '相关性' }, { value: 'completeness', label: '完整性' }, { value: 'helpfulness', label: '有用性' },
+      { value: 'groundedness', label: '有依据' }, { value: 'safety', label: '安全性' }
+    ]
+    const judgeCalibrationScoreOptions = [
+      { value: 0, label: '0 · 完全不满足' }, { value: 0.25, label: '0.25 · 较差' }, { value: 0.5, label: '0.50 · 部分满足' },
+      { value: 0.75, label: '0.75 · 基本满足' }, { value: 1, label: '1.00 · 完全满足' }
+    ]
+    const currentJudgeCalibrationCase = computed(() => judgeCalibrationAudit.value?.cases?.[judgeCalibrationIndex.value] || null)
+    const judgeCalibrationDraftComplete = computed(() => judgeCalibrationDimensions.every(dimension => judgeCalibrationDraft.value[dimension.value] !== ''))
     const metricCatalog = ref(null)
     const prometheusRuntime = ref(null)
     const grafanaRuntime = ref(null)
@@ -3175,10 +3261,11 @@ export default {
       if (!evaluationCatalogOpen.value || evaluationCatalog.value || loadingEvaluationCatalog.value) return
       try {
         loadingEvaluationCatalog.value = true
-        const [catalogResponse, runResponse, pairedResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse, onlineEvaluationResponse, failurePoolResponse, performanceResponse] = await Promise.all([
+        const [catalogResponse, runResponse, pairedResponse, judgeCalibrationResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse, onlineEvaluationResponse, failurePoolResponse, performanceResponse] = await Promise.all([
           api.get('/evaluations/catalog/latest'),
           api.get('/evaluations/unified/latest'),
           api.get('/evaluations/paired/latest').catch(() => null),
+          api.get('/evaluations/judge-calibration/latest').catch(() => null),
           api.get('/evaluations/metrics/catalog'),
           api.get('/evaluations/metrics/runtime').catch(() => null),
           api.get('/evaluations/metrics/dashboard').catch(() => null),
@@ -3193,6 +3280,8 @@ export default {
         evaluationCatalog.value = catalogResponse.data
         evaluationRun.value = runResponse.data
         pairedComparison.value = pairedResponse?.data || null
+        judgeCalibrationAudit.value = judgeCalibrationResponse?.data || null
+        if (judgeCalibrationAudit.value) initializeJudgeCalibrationSelection()
         metricCatalog.value = metricCatalogResponse.data.report
         prometheusRuntime.value = prometheusRuntimeResponse?.data?.snapshot || null
         grafanaRuntime.value = grafanaRuntimeResponse?.data?.snapshot || null
@@ -3239,6 +3328,63 @@ export default {
     const pairedConclusionLabel = (conclusion) => ({
       candidate_better: '候选有统计收益', candidate_worse: '候选显著退化', inconclusive: '未证明差异'
     }[conclusion] || conclusion)
+
+    const judgeCalibrationSliceLabel = (slice) => ({
+      rag_single_fact: 'RAG 单事实', rag_cross_document: 'RAG 跨文档', insufficient_evidence: '证据不足',
+      diagnosis: '故障诊断', tool_governance: '工具治理', memory: '三级记忆'
+    }[slice] || slice)
+
+    const initializeJudgeCalibrationSelection = (preferredIndex) => {
+      const cases = judgeCalibrationAudit.value?.cases || []
+      if (!cases.length) return
+      let index = Number.isInteger(preferredIndex) ? preferredIndex : cases.findIndex(item => !item.human_scores)
+      if (index < 0 || index >= cases.length) index = 0
+      selectJudgeCalibrationCase(index)
+    }
+
+    const selectJudgeCalibrationCase = (index) => {
+      const cases = judgeCalibrationAudit.value?.cases || []
+      if (!Number.isInteger(index) || index < 0 || index >= cases.length) return
+      judgeCalibrationIndex.value = index
+      const scores = cases[index].human_scores
+      judgeCalibrationDraft.value = scores
+        ? { relevance: scores.relevance, completeness: scores.completeness, helpfulness: scores.helpfulness, groundedness: scores.groundedness, safety: scores.safety }
+        : { relevance: '', completeness: '', helpfulness: '', groundedness: '', safety: '' }
+    }
+
+    const loadJudgeCalibration = async () => {
+      if (loadingJudgeCalibration.value) return
+      try {
+        loadingJudgeCalibration.value = true
+        const response = await api.get('/evaluations/judge-calibration/latest')
+        judgeCalibrationAudit.value = response.data
+        initializeJudgeCalibrationSelection(judgeCalibrationIndex.value)
+        ElMessage.success('已读取真实 Judge 报告与当前账号人工复核进度')
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || 'Judge 真实评分报告尚未生成')
+      } finally {
+        loadingJudgeCalibration.value = false
+      }
+    }
+
+    const submitJudgeCalibrationReview = async () => {
+      if (submittingJudgeReview.value || !judgeCalibrationDraftComplete.value || !currentJudgeCalibrationCase.value) return
+      try {
+        submittingJudgeReview.value = true
+        const currentID = currentJudgeCalibrationCase.value.id
+        await api.post('/evaluations/judge-calibration/reviews', { case_id: currentID, scores: judgeCalibrationDraft.value })
+        const currentIndex = judgeCalibrationIndex.value
+        const response = await api.get('/evaluations/judge-calibration/latest')
+        judgeCalibrationAudit.value = response.data
+        const nextPending = response.data.cases.findIndex((item, index) => index > currentIndex && !item.human_scores)
+        initializeJudgeCalibrationSelection(nextPending >= 0 ? nextPending : currentIndex)
+        ElMessage.success('人工评分已追加到不可变审计记录')
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || '人工评分保存失败')
+      } finally {
+        submittingJudgeReview.value = false
+      }
+    }
 
     const metricDomainLabel = (domain) => ({
       platform: '平台入口', intent: '意图识别', knowledge_rag: '知识与 RAG', agent_harness: 'Agent Harness',
@@ -3828,6 +3974,15 @@ export default {
       evaluationCatalog,
       evaluationRun,
       pairedComparison,
+      judgeCalibrationAudit,
+      loadingJudgeCalibration,
+      submittingJudgeReview,
+      judgeCalibrationIndex,
+      judgeCalibrationDraft,
+      judgeCalibrationDimensions,
+      judgeCalibrationScoreOptions,
+      currentJudgeCalibrationCase,
+      judgeCalibrationDraftComplete,
       metricCatalog,
       prometheusRuntime,
       grafanaRuntime,
@@ -3995,6 +4150,10 @@ export default {
       evaluationFailureLabel,
       pairedComparisonLabel,
       pairedConclusionLabel,
+      judgeCalibrationSliceLabel,
+      selectJudgeCalibrationCase,
+      loadJudgeCalibration,
+      submitJudgeCalibrationReview,
       metricDomainLabel,
       metricTypeLabel,
       prometheusRuntimeStatusLabel,
@@ -5739,6 +5898,170 @@ export default {
   border: 1px solid rgba(73, 93, 190, 0.18);
   border-radius: 8px;
   background: #fff;
+}
+
+.judge-calibration-card {
+  padding: 10px;
+  border: 1px dashed rgba(34, 139, 119, 0.34);
+  border-radius: 9px;
+  background: #f5fcfa;
+}
+
+.judge-calibration-card > summary {
+  cursor: pointer;
+  color: #247d6b;
+  font-weight: 800;
+}
+
+.judge-calibration-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.judge-calibration-summary > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(34, 139, 119, 0.16);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.judge-calibration-summary strong {
+  color: #2b4f87;
+  font-size: 18px;
+}
+
+.judge-calibration-summary span,
+.judge-calibration-actions small,
+.judge-score-comparison small {
+  color: #65718b;
+  font-size: 12px;
+}
+
+.judge-calibration-case {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(34, 139, 119, 0.2);
+  border-radius: 9px;
+  background: #fff;
+}
+
+.judge-calibration-nav,
+.judge-calibration-actions,
+.judge-case-index,
+.judge-score-comparison {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.judge-calibration-content {
+  display: grid;
+  gap: 7px;
+  margin: 10px 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #3f4d63;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.judge-calibration-content p {
+  margin: 0;
+}
+
+.judge-calibration-content > div,
+.judge-calibration-content > div span {
+  display: block;
+}
+
+.judge-score-form {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.judge-score-form label {
+  display: grid;
+  gap: 4px;
+  color: #526078;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.judge-score-form select {
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid rgba(73, 93, 190, 0.24);
+  border-radius: 7px;
+  background: #fff;
+  color: #34415a;
+}
+
+.judge-calibration-actions {
+  justify-content: space-between;
+  margin-top: 10px;
+}
+
+.judge-score-comparison {
+  margin-top: 10px;
+  padding: 8px;
+  border-radius: 7px;
+  background: #eef8f5;
+  color: #346b5f;
+  font-size: 12px;
+}
+
+.judge-score-comparison small {
+  flex-basis: 100%;
+}
+
+.judge-case-index {
+  margin: 10px 0;
+}
+
+.judge-case-index button {
+  width: 34px;
+  min-height: 30px;
+  padding: 4px;
+  border: 1px solid rgba(73, 93, 190, 0.24);
+  border-radius: 6px;
+  background: #fff;
+  color: #526078;
+}
+
+.judge-case-index button.reviewed {
+  border-color: #35a17f;
+  background: #e9f8f2;
+  color: #21765f;
+}
+
+.judge-case-index button.active {
+  outline: 2px solid #586de2;
+  outline-offset: 1px;
+}
+
+@media (max-width: 900px) {
+  .judge-score-form {
+    grid-template-columns: repeat(2, minmax(140px, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .judge-score-form {
+    grid-template-columns: 1fr;
+  }
+
+  .judge-calibration-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 
 .evaluation-run-heading,

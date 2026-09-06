@@ -91,6 +91,7 @@ func migration() error {
 		new(model.FailureMiningRun),
 		new(model.FailureCluster),
 		new(model.FailureImprovementProposal),
+		new(model.JudgeCalibrationReview),
 	)
 }
 
