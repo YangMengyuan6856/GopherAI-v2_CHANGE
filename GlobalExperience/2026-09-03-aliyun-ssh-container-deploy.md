@@ -1628,3 +1628,11 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - G10 的四个规格门没有被“代码完成”短路：当前产品总验收因 320 条人工标签与 Judge 0/30 阻断；简历事实确认保持 `pending_user`；生产回滚因单 ECS/单应用容器标记 `deferred_environment`；删除清单和恢复说明由清理证据通过。因此总结果是 `1/4`、`production_release_ready=false`，并单独延期数据库收缩迁移与百分比生产灰度。
 - Release `20260907050533-740abc053bde`，bundle SHA-256 `bd6d0947e665fea6b4b7dfed4194032dc08424456776d3e97496f14b25d3492c`，可追溯条目 `696`。全量 Go、evaluation Race、Vue lint/build、Full 320 字节门和云端五进程健康门通过；新 Release 重跑只读清理审计后，G10 页面显示 Evidence SHA 前缀 `122adb08db78`、Report SHA 前缀 `a00dae5f5283`、4 个 Gate、8 个可用事实与 4 个排除事实，浏览器控制台错误为 0。
 - G10 报告的职责是准确解释“为什么还不能毕业”，不是强迫所有卡片变绿。对于单实例项目，真实 5% 灰度和不影响唯一在线实例的回滚演练缺少诚实执行条件；应给出恢复触发条件并延期，而不是用内存 Fixture、原子目录切换机制或一次普通发布冒充生产演练。
+
+## 89. 2026-09-07 Release 证据必须在声明 active 前自动绑定
+
+- 新 Release 会使旧清理报告的 Release/Git 绑定失效；此前必须在页面人工补跑一次只读清理审计，面试证据和 G10 才从 fail-closed 恢复。这不是业务人工审批，而是可确定执行的发布后证据步骤，因此不应留给演示者记忆操作。
+- `f3d24f31` 增加预构建 `GopherAI-cleanup-audit`。部署器在 Backend、Worker、Prometheus `2/2`、Grafana、MCP 和 Frontend 健康门全部通过后，用当前不可变 Release ID、完整 40 位 Git SHA、包内排序源码清单和固定 Prometheus 24h 查询生成报告；只有 `cleanup_complete=true / eligible=0 / blocked=0` 才原子落盘并打印 active。参数限制为路径安全 Release ID、完整 SHA 和最多 1 分钟超时，不开放新的部署 HTTP API；构建或保存失败会恢复上一目录。
+- Release `20260907053001-f3d24f31db2f`，bundle SHA-256 `64d2e9460e973145f9b40ca5de5ac95bd8e7e3b4812ef1ee268356d6cc4c7a12`，700 个可追溯条目。部署输出直接得到报告 SHA `717e2b18f7d73442fe5d59b2f9154456ec15bbad572c6b2bf9674ceda60f06ee`、Tracked Source `552`、9 删除、2 保留、0 候选、0 阻断；未点击人工审计时，真实页面导览已经显示当前 Release、`320/320`、`8/12` 和 Hash 全通过。
+- 真实联调发现“先开面试导览、再开评测总览”会复用导览预加载的 `evaluationCatalog`，从而错误跳过 G10/Judge/控制闭环等完整请求。`1ea14d62` 把“目录已加载”和“完整工作台已加载”拆成两个状态；只有 24 项工作台请求完成后才置完成标记。Release `20260907055009-1ea14d62f075`，bundle SHA-256 `2bbaa96a7faaa31c290f7424a9c116cca75c246d80d0f28c5f7d8bf8701d478f`，自动报告 SHA `dd613bcd4a80e3f04caec04eea1390337d96a4fd6cc37951122dfb59e1e9bb06`。浏览器按“导览→评测”顺序复验，G10 显示当前 Release、`1/4` 门、8 条技术事实、4 条排除事实和生产禁止，控制台错误为 0。
+- 页面工作区共享数据时，不能拿某一个已填充的 Ref 代表整个聚合加载过程完成；应为不同加载层级保留独立状态，或对缺失资源做显式补载。否则预取优化会制造只在特定点击顺序出现的缺卡问题。
