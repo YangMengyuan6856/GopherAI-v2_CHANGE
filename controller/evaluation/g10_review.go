@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"GopherAI/common/mysql"
 	"GopherAI/middleware/requestid"
 
 	"github.com/gin-gonic/gin"
@@ -54,39 +55,51 @@ type G10DeferredItem struct {
 }
 
 type G10ReleaseReview struct {
-	SchemaVersion          string            `json:"schema_version"`
-	ReportSHA256           string            `json:"report_sha256"`
-	GeneratedAt            time.Time         `json:"generated_at"`
-	ReleaseID              string            `json:"release_id"`
-	GitSHA                 string            `json:"git_sha"`
-	EvidencePackageSHA256  string            `json:"evidence_package_sha256"`
-	Status                 string            `json:"status"`
-	ProductionReleaseReady bool              `json:"production_release_ready"`
-	PassedGates            int               `json:"passed_gates"`
-	TotalGates             int               `json:"total_gates"`
-	ResumeFactCount        int               `json:"resume_fact_count"`
-	ExcludedFactCount      int               `json:"excluded_fact_count"`
-	Gates                  []G10ReviewGate   `json:"gates"`
-	ResumeFacts            []G10ResumeFact   `json:"resume_facts"`
-	ExcludedFacts          []G10ExcludedFact `json:"excluded_facts"`
-	DeferredItems          []G10DeferredItem `json:"deferred_items"`
-	Guardrails             []string          `json:"guardrails"`
+	SchemaVersion          string                     `json:"schema_version"`
+	ReportSHA256           string                     `json:"report_sha256"`
+	GeneratedAt            time.Time                  `json:"generated_at"`
+	ReleaseID              string                     `json:"release_id"`
+	GitSHA                 string                     `json:"git_sha"`
+	EvidencePackageSHA256  string                     `json:"evidence_package_sha256"`
+	ResumeFactSetSHA256    string                     `json:"resume_fact_set_sha256"`
+	Status                 string                     `json:"status"`
+	ProductionReleaseReady bool                       `json:"production_release_ready"`
+	PassedGates            int                        `json:"passed_gates"`
+	TotalGates             int                        `json:"total_gates"`
+	ResumeFactCount        int                        `json:"resume_fact_count"`
+	ExcludedFactCount      int                        `json:"excluded_fact_count"`
+	Gates                  []G10ReviewGate            `json:"gates"`
+	ResumeFacts            []G10ResumeFact            `json:"resume_facts"`
+	ResumeConfirmation     *G10ResumeConfirmationView `json:"resume_confirmation,omitempty"`
+	ExcludedFacts          []G10ExcludedFact          `json:"excluded_facts"`
+	DeferredItems          []G10DeferredItem          `json:"deferred_items"`
+	Guardrails             []string                   `json:"guardrails"`
 }
 
 type G10ReviewService interface {
 	Build(context.Context, string) (G10ReleaseReview, error)
+	ConfirmResumeFacts(context.Context, string, G10ResumeConfirmationCommand) (G10ResumeConfirmationReceipt, error)
 }
 
 type evidenceBackedG10ReviewService struct {
-	evidence InterviewEvidenceService
+	evidence      InterviewEvidenceService
+	confirmations G10ResumeConfirmationStore
+	clock         func() time.Time
 }
 
 func NewG10ReviewService(evidence InterviewEvidenceService) G10ReviewService {
-	return &evidenceBackedG10ReviewService{evidence: evidence}
+	return &evidenceBackedG10ReviewService{evidence: evidence, clock: time.Now}
 }
 
 func newDefaultG10ReviewService() G10ReviewService {
-	return NewG10ReviewService(newDefaultInterviewEvidenceService())
+	return newG10ReviewService(newDefaultInterviewEvidenceService(), NewGormG10ResumeConfirmationStore(mysql.DB), time.Now)
+}
+
+func newG10ReviewService(evidence InterviewEvidenceService, confirmations G10ResumeConfirmationStore, clock func() time.Time) G10ReviewService {
+	if clock == nil {
+		clock = time.Now
+	}
+	return &evidenceBackedG10ReviewService{evidence: evidence, confirmations: confirmations, clock: clock}
 }
 
 func (service *evidenceBackedG10ReviewService) Build(ctx context.Context, principal string) (G10ReleaseReview, error) {
@@ -97,7 +110,20 @@ func (service *evidenceBackedG10ReviewService) Build(ctx context.Context, princi
 	if err != nil {
 		return G10ReleaseReview{}, err
 	}
-	return buildG10ReleaseReview(packageReport)
+	report, err := buildG10ReleaseReview(packageReport)
+	if err != nil || service.confirmations == nil || strings.TrimSpace(principal) == "" {
+		return report, err
+	}
+	stored, found, err := service.confirmations.LatestForReviewer(ctx, g10ReviewerHash(principal))
+	if err != nil {
+		return G10ReleaseReview{}, err
+	}
+	if found {
+		if err := applyG10ResumeConfirmation(&report, stored); err != nil {
+			return G10ReleaseReview{}, err
+		}
+	}
+	return report, nil
 }
 
 func buildG10ReleaseReview(evidence InterviewEvidencePackage) (G10ReleaseReview, error) {
@@ -158,7 +184,7 @@ func buildG10ReleaseReview(evidence InterviewEvidencePackage) (G10ReleaseReview,
 	}
 	report := G10ReleaseReview{
 		SchemaVersion: g10ReviewSchemaVersion, GeneratedAt: generatedAt, ReleaseID: evidence.ReleaseID,
-		GitSHA: evidence.GitSHA, EvidencePackageSHA256: evidence.PackageSHA256,
+		GitSHA: evidence.GitSHA, EvidencePackageSHA256: evidence.PackageSHA256, ResumeFactSetSHA256: g10ResumeFactSetHash(resumeFacts),
 		Status: "g10_blocked_by_human_and_environment_gates", ProductionReleaseReady: false,
 		PassedGates: passed, TotalGates: len(gates), ResumeFactCount: len(resumeFacts), ExcludedFactCount: len(excludedFacts),
 		Gates: gates, ResumeFacts: resumeFacts, ExcludedFacts: excludedFacts,
@@ -185,6 +211,12 @@ func resumeFactIDs(facts []G10ResumeFact) []string {
 	return ids
 }
 
+func g10ResumeFactSetHash(facts []G10ResumeFact) string {
+	encoded, _ := json.Marshal(facts)
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:])
+}
+
 func interviewReleaseGeneratedAt(evidence InterviewEvidencePackage) (time.Time, error) {
 	for _, source := range evidence.Sources {
 		if source.Name == "current_release_manifest" && !source.GeneratedAt.IsZero() {
@@ -207,7 +239,7 @@ func verifyInterviewEvidencePackage(report InterviewEvidencePackage) error {
 }
 
 func finalizeG10ReleaseReview(report *G10ReleaseReview) error {
-	if report == nil || report.SchemaVersion != g10ReviewSchemaVersion || report.ReleaseID == "" || len(report.GitSHA) != 40 || len(report.EvidencePackageSHA256) != 64 || report.GeneratedAt.IsZero() || report.ProductionReleaseReady || report.TotalGates != len(report.Gates) || report.ResumeFactCount != len(report.ResumeFacts) || report.ExcludedFactCount != len(report.ExcludedFacts) || len(report.Gates) != 4 || len(report.DeferredItems) != 2 || len(report.Guardrails) == 0 {
+	if report == nil || report.SchemaVersion != g10ReviewSchemaVersion || report.ReleaseID == "" || len(report.GitSHA) != 40 || len(report.EvidencePackageSHA256) != 64 || len(report.ResumeFactSetSHA256) != 64 || report.GeneratedAt.IsZero() || report.ProductionReleaseReady || report.TotalGates != len(report.Gates) || report.ResumeFactCount != len(report.ResumeFacts) || report.ExcludedFactCount != len(report.ExcludedFacts) || len(report.Gates) != 4 || len(report.DeferredItems) != 2 || len(report.Guardrails) == 0 {
 		return errors.New("G10 release review is invalid")
 	}
 	passed, gateIDs := 0, map[string]struct{}{}
@@ -252,6 +284,15 @@ func finalizeG10ReleaseReview(report *G10ReleaseReview) error {
 	if len(factIDs) != report.ResumeFactCount+report.ExcludedFactCount {
 		return errors.New("G10 fact accounting is inconsistent")
 	}
+	if report.ResumeFactSetSHA256 != g10ResumeFactSetHash(report.ResumeFacts) {
+		return errors.New("G10 resume fact set hash is inconsistent")
+	}
+	if report.ResumeConfirmation != nil {
+		confirmation := report.ResumeConfirmation
+		if len(confirmation.ConfirmationSHA256) != 64 || len(confirmation.FactSetSHA256) != 64 || confirmation.SelectedCount != len(confirmation.SelectedFactIDs) || confirmation.SelectedCount < 3 || confirmation.SelectedCount > 5 || confirmation.CreatedAt.IsZero() || (confirmation.CurrentBinding && confirmation.FactSetSHA256 != report.ResumeFactSetSHA256) {
+			return errors.New("G10 resume confirmation view is invalid")
+		}
+	}
 	report.ReportSHA256 = ""
 	encoded, err := json.Marshal(report)
 	if err != nil {
@@ -266,7 +307,7 @@ func writeG10ReviewMarkdown(writer io.Writer, report G10ReleaseReview) error {
 	if writer == nil || len(report.ReportSHA256) != 64 {
 		return errors.New("valid G10 release review is required")
 	}
-	if _, err := fmt.Fprintf(writer, "# GopherAI G10 发布事实核验\n\n- Release：`%s`\n- Git SHA：`%s`\n- Evidence Package：`%s`\n- Report SHA-256：`%s`\n- G10 状态：`%s`\n- 生产发布总门：`%t`\n- 通过门：`%d/%d`\n\n", report.ReleaseID, report.GitSHA, report.EvidencePackageSHA256, report.ReportSHA256, report.Status, report.ProductionReleaseReady, report.PassedGates, report.TotalGates); err != nil {
+	if _, err := fmt.Fprintf(writer, "# GopherAI G10 发布事实核验\n\n- Release：`%s`\n- Git SHA：`%s`\n- Evidence Package：`%s`\n- Resume Fact Set：`%s`\n- Report SHA-256：`%s`\n- G10 状态：`%s`\n- 生产发布总门：`%t`\n- 通过门：`%d/%d`\n\n", report.ReleaseID, report.GitSHA, report.EvidencePackageSHA256, report.ResumeFactSetSHA256, report.ReportSHA256, report.Status, report.ProductionReleaseReady, report.PassedGates, report.TotalGates); err != nil {
 		return err
 	}
 	if _, err := io.WriteString(writer, "## G10 Gate\n\n"); err != nil {
@@ -282,6 +323,11 @@ func writeG10ReviewMarkdown(writer io.Writer, report G10ReleaseReview) error {
 	}
 	for _, fact := range report.ResumeFacts {
 		if _, err := fmt.Fprintf(writer, "### %s\n\n%s\n\n- Statement：`%s`\n- 来源：`%s`\n- 必须保留的边界：%s\n\n", fact.Title, fact.Claim, fact.StatementID, strings.Join(fact.SourceRefs, "`, `"), strings.Join(fact.RequiredQualifiers, "；")); err != nil {
+			return err
+		}
+	}
+	if report.ResumeConfirmation != nil {
+		if _, err := fmt.Fprintf(writer, "## 用户事实确认\n\n- 状态：`%s`\n- 已选：`%d` 条\n- Fact Set 当前有效：`%t`\n- Confirmation SHA：`%s`\n\n", report.ResumeConfirmation.Status, report.ResumeConfirmation.SelectedCount, report.ResumeConfirmation.CurrentBinding, report.ResumeConfirmation.ConfirmationSHA256); err != nil {
 			return err
 		}
 	}

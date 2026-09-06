@@ -81,6 +81,7 @@ func RegisterEvaluationRouter(group *gin.RouterGroup) {
 	group.POST("/judge-calibration/reviews", judgeCalibrationHandler.Review)
 	group.GET("/interview-evidence/latest", interviewEvidenceHandler.Latest)
 	group.GET("/g10/latest", g10ReviewHandler.Latest)
+	group.POST("/g10/resume-confirmations", g10ReviewHandler.ConfirmResumeFacts)
 	group.GET("/cleanup/latest", cleanupAuditHandler.Latest)
 	group.POST("/cleanup/acceptance", cleanupAuditHandler.Acceptance)
 }

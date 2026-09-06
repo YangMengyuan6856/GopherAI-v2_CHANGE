@@ -768,14 +768,32 @@
                 </article>
               </div>
               <details class="g10-fact-list">
-                <summary>查看 {{ g10Review.resume_fact_count }} 条通过技术证据门的事实（仍需用户选择最终 3～5 条）</summary>
+                <summary>查看 {{ g10Review.resume_fact_count }} 条通过技术证据门的事实（{{ g10Review.resume_confirmation?.current_binding ? `已确认 ${g10Review.resume_confirmation.selected_count} 条` : '仍需用户选择最终 3～5 条' }}）</summary>
                 <article v-for="fact in g10Review.resume_facts" :key="fact.statement_id">
-                  <strong>{{ fact.title }}</strong>
+                  <label class="g10-fact-choice">
+                    <input v-model="selectedResumeFactIDs" type="checkbox" :value="fact.statement_id">
+                    <strong>{{ fact.title }}</strong>
+                  </label>
                   <p>{{ fact.claim }}</p>
                   <small>来源：{{ fact.source_refs.join(' · ') }}</small>
                   <small>表述必须保留：{{ fact.required_qualifiers.join('；') }}</small>
                 </article>
               </details>
+              <section class="g10-confirmation-panel">
+                <div>
+                  <strong>人工确认简历事实 · 已选 {{ selectedResumeFactIDs.length }}/3～5 条</strong>
+                  <span v-if="g10Review.resume_confirmation?.current_binding">当前事实集已确认 · {{ shortRevision(g10Review.resume_confirmation.confirmation_sha256) }}</span>
+                  <span v-else-if="g10Review.resume_confirmation">旧确认已失效：证据事实或限定语发生变化，请重新选择。</span>
+                  <span v-else>机器只验证证据；最终采用哪些数字必须由你本人确认。</span>
+                </div>
+                <label class="g10-qualifier-ack">
+                  <input v-model="resumeQualifierAcknowledged" type="checkbox">
+                  我确认只使用所选事实，并在简历和面试中保留每条事实列出的全部限定语。
+                </label>
+                <button :disabled="!g10ResumeSelectionValid || submittingResumeConfirmation" @click="submitG10ResumeConfirmation">
+                  {{ submittingResumeConfirmation ? '记录中...' : (g10Review.resume_confirmation?.current_binding ? '追加新的确认版本' : '确认所选 3～5 条') }}
+                </button>
+              </section>
               <details class="g10-fact-list excluded">
                 <summary>查看 {{ g10Review.excluded_fact_count }} 条当前禁止写入简历的事实</summary>
                 <article v-for="fact in g10Review.excluded_facts" :key="fact.statement_id">
@@ -785,7 +803,7 @@
               </details>
               <div class="evaluation-candidate-warning">
                 <strong>当前 G10 明确未通过，不把“技术可运行”包装成“生产发布完成”</strong>
-                <span>待办：人工标签/Judge 校准、用户确认最终简历数字；环境延期：真实生产回滚和百分比灰度。</span>
+                <span>待办：人工标签/Judge 校准{{ g10Review.resume_confirmation?.current_binding ? '' : '、用户确认最终简历数字' }}；环境延期：真实生产回滚和百分比灰度。</span>
               </div>
             </details>
             <details class="cleanup-audit-card">
@@ -2496,6 +2514,10 @@ export default {
     const downloadingInterviewEvidence = ref(false)
     const g10Review = ref(null)
     const downloadingG10Review = ref(false)
+    const selectedResumeFactIDs = ref([])
+    const resumeQualifierAcknowledged = ref(false)
+    const submittingResumeConfirmation = ref(false)
+    const g10ResumeSelectionValid = computed(() => selectedResumeFactIDs.value.length >= 3 && selectedResumeFactIDs.value.length <= 5 && resumeQualifierAcknowledged.value)
     const cleanupAudit = ref(null)
     const runningCleanupAudit = ref(false)
     const judgeCalibrationIndex = ref(0)
@@ -3881,6 +3903,7 @@ export default {
         if (judgeCalibrationAudit.value) initializeJudgeCalibrationSelection()
         interviewEvidence.value = interviewEvidenceResponse?.data || null
         g10Review.value = g10ReviewResponse?.data || null
+        hydrateG10ResumeSelection()
         cleanupAudit.value = cleanupAuditResponse?.data || null
         metricCatalog.value = metricCatalogResponse.data.report
         prometheusRuntime.value = prometheusRuntimeResponse?.data?.snapshot || null
@@ -4062,7 +4085,9 @@ export default {
 
     const g10ReviewStatusLabel = (status) => ({
       g10_blocked_by_human_and_environment_gates: '人工与环境门阻断',
-      g10_pending_user_and_environment_gates: '等待用户与环境门'
+      g10_pending_user_and_environment_gates: '等待用户与环境门',
+      g10_blocked_by_product_and_environment_gates: '产品与环境门阻断',
+      g10_deferred_by_environment_gate: '仅环境门延期'
     }[status] || status || '状态未知')
 
     const g10GateStatusLabel = (status) => ({
@@ -4097,6 +4122,37 @@ export default {
       }
     }
 
+    const hydrateG10ResumeSelection = () => {
+      const confirmation = g10Review.value?.resume_confirmation
+      if (confirmation?.current_binding && Array.isArray(confirmation.selected_fact_ids)) {
+        selectedResumeFactIDs.value = [...confirmation.selected_fact_ids]
+      }
+    }
+
+    const submitG10ResumeConfirmation = async () => {
+      if (!g10Review.value || !g10ResumeSelectionValid.value || submittingResumeConfirmation.value) return
+      const orderedIDs = g10Review.value.resume_facts.map(fact => fact.statement_id).filter(id => selectedResumeFactIDs.value.includes(id))
+      const orderedIndexes = g10Review.value.resume_facts.map((fact, index) => selectedResumeFactIDs.value.includes(fact.statement_id) ? index : -1).filter(index => index >= 0)
+      try {
+        submittingResumeConfirmation.value = true
+        const response = await api.post('/evaluations/g10/resume-confirmations', {
+          mode: 'human_resume_fact_confirmation',
+          fact_set_sha256: g10Review.value.resume_fact_set_sha256,
+          selected_fact_ids: orderedIDs,
+          idempotency_key: `resume-${g10Review.value.resume_fact_set_sha256.slice(0, 32)}-${orderedIndexes.join('-')}`,
+          acknowledgment: 'I_CONFIRM_RESUME_FACTS_WITH_REQUIRED_QUALIFIERS'
+        })
+        g10Review.value = response.data.review
+        hydrateG10ResumeSelection()
+        resumeQualifierAcknowledged.value = false
+        ElMessage.success(response.data.reused ? '相同事实确认已幂等复用' : '简历事实确认已追加记录；生产与产品总门仍独立生效')
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || '简历事实确认失败')
+      } finally {
+        submittingResumeConfirmation.value = false
+      }
+    }
+
     const runCleanupAudit = async () => {
       if (runningCleanupAudit.value) return
       try {
@@ -4108,6 +4164,7 @@ export default {
           interviewEvidence.value = evidenceResponse?.data || interviewEvidence.value
           const g10Response = await api.get('/evaluations/g10/latest').catch(() => null)
           g10Review.value = g10Response?.data || g10Review.value
+          hydrateG10ResumeSelection()
           ElMessage.success(evidenceResponse?.data ? '清理闭环完成，并已刷新可复现面试证据包' : '清理闭环完成：授权候选已删除，必要协议边界仍保留')
         }
         else if (response.data.summary.deletion_plan_ready) ElMessage.success('清理前审计通过：候选仍将通过独立提交删除')
@@ -4944,6 +5001,10 @@ export default {
       downloadingInterviewEvidence,
       g10Review,
       downloadingG10Review,
+      selectedResumeFactIDs,
+      resumeQualifierAcknowledged,
+      submittingResumeConfirmation,
+      g10ResumeSelectionValid,
       cleanupAudit,
       runningCleanupAudit,
       judgeCalibrationIndex,
@@ -5158,6 +5219,7 @@ export default {
       g10GateStatusLabel,
       g10GateStatusClass,
       downloadG10Review,
+      submitG10ResumeConfirmation,
       runCleanupAudit,
       cleanupObservationLabel,
       cleanupCandidateStatusLabel,
@@ -7520,6 +7582,69 @@ export default {
   background: #fffaf0;
 }
 
+.g10-fact-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: #33446b;
+  cursor: pointer;
+}
+
+.g10-fact-choice input,
+.g10-qualifier-ack input {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  accent-color: #6950c8;
+}
+
+.g10-confirmation-panel {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(320px, 1.4fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 11px;
+  border: 1px solid rgba(91, 72, 181, 0.25);
+  border-radius: 9px;
+  background: #f3f1ff;
+  color: #4d4772;
+}
+
+.g10-confirmation-panel > div {
+  display: grid;
+  gap: 4px;
+}
+
+.g10-confirmation-panel span,
+.g10-qualifier-ack {
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.g10-qualifier-ack {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  cursor: pointer;
+}
+
+.g10-confirmation-panel button {
+  min-height: 34px;
+  padding: 7px 11px;
+  border: 0;
+  border-radius: 7px;
+  background: #6547bd;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.g10-confirmation-panel button:disabled {
+  background: #b7b2ca;
+  cursor: not-allowed;
+}
+
 .interview-evidence-metrics span {
   padding: 4px 7px;
   border-radius: 6px;
@@ -7578,6 +7703,11 @@ export default {
 
   .interview-evidence-summary {
     grid-template-columns: 1fr;
+  }
+
+  .g10-confirmation-panel {
+    grid-template-columns: 1fr;
+    align-items: stretch;
   }
 }
 

@@ -25,14 +25,24 @@ func (service *stubInterviewEvidenceService) Build(_ context.Context, principal 
 }
 
 type stubG10ReviewService struct {
-	report    G10ReleaseReview
-	err       error
-	principal string
+	report           G10ReleaseReview
+	err              error
+	principal        string
+	confirmation     G10ResumeConfirmationReceipt
+	confirmationErr  error
+	confirmationUser string
+	command          G10ResumeConfirmationCommand
 }
 
 func (service *stubG10ReviewService) Build(_ context.Context, principal string) (G10ReleaseReview, error) {
 	service.principal = principal
 	return service.report, service.err
+}
+
+func (service *stubG10ReviewService) ConfirmResumeFacts(_ context.Context, principal string, command G10ResumeConfirmationCommand) (G10ResumeConfirmationReceipt, error) {
+	service.confirmationUser = principal
+	service.command = command
+	return service.confirmation, service.confirmationErr
 }
 
 func TestBuildG10ReleaseReviewPreservesBlockedGatesAndFacts(t *testing.T) {
@@ -47,7 +57,7 @@ func TestBuildG10ReleaseReviewPreservesBlockedGatesAndFacts(t *testing.T) {
 	if report.ProductionReleaseReady || report.Status != "g10_blocked_by_human_and_environment_gates" || report.PassedGates != 1 || report.TotalGates != 4 {
 		t.Fatalf("unexpected G10 state: %+v", report)
 	}
-	if report.ResumeFactCount != 8 || report.ExcludedFactCount != 4 || len(report.ReportSHA256) != 64 {
+	if report.ResumeFactCount != 8 || report.ExcludedFactCount != 4 || len(report.ResumeFactSetSHA256) != 64 || len(report.ReportSHA256) != 64 {
 		t.Fatalf("unexpected fact accounting: %+v", report)
 	}
 	gateByID := map[string]G10ReviewGate{}
