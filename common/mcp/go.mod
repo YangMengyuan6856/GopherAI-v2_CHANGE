@@ -2,10 +2,7 @@ module github.com/kaitai/gopherai-mcp
 
 go 1.25.0
 
-require (
-	github.com/mark3labs/mcp-go v0.43.2
-	golang.org/x/net v0.46.0
-)
+require github.com/mark3labs/mcp-go v0.43.2
 
 require (
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
