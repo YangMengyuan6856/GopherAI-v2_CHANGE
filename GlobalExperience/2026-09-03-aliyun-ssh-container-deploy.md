@@ -1520,3 +1520,10 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - Release `20260906155405-1da2772b1133`，bundle SHA-256 `e9d84ef2b31348cf7948c58d301ee77e8cd44ed13f8d0e03fe05e5d43b02083c`。真实浏览器显示多 Agent `0/10→8/10`、质量差 `+32%`、95% CI `[+20%,+40%]`、McNemar `p=0.0078`；父子 RAG `9/10→9/10`、差值/CI `0`、`p=1.0000`。Analysis SHA-256 为 `7a7d57888bf51b98b22b31fd6da458d9b5a0931d7ba6c36a36e6ed2977c95195`。前者是技术候选的统计收益，后者是没有净收益的负结果；两者均因人工标签未复核而保持 `PromotionEligible=false`。
 - 部署器的长远程脚本通过 `.NET ProcessStartInfo.ArgumentList` 与标准输入发送，需要 PowerShell 7；误用 Windows PowerShell 5.1 会在远端容量预检之前因缺少 `ArgumentList` 属性失败，服务器不会上传或切换。本机应固定执行 `pwsh.exe -NoProfile -File scripts/deploy/deploy-aliyun.ps1`，不要用 `powershell.exe`。本次改用 `pwsh 7.6.5` 后完成本地交叉构建、上传、原子切换和全部健康门。
 - Backend 比 Prometheus 更早启动时，第一次每分钟窗口采集可能短暂记录 `capture_failed`；本次下一周期开始持续恢复为 `warming/points=2`，Prometheus 2/2 targets 与控制器均正常。验收应检查后续周期是否恢复，不能把单次可观测启动瞬态隐瞒成无错误，也不能在后续仍失败时用“启动顺序”搪塞。
+
+## 74. 2026-09-06 Judge 人工校准：技术完成不等于人工一致
+
+- `ab7bca3d` 增加固定 30 条、6 切片 Judge 校准集和独立 Runner。部署脚本只预构建并安装二进制，不在每次发布中自动执行 30 次外部模型调用；Release 健康后再以 `timeout 1500 nice -n 10` 串行运行，避免模型抖动或费用让部署卡住。报告原子写入 `/root/GopherAI_Runtime/evaluation/judge-calibration-latest.json`，并绑定数据集、逐例和报告 SHA。
+- 首轮真实运行得到 `28/30`，两条无证据正确拒答样本均在两次尝试后返回 `judge_output_invalid`。失败样本没有补零或伪装成中性分，技术门保持 false。原因是模型会把“正确拒答”写入 `supported_claims`，但输入没有合法 evidence ID；严格引用校验按设计拒绝该输出。
+- `53ce6f69` 把 Prompt 升级为 `judge-rubric-v2`，在初始 Rubric 和重试修复消息中同时规定“evidence 为空时 supported_claims 必须为空数组”。Release `20260906172448-53ce6f69512b`，bundle SHA-256 `0e12e2b4cab339f21c83509de0f99d8798a3e779d100086788389c7d708dd70e`；复跑为 `30/30`、失败 0、技术门 true，模型 `qwen-turbo`，数据集 SHA `4bb9fc589628b04df3f2892def3c5bc6e7ffc51b17a5b98e64aa552d4d2e8662`，报告 SHA `0aed6cc5d95e0cf8c2a7f9a8e7f2bdf53b3ff7e5b4e02825fe3132c4dc8b5c5c`。
+- 人工评分按登录用户哈希隔离，只允许 `0/0.25/0.5/0.75/1`，相同分数重复提交幂等，改分追加 revision；页面在首次提交前隐藏 Judge 分数，降低锚定偏差。只有 30 条全部人工复核且线性加权 Cohen's κ ≥ 0.70 才允许把 Judge 用于自动控制。目前进度仍为 `0/30`，因此 κ 未计算、自动控制禁止；同模型家族和单一复核人限制也必须披露，不能把 `30/30` 技术完成写成 Judge 已与人工对齐。
