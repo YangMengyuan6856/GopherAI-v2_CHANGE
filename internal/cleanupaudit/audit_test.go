@@ -28,7 +28,6 @@ func TestBuilderProducesBoundedDeletionPlan(t *testing.T) {
 		"common/mcp/server/web_tools.go":            `func DuckDuckGoSearch() {} func FetchURLContent() {} func FormatSearchResults() {}`,
 		"common/mcp/gopherai-mcp":                   `binary`,
 		"config/config.go":                          `McpBaseURL string`,
-		"config/config.toml":                        `mcpBaseURL = "loopback"`,
 		"common/mcp/main.go":                        `package main`,
 		"common/mcp/server/server.go":               `deployment_manifest_source`,
 		"internal/toolruntime/mcp_adapter_tool.go":  `mcp_deployment_evidence`,

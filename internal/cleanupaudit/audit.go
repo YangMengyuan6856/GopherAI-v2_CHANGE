@@ -107,7 +107,11 @@ func (builder *Builder) Build(ctx context.Context, releaseID, gitSHA string) (Re
 		{id: "legacy_mcp_client_package", title: "重复 MCP client 包", decision: "delete_candidate", replacement: "internal/toolruntime.MCPClient", authorized: true, artifacts: []string{"common/mcp/client/client.go"}, needles: []string{"github.com/kaitai/gopherai-mcp/client"}, excludes: []string{"common/mcp/client"}},
 		{id: "generic_mcp_web_helpers", title: "未注册的通用搜索与网页读取 helper", decision: "delete_candidate", replacement: "official_document_search allowlist", authorized: true, artifacts: []string{"common/mcp/server/web_tools.go"}, needles: []string{"DuckDuckGoSearch", "FetchURLContent", "FormatSearchResults"}, excludes: []string{"common/mcp/server/web_tools.go"}},
 		{id: "checked_in_mcp_binary", title: "误提交的 MCP 构建二进制", decision: "delete_candidate", replacement: "scripts/deploy/deploy-aliyun.ps1 local cross-build", authorized: true, artifacts: []string{"tracked::common/mcp/gopherai-mcp"}},
-		{id: "legacy_mcp_base_url_config", title: "未消费的旧 mcpBaseURL 配置", decision: "delete_candidate", replacement: "fixed loopback adapter endpoint", authorized: true, artifacts: []string{"config/config.go::McpBaseURL", "config/config.toml::mcpBaseURL"}, needles: []string{"McpBaseURL", "mcpBaseURL"}, excludes: []string{"config/config.go", "config/config.toml"}},
+		// The deployed config file is intentionally preserved across releases and
+		// may still contain this now-ignored historical TOML key. The executable
+		// source contract is removed once the typed Go field disappears; unknown
+		// BurntSushi/TOML keys remain backward compatible during rollout.
+		{id: "legacy_mcp_base_url_config", title: "未消费的旧 mcpBaseURL Go 配置字段", decision: "delete_candidate", replacement: "fixed loopback adapter endpoint", authorized: true, artifacts: []string{"config/config.go::McpBaseURL"}, needles: []string{"McpBaseURL", "mcpBaseURL"}, excludes: []string{"config/config.go", "config/config.toml"}},
 		{id: "governed_mcp_protocol_host", title: "场景化 MCP 协议边界", decision: "retain", replacement: "not_applicable", retained: true, artifacts: []string{"common/mcp/main.go", "common/mcp/server/server.go", "internal/toolruntime/mcp_adapter_tool.go"}, needles: []string{"mcp_deployment_evidence", "deployment_manifest_source"}},
 	}
 	report := Report{
