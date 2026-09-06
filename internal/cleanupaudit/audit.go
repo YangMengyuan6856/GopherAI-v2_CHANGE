@@ -109,6 +109,7 @@ func (builder *Builder) Build(ctx context.Context, releaseID, gitSHA string) (Re
 		{id: "generic_mcp_web_helpers", title: "未注册的通用搜索与网页读取 helper", decision: "delete_candidate", replacement: "official_document_search allowlist", authorized: true, artifacts: []string{"common/mcp/server/web_tools.go"}, needles: []string{"DuckDuckGoSearch", "FetchURLContent", "FormatSearchResults"}, excludes: []string{"common/mcp/server/web_tools.go"}},
 		{id: "checked_in_backend_binary", title: "误提交的根目录 Backend 构建二进制", decision: "delete_candidate", replacement: "scripts/deploy/deploy-aliyun.ps1 local cross-build", authorized: true, artifacts: []string{"tracked::GopherAI"}},
 		{id: "checked_in_mcp_binary", title: "误提交的 MCP 构建二进制", decision: "delete_candidate", replacement: "scripts/deploy/deploy-aliyun.ps1 local cross-build", authorized: true, artifacts: []string{"tracked::common/mcp/gopherai-mcp"}},
+		{id: "checked_in_user_uploads", title: "误提交的用户上传内容", decision: "delete_candidate", replacement: "release-external uploads runtime directory", authorized: true, artifacts: []string{"tracked-prefix::uploads/"}},
 		// The deployed config file is intentionally preserved across releases and
 		// may still contain this now-ignored historical TOML key. The executable
 		// source contract is removed once the typed Go field disappears; unknown
@@ -198,6 +199,16 @@ func (builder *Builder) inspect(spec candidateSpec, trackedSources map[string]st
 func (builder *Builder) presentArtifacts(probes []string, trackedSources map[string]struct{}) ([]string, error) {
 	result := []string{}
 	for _, probe := range probes {
+		if strings.HasPrefix(probe, "tracked-prefix::") {
+			prefix := strings.TrimPrefix(probe, "tracked-prefix::")
+			for tracked := range trackedSources {
+				if strings.HasPrefix(tracked, prefix) {
+					result = append(result, probe)
+					break
+				}
+			}
+			continue
+		}
 		if strings.HasPrefix(probe, "tracked::") {
 			if _, exists := trackedSources[strings.TrimPrefix(probe, "tracked::")]; exists {
 				result = append(result, probe)
@@ -362,7 +373,7 @@ func Validate(report Report) error {
 	if report.Observation.SchemaVersion != "legacy-entry-observation-v1" || report.Observation.Entry != "skill_api" || report.Observation.WindowSeconds != 86400 || report.Observation.ExpectedSampleCount != 5760 || report.Observation.MinimumSampleCount != 2880 {
 		return errors.New("cleanup audit observation contract is invalid")
 	}
-	if report.Summary.TotalCandidates != len(report.Candidates) || len(report.Candidates) != 10 {
+	if report.Summary.TotalCandidates != len(report.Candidates) || len(report.Candidates) != 11 {
 		return errors.New("cleanup audit candidate count is invalid")
 	}
 	if report.Summary.CleanupComplete != (report.Summary.AllChecksPassed && report.Summary.EligibleToDelete == 0) || report.Summary.CleanupComplete && report.Summary.DeletionPlanReady {

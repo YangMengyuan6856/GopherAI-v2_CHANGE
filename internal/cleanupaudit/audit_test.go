@@ -21,7 +21,7 @@ func (reader fakeObservationReader) ObserveRetiredSkillAPI(context.Context) (obs
 func TestBuilderProducesBoundedDeletionPlan(t *testing.T) {
 	root := t.TempDir()
 	files := map[string]string{
-		".release-source-files.txt":                 "GopherAI\ncommon/mcp/gopherai-mcp\n",
+		".release-source-files.txt":                 "GopherAI\ncommon/mcp/gopherai-mcp\nuploads/example.md\n",
 		"router/router.go":                          `LEGACY_SKILL_RETIRED`,
 		"common/aihelper/tool_source.go":            `NewMCPToolSource NewCustomToolSource NewToolAggregator`,
 		"common/mcp/client/client.go":               `package mcp`,
@@ -55,7 +55,7 @@ func TestBuilderProducesBoundedDeletionPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Summary.AlreadyRemoved != 2 || report.Summary.EligibleToDelete != 6 || report.Summary.RetainedRequired != 2 || report.Summary.Blocked != 0 || !report.Summary.DeletionPlanReady || report.Summary.CleanupComplete {
+	if report.Summary.AlreadyRemoved != 2 || report.Summary.EligibleToDelete != 7 || report.Summary.RetainedRequired != 2 || report.Summary.Blocked != 0 || !report.Summary.DeletionPlanReady || report.Summary.CleanupComplete {
 		t.Fatalf("unexpected summary: %+v", report.Summary)
 	}
 	if err := Validate(report); err != nil {
@@ -144,7 +144,7 @@ func TestFileStoreRejectsTampering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Summary.AlreadyRemoved != 8 || report.Summary.RetainedRequired != 2 || report.Summary.EligibleToDelete != 0 || !report.Summary.AllChecksPassed || !report.Summary.CleanupComplete || report.Summary.DeletionPlanReady {
+	if report.Summary.AlreadyRemoved != 9 || report.Summary.RetainedRequired != 2 || report.Summary.EligibleToDelete != 0 || !report.Summary.AllChecksPassed || !report.Summary.CleanupComplete || report.Summary.DeletionPlanReady {
 		t.Fatalf("fully retired candidates must produce a terminal cleanup state: %+v", report.Summary)
 	}
 	store := NewFileStore(filepath.Join(root, "reports", "cleanup.json"))

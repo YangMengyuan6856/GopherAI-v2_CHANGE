@@ -351,6 +351,8 @@ try {
 	if (-not $DeployConfig) {
 		$archiveArgs += ":(exclude)config/config.toml"
 	}
+	$archiveArgs += ":(exclude)uploads"
+	$archiveArgs += ":(exclude).idea"
 	Invoke-Checked -FilePath "git" -Arguments $archiveArgs
 	Invoke-Checked -FilePath "tar" -Arguments @("-xf", $trackedSourceArchive, "-C", $trackedSourceRoot)
 
@@ -378,6 +380,12 @@ try {
         throw "Unable to create the tracked source inventory."
     }
     $trackedSourceFiles = [string[]]@($trackedSourceFiles | ForEach-Object { $_ -replace '\\', '/' })
+	$trackedSourceFiles = [string[]]@($trackedSourceFiles | Where-Object {
+		$_ -notmatch '^(uploads|\.idea)/' -and ($DeployConfig -or $_ -ne 'config/config.toml')
+	})
+	if ($trackedSourceFiles.Count -eq 0) {
+		throw "Tracked source inventory became empty after release exclusions."
+	}
     [Array]::Sort($trackedSourceFiles, [System.StringComparer]::Ordinal)
     [System.IO.File]::WriteAllLines($sourceInventoryPath, $trackedSourceFiles, $utf8NoBom)
 
@@ -398,7 +406,7 @@ try {
 	}
 	$forbiddenBundleEntries = @($bundleEntries | Where-Object {
 		$_ -match '(^|/)(f[123]|opts(?:_big)?|q|top(?:_big)?)\.png$' -or
-		$_ -match '(^|/)(node_modules|uploads|\.git|\.claude|\.codex-tmp)(/|$)' -or
+		$_ -match '(^|/)(node_modules|uploads|\.git|\.idea|\.claude|\.codex-tmp)(/|$)' -or
 		(-not $DeployConfig -and $_ -match '(^|/)config/config\.toml$')
 	})
 	if ($forbiddenBundleEntries.Count -ne 0) {
