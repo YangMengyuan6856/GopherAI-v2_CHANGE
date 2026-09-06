@@ -555,7 +555,7 @@
               <summary>打开 LLM-as-a-Judge 人工校准（{{ judgeCalibrationAudit?.agreement?.reviewed_cases || 0 }}/30）</summary>
               <div class="metric-catalog-heading">
                 <div>
-                  <strong>Human Calibration · {{ judgeCalibrationAudit?.judge_prompt || 'judge-rubric-v1' }}</strong>
+                  <strong>Human Calibration · {{ judgeCalibrationAudit?.judge_prompt || 'judge-rubric-v2' }}</strong>
                   <span>30 条 / 6 个切片 · 五维人工评分 · 线性加权 Cohen’s κ ≥ 0.70</span>
                 </div>
                 <button :disabled="loadingJudgeCalibration" @click="loadJudgeCalibration">
