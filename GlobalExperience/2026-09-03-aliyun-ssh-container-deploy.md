@@ -1504,3 +1504,12 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 发布前增加远端容量门：`load1 <= max(4, cores*4)` 且 I/O PSI `full avg10 <= 10%` 才允许本地构建和上传。该门在服务器已经拥塞时 fail-fast，避免 100 MB 级传输和解压继续放大压力。它是部署安全门，不是业务健康指标。
 - 随着部署 Bash 脚本增长，Base64 文本作为 `ssh.exe` 的单个命令参数触发 Windows“文件名或扩展名太长”，包虽然已上传但服务器没有切换。`70bd164d` 改为以 UTF-8 标准输入执行 `ssh ... bash -s`，彻底移除 Windows 参数长度依赖；容量预检也走同一路径。远程脚本、命令参数和业务密钥仍应分离，不能通过命令行展开秘密。
 - 该历史容器的 PID 1 不负责回收孤儿，当前一次版本切换后可见 6 个旧 Backend/Worker/Prometheus/MCP/Frontend/Grafana 的 `Z` 状态条目，RSS 为 0，不是仍在运行的重复服务。不能对 zombie 反复 `kill -9`；应记录数量，并在达到安全阈值前使用 ECS 可用时段做受控 `docker restart gopherai2` 清理，再由发布脚本完整拉起 MySQL 和各服务。长期方案是保持现有容器数据不变的前提下评审 `--init`/supervisor 迁移，未经迁移验证不得直接删除容器。
+
+## 72. 2026-09-06 受限 ECS 性能验收：真实路由、数据隔离与 pprof 口径
+
+- `5c99322e` 删除含固定公网地址、明文账号及 50 VU 默认配置的旧 `gopherai-load.js`，改为预构建 `GopherAI-perf-eval`。Runner 只允许容器 loopback，硬限制总请求 `<=50`、并发 `<=5`、每个 Release 只能单实例执行；JWT 由服务端生成且 15 分钟过期，不写入报告。合成身份固定为 `__perf_probe__`，运行前后事务清理 Session/Message/AgentRun，同时在线评测采样显式排除该身份，避免性能样本污染生产质量与用户数据。
+- Release `20260906150843-5c99322e8bcb`，bundle SHA-256 `4932d52bf489e5d077c0ef3d42817492ca2de8a7a00d5f9feea045ae04f33643`。2 vCPU、1.58 GiB ECS 上冷请求 `1/1` 成功，端到端/TTFT 为 `6137/6038ms`；热请求 `10/10` 成功、并发 2，端到端 P50/P95/P99 为 `934/1281/1361ms`，TTFT P50/P95/P99 为 `781/1169/1251ms`。报告必须同时披露实际路由 `legacy_chat · legacy-v0 · policy-v0` 与模型别名 `qwen-plus`，不能用命令行期望值冒充实际执行路径。
+- 性能报告把进程模型调用与估算 Token Counter 做前后差分。本轮得到每百请求模型调用 100 次、估算 Token 11000；Token 来自统一估算器而非供应商账单，进程 Counter 在有并发真实流量时也可能混入其他请求，因此只能作为同口径工程基线，不得包装成精确成本结算。
+- CPU/heap/goroutine 三份不可变 pprof 的 SHA-256 分别为 `cee4267828f46a6250347f51ddece3b40872912e60339ba56c7666b29dc69dfe`、`07b4807ed51ea6e057e5c1903175975ff3dffba3ac2b50c783280942998b6dc3`、`2718aea70d4cd856b5633208c1c9fbeef6005c37a3a74e933ca1c47b40a656d2`，报告 SHA 为 `5ab3a74db097bd390d7074caca2b03827b128d0312a4f6519cc249748d965c68`。CPU 5.09 秒采样只有 50ms 活跃样本，说明当前请求主要等待外部 I/O，不能据此宣称已定位或优化 CPU 热点；heap in-use 约 5.47 MiB，主要分配来自 PEM、flate、Prometheus、模板解析和 runtime。
+- “冷”只表示当前 Release 启动后的第一条受控业务请求，不代表 ECS、Redis、MySQL、浏览器或模型连接全部冷启动；当前只覆盖 `legacy_chat`，不能外推为 RAG、多 Agent 或 Tool Runtime 性能。后续新增其他路径时必须按实际 route/model/strategy 分开报告，禁止混合计算百分位。
+- 从 PowerShell 把多行 Bash 作为 SSH 参数发送时，CRLF 可能让最后一个 flag 变成 `5\r` 并在业务执行前失败。短脚本可先移除 `\r`、Base64 编码后作为单参数解码执行；长发布脚本仍优先使用部署器既有的 UTF-8 stdin `ssh ... bash -s`，避免 Windows 参数长度上限。容器内分析 pprof 时显式使用 `/usr/local/go/bin/go tool pprof`，不要假定非交互 shell 的 PATH 含 Go。独立 CLI 初始化 GORM 会输出大量迁移日志，后续 CLI 应在初始化数据库前切到 release 日志模式，但不能为了安静跳过必要 Schema 校验。
