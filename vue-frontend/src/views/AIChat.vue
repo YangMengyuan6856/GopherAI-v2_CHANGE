@@ -705,7 +705,7 @@
                 </div>
                 <div :class="['evaluation-candidate-warning', { passed: cleanupAudit.summary.cleanup_complete }]">
                   <strong>{{ cleanupAudit.summary.cleanup_complete ? '审计驱动清理闭环已完成' : '报告就绪不等于页面直接删除' }}</strong>
-                  <span>{{ cleanupAudit.summary.cleanup_complete ? '7 项授权候选均已通过独立 Git 提交删除并由当前 Release 复核；2 个运行所需协议边界明确保留。' : '物理删除仍以独立 Git 提交执行，并重新跑全量构建、评测 Smoke 与云端健康门；数据库 Contract migration 不在本报告授权范围。' }}</span>
+                  <span>{{ cleanupAudit.summary.cleanup_complete ? `${cleanupAudit.summary.already_removed} 项授权候选均已通过独立 Git 提交删除并由当前 Release 复核；${cleanupAudit.summary.retained_required} 个运行所需协议边界明确保留。` : '物理删除仍以独立 Git 提交执行，并重新跑全量构建、评测 Smoke 与云端健康门；数据库 Contract migration 不在本报告授权范围。' }}</span>
                 </div>
               </div>
               <div v-else class="strategy-control-empty">尚无持久化审计报告；点击后只读取固定指标并扫描当前 Release，不执行删除。</div>

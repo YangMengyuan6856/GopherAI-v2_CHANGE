@@ -107,6 +107,7 @@ func (builder *Builder) Build(ctx context.Context, releaseID, gitSHA string) (Re
 		{id: "legacy_aihelper_tool_source", title: "旧动态 ToolSource 聚合器", decision: "delete_candidate", replacement: "internal/toolruntime.Registry", authorized: true, artifacts: []string{"common/aihelper/tool_source.go"}, needles: []string{"NewMCPToolSource", "NewCustomToolSource", "NewToolAggregator"}, excludes: []string{"common/aihelper/tool_source.go"}},
 		{id: "legacy_mcp_client_package", title: "重复 MCP client 包", decision: "delete_candidate", replacement: "internal/toolruntime.MCPClient", authorized: true, artifacts: []string{"common/mcp/client/client.go"}, needles: []string{"github.com/kaitai/gopherai-mcp/client"}, excludes: []string{"common/mcp/client"}},
 		{id: "generic_mcp_web_helpers", title: "未注册的通用搜索与网页读取 helper", decision: "delete_candidate", replacement: "official_document_search allowlist", authorized: true, artifacts: []string{"common/mcp/server/web_tools.go"}, needles: []string{"DuckDuckGoSearch", "FetchURLContent", "FormatSearchResults"}, excludes: []string{"common/mcp/server/web_tools.go"}},
+		{id: "checked_in_backend_binary", title: "误提交的根目录 Backend 构建二进制", decision: "delete_candidate", replacement: "scripts/deploy/deploy-aliyun.ps1 local cross-build", authorized: true, artifacts: []string{"tracked::GopherAI"}},
 		{id: "checked_in_mcp_binary", title: "误提交的 MCP 构建二进制", decision: "delete_candidate", replacement: "scripts/deploy/deploy-aliyun.ps1 local cross-build", authorized: true, artifacts: []string{"tracked::common/mcp/gopherai-mcp"}},
 		// The deployed config file is intentionally preserved across releases and
 		// may still contain this now-ignored historical TOML key. The executable
@@ -361,7 +362,7 @@ func Validate(report Report) error {
 	if report.Observation.SchemaVersion != "legacy-entry-observation-v1" || report.Observation.Entry != "skill_api" || report.Observation.WindowSeconds != 86400 || report.Observation.ExpectedSampleCount != 5760 || report.Observation.MinimumSampleCount != 2880 {
 		return errors.New("cleanup audit observation contract is invalid")
 	}
-	if report.Summary.TotalCandidates != len(report.Candidates) || len(report.Candidates) != 9 {
+	if report.Summary.TotalCandidates != len(report.Candidates) || len(report.Candidates) != 10 {
 		return errors.New("cleanup audit candidate count is invalid")
 	}
 	if report.Summary.CleanupComplete != (report.Summary.AllChecksPassed && report.Summary.EligibleToDelete == 0) || report.Summary.CleanupComplete && report.Summary.DeletionPlanReady {

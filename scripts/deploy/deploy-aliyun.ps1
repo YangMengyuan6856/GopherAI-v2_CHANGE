@@ -277,6 +277,8 @@ $safeBranch = $branch -replace '[^A-Za-z0-9_.-]', '_'
 $bundleName = "GopherAI_${safeBranch}_${releaseId}.tar.gz"
 $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) "gopherai-deploy-$timestamp"
 $payloadRoot = Join-Path $tempRoot "payload"
+$trackedSourceRoot = Join-Path $tempRoot "tracked-source"
+$trackedSourceArchive = Join-Path $tempRoot "tracked-source.tar"
 $artifactDirectory = Join-Path $payloadRoot ".deploy-bin"
 $manifestPath = Join-Path $payloadRoot "release-manifest.json"
 $sourceInventoryPath = Join-Path $payloadRoot ".release-source-files.txt"
@@ -293,13 +295,16 @@ foreach ($name in $environmentNames) {
 try {
     Require-Command "git"
     Require-Command "tar"
-    New-Item -ItemType Directory -Force -Path $tempRoot, $payloadRoot | Out-Null
+    New-Item -ItemType Directory -Force -Path $tempRoot, $payloadRoot, $trackedSourceRoot | Out-Null
     Write-Host "[deploy] repo: $repoRoot"
     Write-Host "[deploy] branch: $branch"
     Write-Host "[deploy] git sha: $gitSha"
     Write-Host "[deploy] release: $releaseId"
     Write-Host "[deploy] host: $HostAlias"
     Write-Host "[deploy] source dirty: $dirty"
+	if ($dirty) {
+		throw "Deployment requires a clean Git tree so the release can be reproduced exactly from its manifest Git SHA. Commit or remove local changes first."
+	}
 
     Assert-RemoteDeploymentCapacity
 
@@ -339,6 +344,16 @@ try {
         Build-LocalLinuxArtifacts -GoExecutable $goExecutable -RepoRoot $repoRoot -ArtifactDirectory $artifactDirectory
     }
 
+	# Build the release source from the committed tree, never from the ambient
+	# working directory. This excludes ignored screenshots, local logs and other
+	# machine-only files even when they happen to exist beside the repository.
+	$archiveArgs = @("-C", $repoRoot, "archive", "--format=tar", "--output=$trackedSourceArchive", $gitSha, "--", ".")
+	if (-not $DeployConfig) {
+		$archiveArgs += ":(exclude)config/config.toml"
+	}
+	Invoke-Checked -FilePath "git" -Arguments $archiveArgs
+	Invoke-Checked -FilePath "tar" -Arguments @("-xf", $trackedSourceArchive, "-C", $trackedSourceRoot)
+
     $manifest = [ordered]@{
         release_id = $releaseId
         branch = $branch
@@ -368,14 +383,28 @@ try {
 
     $tarArgs = @(
         "-czf", $bundlePath,
-		"--exclude=.git", "--exclude=.claude", "--exclude=.codex-tmp", "--exclude=uploads",
-        "--exclude=vue-frontend/node_modules",
-        "--exclude=backend.log", "--exclude=index-worker.log", "--exclude=mcp.log", "--exclude=frontend.log"
+		"--exclude=config/config.toml"
     )
-    if (-not $DeployConfig) { $tarArgs += "--exclude=config/config.toml" }
-    $tarArgs += @("-C", $repoRoot, ".", "-C", $payloadRoot, "release-manifest.json", ".release-source-files.txt")
+	if ($DeployConfig) { $tarArgs = @("-czf", $bundlePath) }
+	$tarArgs += @("-C", $trackedSourceRoot, ".")
+	if (-not $SkipFrontend) { $tarArgs += @("-C", $repoRoot, "vue-frontend/dist") }
+	$tarArgs += @("-C", $payloadRoot, "release-manifest.json", ".release-source-files.txt")
     if (-not $BuildInContainer -and -not $DryRun) { $tarArgs += ".deploy-bin" }
     Invoke-Checked -FilePath "tar" -Arguments $tarArgs -WorkingDirectory $repoRoot
+
+	$bundleEntries = @(& tar -tzf $bundlePath)
+	if ($LASTEXITCODE -ne 0 -or $bundleEntries.Count -eq 0) {
+		throw "Unable to inspect the generated release bundle."
+	}
+	$forbiddenBundleEntries = @($bundleEntries | Where-Object {
+		$_ -match '(^|/)(f[123]|opts(?:_big)?|q|top(?:_big)?)\.png$' -or
+		$_ -match '(^|/)(node_modules|uploads|\.git|\.claude|\.codex-tmp)(/|$)' -or
+		(-not $DeployConfig -and $_ -match '(^|/)config/config\.toml$')
+	})
+	if ($forbiddenBundleEntries.Count -ne 0) {
+		throw "Release bundle contains forbidden working-tree artifacts: $($forbiddenBundleEntries -join ', ')"
+	}
+	Write-Host "[deploy] provenance: git archive $gitSha + controlled build artifacts ($($bundleEntries.Count) entries)"
 
     $bundleHash = (Get-FileHash -LiteralPath $bundlePath -Algorithm SHA256).Hash.ToLowerInvariant()
     [System.IO.File]::WriteAllText($checksumPath, "$bundleHash  $bundleName`n", $utf8NoBom)
