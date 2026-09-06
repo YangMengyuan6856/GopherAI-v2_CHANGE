@@ -507,6 +507,50 @@
                 </span>
               </div>
             </details>
+            <details v-if="pairedComparison" class="paired-comparison-card">
+              <summary>查看成对 A/B 统计可信度（{{ pairedComparison.comparisons.length }} 个实验）</summary>
+              <div class="metric-catalog-heading">
+                <div>
+                  <strong>Paired Comparison · {{ pairedComparison.method_version }}</strong>
+                  <span>同一问题逐对比较 · 固定种子 Bootstrap 95% CI · 精确双侧 McNemar</span>
+                </div>
+                <span :class="['evaluation-gate', pairedComparison.human_reviewed ? 'passed' : 'failed']">
+                  {{ pairedComparison.human_reviewed ? '人工标签已复核' : '统计候选 · 不可晋级' }}
+                </span>
+              </div>
+              <div class="paired-comparison-grid">
+                <article v-for="comparison in pairedComparison.comparisons" :key="comparison.name">
+                  <div class="evaluation-run-heading">
+                    <div>
+                      <strong>{{ pairedComparisonLabel(comparison.name) }}</strong>
+                      <span>{{ comparison.baseline_strategy }} → {{ comparison.candidate_strategy }} · n={{ comparison.analysis.pair_count }}</span>
+                    </div>
+                    <span :class="comparison.analysis.conclusion === 'candidate_better' ? 'dependency-ready' : 'dependency-down'">
+                      {{ pairedConclusionLabel(comparison.analysis.conclusion) }}
+                    </span>
+                  </div>
+                  <div class="diagnostic-evaluation-grid">
+                    <div><strong>{{ comparison.analysis.baseline_success.numerator }}/{{ comparison.analysis.baseline_success.denominator }}</strong><span>基线成功（≥{{ metricPercent(comparison.analysis.success_threshold) }}）</span></div>
+                    <div><strong>{{ comparison.analysis.candidate_success.numerator }}/{{ comparison.analysis.candidate_success.denominator }}</strong><span>候选成功（同一分母）</span></div>
+                    <div><strong>{{ metricPercent(comparison.analysis.mean_delta) }}</strong><span>成对平均质量差</span></div>
+                    <div><strong>[{{ metricPercent(comparison.analysis.delta_ci95_lower) }}, {{ metricPercent(comparison.analysis.delta_ci95_upper) }}]</strong><span>Bootstrap 95% CI</span></div>
+                    <div><strong>{{ comparison.analysis.wins }}/{{ comparison.analysis.losses }}/{{ comparison.analysis.ties }}</strong><span>胜 / 负 / 平</span></div>
+                    <div><strong>{{ comparison.analysis.mcnemar_exact_two_sided_p_value.toFixed(4) }}</strong><span>McNemar 精确双侧 p</span></div>
+                  </div>
+                  <small>不一致对 {{ comparison.analysis.discordant_pairs }}（候选独赢 {{ comparison.analysis.candidate_only_successes }} / 基线独赢 {{ comparison.analysis.baseline_only_successes }}）· {{ comparison.analysis.bootstrap_iterations }} 次 · seed {{ comparison.analysis.bootstrap_seed }}</small>
+                </article>
+              </div>
+              <div class="evaluation-artifact-list">
+                <span v-for="source in pairedComparison.sources" :key="source.name">
+                  {{ source.name }} · {{ source.dataset_version }} · SHA {{ source.report_sha256.slice(0, 16) }}…
+                </span>
+              </div>
+              <div class="evaluation-candidate-warning">
+                <strong>统计显著 ≠ 允许上线</strong>
+                <span>当前 PromotionEligible={{ pairedComparison.promotion_eligible }}；输入标签未完成人工复核，两个实验也禁止合并成一个总体收益率。</span>
+              </div>
+              <small>Analysis SHA-256 {{ pairedComparison.analysis_sha256 }}</small>
+            </details>
             <details class="anomaly-workbench">
               <summary>打开固定阈值 + 滑动窗口 Z-score 验收工作台</summary>
               <p>下方五个场景是确定性 Fixture；“读取生产窗口”只读取后台定时落入 MySQL 的真实 Prometheus 聚合。两类数据不会混算，所有结果仅生成 Recommend-only 建议。</p>
@@ -1846,6 +1890,7 @@ export default {
     const loadingEvaluationCatalog = ref(false)
     const evaluationCatalog = ref(null)
     const evaluationRun = ref(null)
+    const pairedComparison = ref(null)
     const metricCatalog = ref(null)
     const prometheusRuntime = ref(null)
     const grafanaRuntime = ref(null)
@@ -3130,9 +3175,10 @@ export default {
       if (!evaluationCatalogOpen.value || evaluationCatalog.value || loadingEvaluationCatalog.value) return
       try {
         loadingEvaluationCatalog.value = true
-        const [catalogResponse, runResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse, onlineEvaluationResponse, failurePoolResponse, performanceResponse] = await Promise.all([
+        const [catalogResponse, runResponse, pairedResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse, onlineEvaluationResponse, failurePoolResponse, performanceResponse] = await Promise.all([
           api.get('/evaluations/catalog/latest'),
           api.get('/evaluations/unified/latest'),
+          api.get('/evaluations/paired/latest').catch(() => null),
           api.get('/evaluations/metrics/catalog'),
           api.get('/evaluations/metrics/runtime').catch(() => null),
           api.get('/evaluations/metrics/dashboard').catch(() => null),
@@ -3146,6 +3192,7 @@ export default {
         ])
         evaluationCatalog.value = catalogResponse.data
         evaluationRun.value = runResponse.data
+        pairedComparison.value = pairedResponse?.data || null
         metricCatalog.value = metricCatalogResponse.data.report
         prometheusRuntime.value = prometheusRuntimeResponse?.data?.snapshot || null
         grafanaRuntime.value = grafanaRuntimeResponse?.data?.snapshot || null
@@ -3183,6 +3230,15 @@ export default {
       verification_gap: '验证步骤缺口', retrieval_miss: '检索漏召回', unsupported_answer: '无证据作答',
       runtime_error: '运行错误', unsafe_action: '危险动作', nondeterministic_replay: '重放不一致'
     }[code] || code)
+
+    const pairedComparisonLabel = (name) => ({
+      collaboration_target_quality: '多 Agent 复杂诊断质量',
+      parent_context_target_quality: '父子 RAG 跨文档质量'
+    }[name] || name)
+
+    const pairedConclusionLabel = (conclusion) => ({
+      candidate_better: '候选有统计收益', candidate_worse: '候选显著退化', inconclusive: '未证明差异'
+    }[conclusion] || conclusion)
 
     const metricDomainLabel = (domain) => ({
       platform: '平台入口', intent: '意图识别', knowledge_rag: '知识与 RAG', agent_harness: 'Agent Harness',
@@ -3771,6 +3827,7 @@ export default {
       loadingEvaluationCatalog,
       evaluationCatalog,
       evaluationRun,
+      pairedComparison,
       metricCatalog,
       prometheusRuntime,
       grafanaRuntime,
@@ -3936,6 +3993,8 @@ export default {
       reviewStatusLabel,
       evaluationStatusLabel,
       evaluationFailureLabel,
+      pairedComparisonLabel,
+      pairedConclusionLabel,
       metricDomainLabel,
       metricTypeLabel,
       prometheusRuntimeStatusLabel,
@@ -5650,6 +5709,36 @@ export default {
   border: 1px solid rgba(52, 168, 121, 0.24);
   border-radius: 10px;
   background: rgba(244, 253, 249, 0.92);
+}
+
+.paired-comparison-card {
+  padding: 10px;
+  border: 1px dashed rgba(73, 93, 190, 0.34);
+  border-radius: 9px;
+  background: #f8f9ff;
+}
+
+.paired-comparison-card > summary {
+  cursor: pointer;
+  color: #4654a7;
+  font-weight: 800;
+}
+
+.paired-comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 10px;
+  margin: 10px 0;
+}
+
+.paired-comparison-grid > article {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(73, 93, 190, 0.18);
+  border-radius: 8px;
+  background: #fff;
 }
 
 .evaluation-run-heading,
