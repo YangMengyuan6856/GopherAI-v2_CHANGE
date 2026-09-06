@@ -1621,3 +1621,10 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 新 Release 会让上一版本清理报告失去版本绑定，因此首次读取证据包返回 503 是正确的 fail-closed。页面运行一次只读清理审计后，报告绑定当前 Git SHA，证据包恢复为 `8/12`、19 个来源 Hash 全通过；清理状态为 11/11 终态、9 删除、2 保留、0 阻断、旧入口 24h 调用 0、覆盖率 93.2%，Tracked Source 因新增 README/讲稿从 546 变为 548。
 - 真实浏览器在 1280×720、设备缩放 100% 下确认导览面板宽 `950px`、工作区 `clientHeight=389/scrollHeight=748`、`overflow-y=auto`。页签能切到第 5 步，追问可展开，第 2 步能准确跳转“证据检索”并关闭导览。验收长工作台时应提供独立滚动容器、折叠或分页，不得要求用户把整个页面缩小到文字不可读。
 - 本次启动第一次指标采集仍出现一次 `capture_failed`，下一分钟起持续恢复为 `warming/points=2`，未再次失败且无 panic；发布健康门通过不等于可以忽略异步后台任务，仍要在至少一个调度周期后复核日志。
+
+## 88. 2026-09-07 最终发布复盘也必须由 Gate 计算，不能靠总结文字宣布完成
+
+- `740abc05` 增加 `g10-release-review-v1`。服务先复算面试证据包 SHA，再把 12 个 Statement 稳定划分成 8 条通过技术证据门的事实与 4 条当前排除事实；每条可用事实保留原 Claim、SourceRefs 和全部禁止夸大限定。篡改 Claim 但沿用旧 Package SHA 会被拒绝，报告 GeneratedAt 取当前 Release Manifest，因此同一证据输入产生稳定 Report SHA。
+- G10 的四个规格门没有被“代码完成”短路：当前产品总验收因 320 条人工标签与 Judge 0/30 阻断；简历事实确认保持 `pending_user`；生产回滚因单 ECS/单应用容器标记 `deferred_environment`；删除清单和恢复说明由清理证据通过。因此总结果是 `1/4`、`production_release_ready=false`，并单独延期数据库收缩迁移与百分比生产灰度。
+- Release `20260907050533-740abc053bde`，bundle SHA-256 `bd6d0947e665fea6b4b7dfed4194032dc08424456776d3e97496f14b25d3492c`，可追溯条目 `696`。全量 Go、evaluation Race、Vue lint/build、Full 320 字节门和云端五进程健康门通过；新 Release 重跑只读清理审计后，G10 页面显示 Evidence SHA 前缀 `122adb08db78`、Report SHA 前缀 `a00dae5f5283`、4 个 Gate、8 个可用事实与 4 个排除事实，浏览器控制台错误为 0。
+- G10 报告的职责是准确解释“为什么还不能毕业”，不是强迫所有卡片变绿。对于单实例项目，真实 5% 灰度和不影响唯一在线实例的回滚演练缺少诚实执行条件；应给出恢复触发条件并延期，而不是用内存 Fixture、原子目录切换机制或一次普通发布冒充生产演练。
