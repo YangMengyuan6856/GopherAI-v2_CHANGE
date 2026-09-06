@@ -1154,6 +1154,52 @@
                     <span v-for="guardrail in evolutionAudit.guardrails" :key="guardrail" class="dependency-ready">{{ evolutionGuardrailLabel(guardrail) }}</span>
                   </div>
                   <small v-for="limitation in evolutionAudit.limitations" :key="limitation" class="evolution-limitation">{{ limitation }}</small>
+                  <details v-if="evolutionSplitAudit" class="review-fixture-list evolution-split-card">
+                    <summary>查看 Evolution / Validation / Sealed Holdout 分区（{{ evolutionSplitAudit.covered_cases }}/{{ evolutionSplitAudit.total_cases }}）</summary>
+                    <div class="metric-catalog-heading">
+                      <div>
+                        <strong>冻结分区 · {{ evolutionSplitAudit.policy_version }}</strong>
+                        <span>{{ evolutionSplitAudit.dataset_version }} · Source {{ shortRevision(evolutionSplitAudit.source_sha256) }}</span>
+                      </div>
+                      <button :disabled="runningEvolutionSplitAcceptance" @click="runEvolutionSplitAcceptance">
+                        {{ runningEvolutionSplitAcceptance ? '验收中...' : '运行 8 项防泄漏验收' }}
+                      </button>
+                    </div>
+                    <div class="failure-cluster-grid evolution-split-grid">
+                      <article v-for="split in evolutionSplitAudit.splits" :key="split.name">
+                        <div class="evaluation-run-heading">
+                          <strong>{{ evolutionSplitLabel(split.name) }}</strong>
+                          <span>{{ split.seal_state }}</span>
+                        </div>
+                        <p>{{ split.case_count }} 条 · Set SHA {{ shortRevision(split.case_set_sha256) }}</p>
+                        <small>{{ evolutionSplitPurposeLabel(split.purpose) }}</small>
+                        <div class="evaluation-decision-strip">
+                          <span :class="split.candidate_search_readable ? 'dependency-ready' : ''">候选搜索{{ split.candidate_search_readable ? '可读' : '不可读' }}</span>
+                          <span :class="!split.case_ids_exposed ? 'dependency-ready' : 'dependency-down'">Case ID 不对外暴露</span>
+                        </div>
+                      </article>
+                    </div>
+                    <div class="online-evaluation-rates">
+                      <div><strong>{{ evolutionSplitAudit.overlap_count }}</strong><span>跨分区重叠</span></div>
+                      <div><strong>{{ evolutionSplitAudit.duplicate_id_count }}</strong><span>重复 Case ID</span></div>
+                      <div><strong>{{ evolutionSplitAudit.holdout_open_count }}</strong><span>Holdout 打开次数</span></div>
+                      <div><strong>{{ evolutionSplitAudit.holdout_open_api_available ? '是' : '否' }}</strong><span>当前开放 Holdout API</span></div>
+                    </div>
+                    <article v-if="evolutionSplitAcceptance" :class="['online-evaluation-acceptance', evolutionSplitAcceptance.passed ? 'passed' : 'failed']">
+                      <div class="evaluation-run-heading">
+                        <strong>防泄漏验收 · {{ evolutionSplitAcceptance.passed ? `${evolutionSplitAcceptance.cases.length}/${evolutionSplitAcceptance.cases.length} 通过` : '未通过' }}</strong>
+                        <span>确定性 · 无写入 · 不打开 Holdout</span>
+                      </div>
+                      <div class="failure-acceptance-grid">
+                        <span v-for="item in evolutionSplitAcceptance.cases" :key="item.reason_code" :class="item.passed ? 'dependency-ready' : 'dependency-down'">{{ evolutionSplitAcceptanceLabel(item.reason_code) }}</span>
+                      </div>
+                    </article>
+                    <div class="evaluation-decision-strip">
+                      <span class="dependency-ready">Source Hash 已核验</span>
+                      <span class="dependency-ready">覆盖 {{ evolutionSplitAudit.covered_cases }}/{{ evolutionSplitAudit.total_cases }}</span>
+                      <span class="dependency-ready">重开 Holdout 必须新实验版本</span>
+                    </div>
+                  </details>
                 </details>
               </details>
               <div v-if="loadingAnomaly" class="strategy-control-empty">正在以“基线窗口不含当前点”的规则计算...</div>
@@ -2109,6 +2155,9 @@ export default {
     const evolutionAudit = ref(null)
     const evolutionMaterialization = ref(null)
     const materializingEvolution = ref(false)
+    const evolutionSplitAudit = ref(null)
+    const evolutionSplitAcceptance = ref(null)
+    const runningEvolutionSplitAcceptance = ref(false)
     const anomalyScenarios = [
       { value: 'healthy', label: '健康窗口' },
       { value: 'quality_drop', label: 'RAG 质量下降' },
@@ -3365,7 +3414,7 @@ export default {
       if (!evaluationCatalogOpen.value || evaluationCatalog.value || loadingEvaluationCatalog.value) return
       try {
         loadingEvaluationCatalog.value = true
-        const [catalogResponse, runResponse, pairedResponse, judgeCalibrationResponse, interviewEvidenceResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse, reliabilityResponse, onlineEvaluationResponse, failurePoolResponse, evolutionResponse, performanceResponse] = await Promise.all([
+        const [catalogResponse, runResponse, pairedResponse, judgeCalibrationResponse, interviewEvidenceResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse, reliabilityResponse, onlineEvaluationResponse, failurePoolResponse, evolutionResponse, evolutionSplitResponse, performanceResponse] = await Promise.all([
           api.get('/evaluations/catalog/latest'),
           api.get('/evaluations/unified/latest'),
           api.get('/evaluations/paired/latest').catch(() => null),
@@ -3382,6 +3431,7 @@ export default {
           api.get('/evaluations/online/latest').catch(() => null),
           api.get('/evaluations/failure-pool/latest').catch(() => null),
           api.get('/evaluations/evolution/latest').catch(() => null),
+          api.get('/evaluations/evolution/splits/latest').catch(() => null),
           api.get('/evaluations/performance/latest').catch(() => null)
         ])
         evaluationCatalog.value = catalogResponse.data
@@ -3401,6 +3451,7 @@ export default {
         onlineEvaluationAudit.value = onlineEvaluationResponse?.data || null
         failurePoolAudit.value = failurePoolResponse?.data || null
         evolutionAudit.value = evolutionResponse?.data || null
+        evolutionSplitAudit.value = evolutionSplitResponse?.data || null
         performanceReport.value = performanceResponse?.data || null
       } catch (error) {
         evaluationCatalogOpen.value = false
@@ -3816,6 +3867,36 @@ export default {
       no_active_pointer: 'Evolver 无活动指针', no_source_or_permission_changes: '禁止源码与权限变更'
     }[value] || value)
 
+    const runEvolutionSplitAcceptance = async () => {
+      if (runningEvolutionSplitAcceptance.value) return
+      try {
+        runningEvolutionSplitAcceptance.value = true
+        const response = await api.post('/evaluations/evolution/splits/acceptance', { mode: 'deterministic_no_write' })
+        evolutionSplitAcceptance.value = response.data
+        evolutionSplitAudit.value = response.data.audit
+        if (response.data?.passed) ElMessage.success('8 项数据分区、防泄漏与 Holdout 重开门禁全部通过')
+        else ElMessage.warning('Harness 数据分区验收未全部通过')
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || 'Harness 数据分区验收暂不可用')
+      } finally {
+        runningEvolutionSplitAcceptance.value = false
+      }
+    }
+
+    const evolutionSplitLabel = (value) => ({ evolution: 'Evolution 搜索集', validation: 'Validation 选择集', sealed_holdout: 'Sealed Holdout 最终集' }[value] || value)
+
+    const evolutionSplitPurposeLabel = (value) => ({
+      candidate_search_and_feedback: '仅用于候选搜索与反馈', post_freeze_model_selection: '候选冻结后才可用于模型选择',
+      one_time_final_generalization_check: '仅用于一次最终泛化检查'
+    }[value] || value)
+
+    const evolutionSplitAcceptanceLabel = (value) => ({
+      source_hash_verified: '来源 Catalog Hash 一致', unique_full_coverage: '40 条唯一且完整覆盖', zero_overlap: '三分区零重叠',
+      evolution_search_allowed: '候选搜索仅允许 Evolution', validation_search_denied: '候选搜索拒绝 Validation',
+      holdout_search_denied: '候选搜索拒绝 Holdout', candidate_freeze_required: 'Validation 强制候选冻结',
+      new_experiment_required: 'Holdout 重开强制新实验版本'
+    }[value] || value)
+
     const failureWhereLabel = (value) => ({
       answer_quality: '回答质量', agent_budget: 'Agent 预算', tool_runtime: '工具运行时', retrieval_evidence_gate: '检索证据门',
       answer_generation: '答案生成', task_resolution: '任务解决', request_execution: '请求执行'
@@ -4216,6 +4297,9 @@ export default {
       evolutionAudit,
       evolutionMaterialization,
       materializingEvolution,
+      evolutionSplitAudit,
+      evolutionSplitAcceptance,
+      runningEvolutionSplitAcceptance,
       parentContextEvaluationOpen,
       loadingParentContextEvaluation,
       parentContextEvaluation,
@@ -4403,6 +4487,10 @@ export default {
       materializeEvolutionCandidates,
       evolutionArtifactLabel,
       evolutionGuardrailLabel,
+      runEvolutionSplitAcceptance,
+      evolutionSplitLabel,
+      evolutionSplitPurposeLabel,
+      evolutionSplitAcceptanceLabel,
       submitDownvote,
       faultClassLabel,
       faultPhaseLabel,
@@ -6926,6 +7014,24 @@ export default {
   display: block;
   margin-top: 5px;
   color: #786548;
+}
+
+.evolution-split-card {
+  margin-top: 10px;
+  padding: 9px;
+  border: 1px solid rgba(48, 132, 168, 0.2);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.evolution-split-card > summary {
+  cursor: pointer;
+  color: #287493;
+  font-weight: 800;
+}
+
+.evolution-split-grid {
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
 }
 
 .failure-cluster-grid {

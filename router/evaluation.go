@@ -58,6 +58,8 @@ func RegisterEvaluationRouter(group *gin.RouterGroup) {
 	group.GET("/reliability/latest", reliabilityHandler.Latest)
 	group.GET("/evolution/latest", evolutionHandler.Latest)
 	group.POST("/evolution/materialize", evolutionHandler.Materialize)
+	group.GET("/evolution/splits/latest", evolutionHandler.SplitsLatest)
+	group.POST("/evolution/splits/acceptance", evolutionHandler.SplitsAcceptance)
 	group.GET("/performance/latest", performanceHandler.Latest)
 	group.GET("/paired/latest", pairedHandler.Latest)
 	group.GET("/judge-calibration/latest", judgeCalibrationHandler.Latest)

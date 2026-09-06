@@ -19,14 +19,27 @@ type EvolutionService interface {
 	MaterializeLatest(context.Context) (evolution.MaterializeResult, error)
 }
 
-type EvolutionHandler struct{ service EvolutionService }
+type EvolutionHandler struct {
+	service     EvolutionService
+	datasetPath string
+	catalogPath string
+}
+
+const (
+	defaultEvolutionDatasetPath = "evals/devsupport-diagnostic-v1.jsonl"
+	defaultEvolutionCatalogPath = "evals/devsupport-eval-v1.manifest.json"
+)
 
 type evolutionMaterializeRequest struct {
 	Source string `json:"source"`
 }
 
 func NewEvolutionHandler(service EvolutionService) *EvolutionHandler {
-	return &EvolutionHandler{service: service}
+	return NewEvolutionHandlerWithSplitPaths(service, defaultEvolutionDatasetPath, defaultEvolutionCatalogPath)
+}
+
+func NewEvolutionHandlerWithSplitPaths(service EvolutionService, datasetPath, catalogPath string) *EvolutionHandler {
+	return &EvolutionHandler{service: service, datasetPath: datasetPath, catalogPath: catalogPath}
 }
 
 func NewDefaultEvolutionHandler() *EvolutionHandler {
@@ -35,6 +48,48 @@ func NewDefaultEvolutionHandler() *EvolutionHandler {
 		return &EvolutionHandler{}
 	}
 	return NewEvolutionHandler(service)
+}
+
+func (handler *EvolutionHandler) SplitsLatest(ginContext *gin.Context) {
+	if handler == nil || handler.datasetPath == "" || handler.catalogPath == "" {
+		writeEvolutionError(ginContext, http.StatusServiceUnavailable, "EVOLUTION_SPLIT_UNAVAILABLE", "Harness 数据分区暂不可用", true)
+		return
+	}
+	audit, err := evolution.LoadSplitAudit(handler.datasetPath, handler.catalogPath)
+	if err != nil {
+		writeEvolutionError(ginContext, http.StatusServiceUnavailable, "EVOLUTION_SPLIT_INVALID", "Harness 数据分区校验失败", true)
+		return
+	}
+	ginContext.Header("Cache-Control", "no-store")
+	ginContext.JSON(http.StatusOK, audit)
+}
+
+func (handler *EvolutionHandler) SplitsAcceptance(ginContext *gin.Context) {
+	if handler == nil || handler.datasetPath == "" || handler.catalogPath == "" {
+		writeEvolutionError(ginContext, http.StatusServiceUnavailable, "EVOLUTION_SPLIT_UNAVAILABLE", "Harness 数据分区暂不可用", true)
+		return
+	}
+	ginContext.Request.Body = http.MaxBytesReader(ginContext.Writer, ginContext.Request.Body, 1<<10)
+	decoder := json.NewDecoder(ginContext.Request.Body)
+	decoder.DisallowUnknownFields()
+	var request struct {
+		Mode string `json:"mode"`
+	}
+	if err := decoder.Decode(&request); err != nil || request.Mode != "deterministic_no_write" {
+		writeEvolutionError(ginContext, http.StatusBadRequest, "INVALID_SPLIT_ACCEPTANCE_MODE", "只允许无写入的确定性数据分区验收", false)
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		writeEvolutionError(ginContext, http.StatusBadRequest, "INVALID_SPLIT_ACCEPTANCE_MODE", "数据分区验收请求包含多余内容", false)
+		return
+	}
+	result, err := evolution.RunSplitAcceptance(handler.datasetPath, handler.catalogPath)
+	if err != nil {
+		writeEvolutionError(ginContext, http.StatusUnprocessableEntity, "EVOLUTION_SPLIT_ACCEPTANCE_FAILED", "Harness 数据分区验收失败", false)
+		return
+	}
+	ginContext.Header("Cache-Control", "no-store")
+	ginContext.JSON(http.StatusOK, result)
 }
 
 func (handler *EvolutionHandler) Latest(ginContext *gin.Context) {

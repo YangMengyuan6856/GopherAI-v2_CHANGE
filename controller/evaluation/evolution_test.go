@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -15,6 +16,27 @@ import (
 type evolutionServiceStub struct {
 	audit  evolution.Audit
 	result evolution.MaterializeResult
+}
+
+func TestEvolutionSplitEndpointsKeepHoldoutSealed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	base := filepath.Join("..", "..", "evals")
+	handler := NewEvolutionHandlerWithSplitPaths(evolutionServiceStub{}, filepath.Join(base, "devsupport-diagnostic-v1.jsonl"), filepath.Join(base, "devsupport-eval-v1.manifest.json"))
+	router := gin.New()
+	router.GET("/splits/latest", handler.SplitsLatest)
+	router.POST("/splits/acceptance", handler.SplitsAcceptance)
+
+	latest := httptest.NewRecorder()
+	router.ServeHTTP(latest, httptest.NewRequest(http.MethodGet, "/splits/latest", nil))
+	if latest.Code != http.StatusOK || !strings.Contains(latest.Body.String(), `"overlap_count":0`) || !strings.Contains(latest.Body.String(), `"holdout_open_api_available":false`) || strings.Contains(latest.Body.String(), "diag-v1-") {
+		t.Fatalf("split audit leaked or failed: %d %s", latest.Code, latest.Body.String())
+	}
+
+	accepted := httptest.NewRecorder()
+	router.ServeHTTP(accepted, httptest.NewRequest(http.MethodPost, "/splits/acceptance", strings.NewReader(`{"mode":"deterministic_no_write"}`)))
+	if accepted.Code != http.StatusOK || !strings.Contains(accepted.Body.String(), `"passed":true`) || !strings.Contains(accepted.Body.String(), `"new_experiment_required"`) {
+		t.Fatalf("unexpected split acceptance response: %d %s", accepted.Code, accepted.Body.String())
+	}
 }
 
 func (stub evolutionServiceStub) Audit(context.Context) (evolution.Audit, error) {
