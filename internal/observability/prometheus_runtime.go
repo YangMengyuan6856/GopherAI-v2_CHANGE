@@ -88,6 +88,21 @@ type PrometheusInstantSample struct {
 	ObservedAt time.Time `json:"observed_at"`
 }
 
+type LegacyEntryObservation struct {
+	SchemaVersion       string    `json:"schema_version"`
+	Entry               string    `json:"entry"`
+	WindowSeconds       int       `json:"window_seconds"`
+	ObservedAt          time.Time `json:"observed_at"`
+	AttemptCount        float64   `json:"attempt_count"`
+	SampleCount         int       `json:"sample_count"`
+	ExpectedSampleCount int       `json:"expected_sample_count"`
+	MinimumSampleCount  int       `json:"minimum_sample_count"`
+	CoverageRatio       float64   `json:"coverage_ratio"`
+	ZeroCalls           bool      `json:"zero_calls"`
+	CoverageSufficient  bool      `json:"coverage_sufficient"`
+	Status              string    `json:"status"`
+}
+
 type fixedPrometheusQuery struct {
 	query          string
 	expectedLabels map[string]string
@@ -220,6 +235,77 @@ func (client *PrometheusRuntimeClient) QueryFixedMetric(ctx context.Context, met
 		return PrometheusInstantSample{Status: PrometheusMetricNonFinite, ObservedAt: observedAt}, nil
 	}
 	return PrometheusInstantSample{Status: PrometheusMetricObserved, Value: value, ObservedAt: observedAt}, nil
+}
+
+// ObserveRetiredSkillAPI reads one compile-time fixed 24-hour window. The
+// caller cannot inject PromQL, label names, or the observation duration.
+func (client *PrometheusRuntimeClient) ObserveRetiredSkillAPI(ctx context.Context) (LegacyEntryObservation, error) {
+	const (
+		windowSeconds       = 24 * 60 * 60
+		expectedSampleCount = windowSeconds / 15
+		minimumSampleCount  = expectedSampleCount / 2
+	)
+	if client == nil || client.baseURL == nil || client.client == nil {
+		return LegacyEntryObservation{}, errors.New("Prometheus runtime client is not configured")
+	}
+	attempts, observedAt, err := client.queryAggregate(ctx, `sum(increase(gopherai_legacy_entry_attempts_total{entry="skill_api"}[24h]))`)
+	if err != nil {
+		return LegacyEntryObservation{}, fmt.Errorf("query retired Skill calls: %w", err)
+	}
+	samples, sampleObservedAt, err := client.queryAggregate(ctx, `sum(count_over_time(gopherai_legacy_entry_attempts_total{entry="skill_api"}[24h]))`)
+	if err != nil {
+		return LegacyEntryObservation{}, fmt.Errorf("query retired Skill coverage: %w", err)
+	}
+	if sampleObservedAt.After(observedAt) {
+		observedAt = sampleObservedAt
+	}
+	if attempts < 0 || samples < 0 || math.Trunc(samples) != samples || samples > math.MaxInt32 {
+		return LegacyEntryObservation{}, errors.New("retired Skill observation violated the non-negative aggregate contract")
+	}
+	sampleCount := int(samples)
+	coverage := math.Min(1, float64(sampleCount)/float64(expectedSampleCount))
+	observation := LegacyEntryObservation{
+		SchemaVersion: "legacy-entry-observation-v1", Entry: "skill_api", WindowSeconds: windowSeconds,
+		ObservedAt: observedAt, AttemptCount: attempts, SampleCount: sampleCount,
+		ExpectedSampleCount: expectedSampleCount, MinimumSampleCount: minimumSampleCount,
+		CoverageRatio: coverage, ZeroCalls: attempts == 0, CoverageSufficient: sampleCount >= minimumSampleCount,
+	}
+	switch {
+	case !observation.CoverageSufficient:
+		observation.Status = "insufficient_coverage"
+	case !observation.ZeroCalls:
+		observation.Status = "calls_observed"
+	default:
+		observation.Status = "zero_calls_verified"
+	}
+	return observation, nil
+}
+
+func (client *PrometheusRuntimeClient) queryAggregate(ctx context.Context, query string) (float64, time.Time, error) {
+	var data struct {
+		ResultType string `json:"resultType"`
+		Result     []struct {
+			Metric map[string]string `json:"metric"`
+			Value  []json.RawMessage `json:"value"`
+		} `json:"result"`
+	}
+	if err := client.get(ctx, "/api/v1/query", url.Values{"query": []string{query}}, &data); err != nil {
+		return 0, time.Time{}, err
+	}
+	if data.ResultType != "vector" || len(data.Result) != 1 || len(data.Result[0].Metric) != 0 || len(data.Result[0].Value) != 2 {
+		return 0, time.Time{}, errors.New("Prometheus aggregate response violated the fixed scalar contract")
+	}
+	var timestamp float64
+	var encodedValue string
+	if json.Unmarshal(data.Result[0].Value[0], &timestamp) != nil || json.Unmarshal(data.Result[0].Value[1], &encodedValue) != nil || timestamp <= 0 || math.IsNaN(timestamp) || math.IsInf(timestamp, 0) {
+		return 0, time.Time{}, errors.New("Prometheus aggregate sample violated the fixed scalar contract")
+	}
+	value, err := strconv.ParseFloat(encodedValue, 64)
+	if err != nil || math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0, time.Time{}, errors.New("Prometheus aggregate value is not finite")
+	}
+	observedAt := time.Unix(int64(timestamp), int64((timestamp-math.Floor(timestamp))*float64(time.Second))).UTC()
+	return value, observedAt, nil
 }
 
 type prometheusTargetsData struct {

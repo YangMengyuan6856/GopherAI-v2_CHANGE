@@ -2,6 +2,7 @@ package observability
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -90,6 +91,49 @@ func TestPrometheusFixedMetricMarksNaNAsNonFinite(t *testing.T) {
 	sample, err := client.QueryFixedMetric(context.Background(), PrometheusCollaborativeRequestP95)
 	if err != nil || sample.Status != PrometheusMetricNonFinite {
 		t.Fatalf("non-finite sample must be explicit: %+v err=%v", sample, err)
+	}
+}
+
+func TestObserveRetiredSkillAPIDistinguishesCoverageAndCalls(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		value := "0"
+		if strings.Contains(request.URL.Query().Get("query"), "count_over_time") {
+			value = "4000"
+		} else if !strings.Contains(request.URL.Query().Get("query"), "increase") {
+			t.Fatalf("unexpected query %q", request.URL.Query().Get("query"))
+		}
+		_, _ = fmt.Fprintf(writer, `{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1788720000,%q]}]}}`, value)
+	}))
+	defer server.Close()
+	client, err := NewPrometheusRuntimeClient(server.URL, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation, err := client.ObserveRetiredSkillAPI(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observation.Status != "zero_calls_verified" || !observation.ZeroCalls || !observation.CoverageSufficient || observation.SampleCount != 4000 {
+		t.Fatalf("unexpected observation: %+v", observation)
+	}
+}
+
+func TestObserveRetiredSkillAPIRejectsInsufficientCoverage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		value := "1"
+		if strings.Contains(request.URL.Query().Get("query"), "count_over_time") {
+			value = "100"
+		}
+		_, _ = fmt.Fprintf(writer, `{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1788720000,%q]}]}}`, value)
+	}))
+	defer server.Close()
+	client, _ := NewPrometheusRuntimeClient(server.URL, server.Client())
+	observation, err := client.ObserveRetiredSkillAPI(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observation.Status != "insufficient_coverage" || observation.CoverageSufficient || observation.ZeroCalls {
+		t.Fatalf("unexpected observation: %+v", observation)
 	}
 }
 

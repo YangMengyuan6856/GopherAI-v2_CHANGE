@@ -664,6 +664,49 @@
                 <span>质量收益仍受人工复核或净收益门阻断；可靠性、故障演练与控制器数字必须保留“隔离验收 / Observe-only / 不切流”边界。</span>
               </div>
             </details>
+            <details class="cleanup-audit-card">
+              <summary>打开清理依赖与零调用审计（{{ cleanupAudit ? `${cleanupAudit.summary.eligible_to_delete} 个可删除候选` : '尚未运行' }}）</summary>
+              <div class="metric-catalog-heading">
+                <div>
+                  <strong>M10 Cleanup Gate · 只审计，不在页面删除</strong>
+                  <span>固定源码符号扫描 + Prometheus 24h 退役入口观测 + 替代链路声明</span>
+                </div>
+                <button :disabled="runningCleanupAudit" @click="runCleanupAudit">
+                  {{ runningCleanupAudit ? '审计中...' : '运行清理前审计' }}
+                </button>
+              </div>
+              <div v-if="cleanupAudit">
+                <div class="interview-evidence-summary">
+                  <div><strong>{{ cleanupAudit.legacy_entry_observation.attempt_count }}</strong><span>旧 Skill API · 24h 调用</span></div>
+                  <div><strong>{{ metricPercent(cleanupAudit.legacy_entry_observation.coverage_ratio) }}</strong><span>Prometheus 采样覆盖</span></div>
+                  <div><strong>{{ cleanupAudit.summary.already_removed }}</strong><span>已删除并复核</span></div>
+                  <div><strong>{{ cleanupAudit.summary.eligible_to_delete }}</strong><span>零外部引用候选</span></div>
+                  <div><strong>{{ cleanupAudit.summary.retained_required }}</strong><span>明确保留边界</span></div>
+                  <div><strong>{{ cleanupAudit.summary.blocked }}</strong><span>仍有引用/授权阻断</span></div>
+                </div>
+                <div class="evaluation-decision-strip">
+                  <span :class="cleanupAudit.legacy_entry_observation.zero_calls ? 'dependency-ready' : 'dependency-down'">{{ cleanupObservationLabel(cleanupAudit.legacy_entry_observation.status) }}</span>
+                  <span :class="cleanupAudit.summary.deletion_plan_ready ? 'dependency-ready' : 'dependency-down'">删除清单 {{ cleanupAudit.summary.deletion_plan_ready ? '已具备证据' : '尚未就绪' }}</span>
+                  <span>Report {{ shortRevision(cleanupAudit.report_sha256) }}</span>
+                </div>
+                <div class="cleanup-candidate-grid">
+                  <article v-for="candidate in cleanupAudit.candidates" :key="candidate.id">
+                    <div class="interview-evidence-heading">
+                      <strong>{{ candidate.title }}</strong>
+                      <span :class="{ ready: candidate.status === 'eligible_for_deletion' || candidate.status === 'removed_verified', blocked: candidate.status === 'blocked_active_reference' || candidate.status === 'blocked_user_approval_required' }">{{ cleanupCandidateStatusLabel(candidate.status) }}</span>
+                    </div>
+                    <small>替代：{{ candidate.replacement }}</small>
+                    <span>当前产物 {{ candidate.present_artifacts.length }} · 外部引用 {{ candidate.external_reference_count }}</span>
+                    <small>原因：{{ candidate.reason_codes.join(' · ') }}</small>
+                  </article>
+                </div>
+                <div class="evaluation-candidate-warning">
+                  <strong>报告就绪不等于页面直接删除</strong>
+                  <span>物理删除仍以独立 Git 提交执行，并重新跑全量构建、评测 Smoke 与云端健康门；数据库 Contract migration 不在本报告授权范围。</span>
+                </div>
+              </div>
+              <div v-else class="strategy-control-empty">尚无持久化审计报告；点击后只读取固定指标并扫描当前 Release，不执行删除。</div>
+            </details>
             <details class="anomaly-workbench">
               <summary>打开固定阈值 + 滑动窗口 Z-score 验收工作台</summary>
               <p>下方五个场景是确定性 Fixture；“读取生产窗口”只读取后台定时落入 MySQL 的真实 Prometheus 聚合。两类数据不会混算，所有结果仅生成 Recommend-only 建议。</p>
@@ -2263,6 +2306,8 @@ export default {
     const submittingJudgeReview = ref(false)
     const interviewEvidence = ref(null)
     const downloadingInterviewEvidence = ref(false)
+    const cleanupAudit = ref(null)
+    const runningCleanupAudit = ref(false)
     const judgeCalibrationIndex = ref(0)
     const judgeCalibrationDraft = ref({ relevance: '', completeness: '', helpfulness: '', groundedness: '', safety: '' })
     const judgeCalibrationDimensions = [
@@ -3573,12 +3618,13 @@ export default {
       if (!evaluationCatalogOpen.value || evaluationCatalog.value || loadingEvaluationCatalog.value) return
       try {
         loadingEvaluationCatalog.value = true
-        const [catalogResponse, runResponse, pairedResponse, judgeCalibrationResponse, interviewEvidenceResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse, reliabilityResponse, onlineEvaluationResponse, failurePoolResponse, evolutionResponse, evolutionSplitResponse, evolutionComparisonResponse, evolutionPromotionResponse, evolutionControlResponse, evolutionShadowControlResponse, performanceResponse] = await Promise.all([
+        const [catalogResponse, runResponse, pairedResponse, judgeCalibrationResponse, interviewEvidenceResponse, cleanupAuditResponse, metricCatalogResponse, prometheusRuntimeResponse, grafanaRuntimeResponse, productionAnomalyResponse, webhookAuditResponse, controllerAuditResponse, faultCampaignAuditResponse, reliabilityResponse, onlineEvaluationResponse, failurePoolResponse, evolutionResponse, evolutionSplitResponse, evolutionComparisonResponse, evolutionPromotionResponse, evolutionControlResponse, evolutionShadowControlResponse, performanceResponse] = await Promise.all([
           api.get('/evaluations/catalog/latest'),
           api.get('/evaluations/unified/latest'),
           api.get('/evaluations/paired/latest').catch(() => null),
           api.get('/evaluations/judge-calibration/latest').catch(() => null),
           api.get('/evaluations/interview-evidence/latest').catch(() => null),
+          api.get('/evaluations/cleanup/latest').catch(() => null),
           api.get('/evaluations/metrics/catalog'),
           api.get('/evaluations/metrics/runtime').catch(() => null),
           api.get('/evaluations/metrics/dashboard').catch(() => null),
@@ -3603,6 +3649,7 @@ export default {
         judgeCalibrationAudit.value = judgeCalibrationResponse?.data || null
         if (judgeCalibrationAudit.value) initializeJudgeCalibrationSelection()
         interviewEvidence.value = interviewEvidenceResponse?.data || null
+        cleanupAudit.value = cleanupAuditResponse?.data || null
         metricCatalog.value = metricCatalogResponse.data.report
         prometheusRuntime.value = prometheusRuntimeResponse?.data?.snapshot || null
         grafanaRuntime.value = grafanaRuntimeResponse?.data?.snapshot || null
@@ -3776,6 +3823,31 @@ export default {
         downloadingInterviewEvidence.value = false
       }
     }
+
+    const runCleanupAudit = async () => {
+      if (runningCleanupAudit.value) return
+      try {
+        runningCleanupAudit.value = true
+        const response = await api.post('/evaluations/cleanup/acceptance')
+        cleanupAudit.value = response.data
+        if (response.data.summary.deletion_plan_ready) ElMessage.success('清理前审计通过：候选仍将通过独立提交删除')
+        else ElMessage.warning('清理前审计完成，但观测覆盖、调用量或源码引用仍有阻断')
+      } catch (error) {
+        ElMessage.error(error.response?.data?.message || '清理前审计失败')
+      } finally {
+        runningCleanupAudit.value = false
+      }
+    }
+
+    const cleanupObservationLabel = (status) => ({
+      zero_calls_verified: '24h 窗口零调用且覆盖达标', calls_observed: '观察到旧入口调用', insufficient_coverage: '采样覆盖不足，不能判零'
+    }[status] || status)
+
+    const cleanupCandidateStatusLabel = (status) => ({
+      removed_verified: '已删除并复核', eligible_for_deletion: '可进入独立删除提交', retained_required: '保留',
+      retained_observation_sentinel: '保留观测哨兵', blocked_active_reference: '仍有外部引用', blocked_user_approval_required: '等待授权',
+      blocked_required_artifact_missing: '必要边界缺失'
+    }[status] || status)
 
     const metricDomainLabel = (domain) => ({
       platform: '平台入口', intent: '意图识别', knowledge_rag: '知识与 RAG', agent_harness: 'Agent Harness',
@@ -4584,6 +4656,8 @@ export default {
       submittingJudgeReview,
       interviewEvidence,
       downloadingInterviewEvidence,
+      cleanupAudit,
+      runningCleanupAudit,
       judgeCalibrationIndex,
       judgeCalibrationDraft,
       judgeCalibrationDimensions,
@@ -4790,6 +4864,9 @@ export default {
       interviewEvidenceMetricLabel,
       formatInterviewEvidenceMetric,
       downloadInterviewEvidence,
+      runCleanupAudit,
+      cleanupObservationLabel,
+      cleanupCandidateStatusLabel,
       metricDomainLabel,
       metricTypeLabel,
       prometheusRuntimeStatusLabel,
@@ -6696,14 +6773,16 @@ export default {
   outline-offset: 1px;
 }
 
-.interview-evidence-card {
+.interview-evidence-card,
+.cleanup-audit-card {
   padding: 10px;
   border: 1px dashed rgba(70, 84, 167, 0.34);
   border-radius: 9px;
   background: #f8f9ff;
 }
 
-.interview-evidence-card > summary {
+.interview-evidence-card > summary,
+.cleanup-audit-card > summary {
   cursor: pointer;
   color: #4654a7;
   font-weight: 800;
@@ -6813,6 +6892,29 @@ export default {
 .interview-evidence-grid ul {
   margin: 6px 0 0;
   padding-left: 18px;
+}
+
+.cleanup-candidate-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.cleanup-candidate-grid > article {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(70, 84, 167, 0.16);
+  border-radius: 8px;
+  background: #fff;
+  color: #46547d;
+  overflow-wrap: anywhere;
+}
+
+.cleanup-candidate-grid small {
+  color: #65718b;
 }
 
 @media (max-width: 900px) {
