@@ -1,5 +1,27 @@
 # GopherAI DevSupport evaluations
 
+## Evaluation truth governance
+
+`devsupport-eval-v1` is a curated synthetic contract regression suite. It is
+not sampled production traffic and must not be used to claim real-user
+accuracy, satisfaction, or unseen-scenario generalization. The hash-bound
+dataset card, truth classes, per-slice review questions, pass/reject criteria,
+and source references live in `devsupport-eval-v1.governance.json`.
+
+Human review must derive a conclusion from the referenced rule, fixture, or
+structured input before comparing it with the stored `expected` result. The
+Full 320 workbench exposes that derivation guide for every case and shows the
+actual governed fixture excerpt for RAG evidence IDs. The detailed contract
+review policy is `rubrics/devsupport-contract-rubric-v1.md`.
+
+The Judge 30 set is a controlled synthetic calibration set for measuring
+agreement between one human reviewer and the LLM Judge. Its five answer
+variants and five score dimensions do not train the model or prove production
+quality. Human reviewers use only the question, candidate answer, and displayed
+allowed evidence; `expected_facts` is a completeness checklist rather than an
+additional source. The score anchors are defined in
+`rubrics/judge-human-scoring-rubric-v1.md` and repeated in the workbench.
+
 ## Versioned catalog validator
 
 `cmd/eval-catalog` validates a dataset catalog before any scorer runs. The

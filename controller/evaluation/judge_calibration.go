@@ -36,8 +36,9 @@ func NewJudgeCalibrationHandler(service JudgeCalibrationService) *JudgeCalibrati
 }
 
 func NewDefaultJudgeCalibrationHandler() *JudgeCalibrationHandler {
-	return NewJudgeCalibrationHandler(judgecalibration.NewService(
+	return NewJudgeCalibrationHandler(judgecalibration.NewGovernedService(
 		judgecalibration.NewFileArtifactStore(judgecalibration.DefaultDatasetPath, judgecalibration.DefaultReportPath),
+		judgecalibration.DefaultGovernancePath, judgecalibration.DefaultCatalogPath,
 		judgecalibration.NewGormRepository(mysql.DB), time.Now,
 	))
 }

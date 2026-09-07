@@ -17,15 +17,17 @@ import (
 	"strings"
 	"time"
 
+	"GopherAI/internal/evalgovernance"
 	evaldomain "GopherAI/internal/evaluation"
 	"GopherAI/model"
 )
 
 const (
-	SchemaVersion       = "evaluation-catalog-review-workbench-v1"
-	ReviewSchemaVersion = "evaluation-catalog-human-review-v1"
-	DefaultManifestPath = "evals/devsupport-eval-v1.manifest.json"
-	Acknowledgment      = "I_REVIEWED_CASE_AND_EXPECTED_RESULT"
+	SchemaVersion         = "evaluation-catalog-review-workbench-v1"
+	ReviewSchemaVersion   = "evaluation-catalog-human-review-v1"
+	DefaultManifestPath   = "evals/devsupport-eval-v1.manifest.json"
+	DefaultGovernancePath = "evals/devsupport-eval-v1.governance.json"
+	Acknowledgment        = "I_REVIEWED_CASE_AND_EXPECTED_RESULT"
 )
 
 var (
@@ -38,9 +40,36 @@ var (
 	idempotencyPattern     = regexp.MustCompile(`^[A-Za-z0-9._:-]{16,128}$`)
 	allowedRejectReasons   = map[string]struct{}{
 		"ambiguous_input": {}, "expected_result_incorrect": {}, "missing_context": {},
-		"schema_issue": {}, "unsafe_or_sensitive": {},
+		"schema_issue": {}, "unsafe_or_sensitive": {}, "provenance_missing": {},
+		"criterion_not_independent": {}, "scenario_not_representative": {}, "not_discriminative": {},
 	}
 )
+
+type EvidenceExcerpt struct {
+	ID              string `json:"id"`
+	Document        string `json:"document"`
+	Section         string `json:"section"`
+	LineStart       int    `json:"line_start"`
+	LineEnd         int    `json:"line_end"`
+	DocumentVersion int    `json:"document_version,omitempty"`
+	Status          string `json:"status,omitempty"`
+	Content         string `json:"content"`
+}
+
+type CaseReviewGuide struct {
+	ScenarioScope    string                     `json:"scenario_scope"`
+	TruthType        string                     `json:"truth_type"`
+	TruthTitle       string                     `json:"truth_title"`
+	TruthMeaning     string                     `json:"truth_meaning"`
+	EvaluationStage  string                     `json:"evaluation_stage"`
+	Purpose          string                     `json:"purpose"`
+	ReviewQuestion   string                     `json:"review_question"`
+	PassCriteria     []string                   `json:"pass_criteria"`
+	RejectCriteria   []string                   `json:"reject_criteria"`
+	SourceReferences []evalgovernance.SourceRef `json:"source_refs"`
+	EvidenceExcerpts []EvidenceExcerpt          `json:"evidence_excerpts"`
+	EvidenceBoundary string                     `json:"evidence_boundary"`
+}
 
 type Case struct {
 	ID             string
@@ -49,24 +78,31 @@ type Case struct {
 	CaseSHA256     string
 	Prompt         string
 	Content        map[string]any
+	ReviewGuide    CaseReviewGuide
 }
 
 type Snapshot struct {
 	DatasetVersion string
 	CatalogSHA256  string
 	Cases          []Case
+	Governance     evalgovernance.Manifest
 }
 
 type ArtifactStore interface{ Load() (Snapshot, error) }
 
-type FileArtifactStore struct{ manifestPath string }
+type FileArtifactStore struct{ manifestPath, governancePath string }
 
 func NewFileArtifactStore(manifestPath string) *FileArtifactStore {
-	return &FileArtifactStore{manifestPath: manifestPath}
+	governancePath := strings.TrimSuffix(strings.TrimSpace(manifestPath), ".manifest.json") + ".governance.json"
+	return &FileArtifactStore{manifestPath: manifestPath, governancePath: governancePath}
+}
+
+func NewFileArtifactStoreWithGovernance(manifestPath, governancePath string) *FileArtifactStore {
+	return &FileArtifactStore{manifestPath: manifestPath, governancePath: governancePath}
 }
 
 func (store *FileArtifactStore) Load() (Snapshot, error) {
-	if store == nil || strings.TrimSpace(store.manifestPath) == "" {
+	if store == nil || strings.TrimSpace(store.manifestPath) == "" || strings.TrimSpace(store.governancePath) == "" {
 		return Snapshot{}, ErrArtifactUnavailable
 	}
 	report, err := evaldomain.ValidateEvalCatalogFile(store.manifestPath)
@@ -85,7 +121,11 @@ func (store *FileArtifactStore) Load() (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, ErrArtifactUnavailable
 	}
-	snapshot := Snapshot{DatasetVersion: manifest.DatasetVersion, CatalogSHA256: report.ManifestSHA256, Cases: make([]Case, 0, manifest.TotalCases)}
+	governance, err := evalgovernance.LoadFile(store.governancePath, manifest.DatasetVersion, report.ManifestSHA256)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("%w: load governance: %v", ErrArtifactUnavailable, err)
+	}
+	snapshot := Snapshot{DatasetVersion: manifest.DatasetVersion, CatalogSHA256: report.ManifestSHA256, Cases: make([]Case, 0, manifest.TotalCases), Governance: governance}
 	for _, slice := range manifest.Slices {
 		path, pathErr := safePath(base, slice.Path)
 		if pathErr != nil {
@@ -100,7 +140,115 @@ func (store *FileArtifactStore) Load() (Snapshot, error) {
 	if len(snapshot.Cases) != manifest.TotalCases {
 		return Snapshot{}, ErrArtifactUnavailable
 	}
+	if err := attachReviewGuides(base, &snapshot); err != nil {
+		return Snapshot{}, fmt.Errorf("%w: attach review guides: %v", ErrArtifactUnavailable, err)
+	}
 	return snapshot, nil
+}
+
+type fixtureFile struct {
+	Version            string            `json:"version"`
+	Chunks             []EvidenceExcerpt `json:"chunks"`
+	UnauthorizedChunks []EvidenceExcerpt `json:"unauthorized_chunks"`
+}
+
+func attachReviewGuides(base string, snapshot *Snapshot) error {
+	if snapshot == nil || len(snapshot.Governance.Slices) == 0 {
+		return errors.New("catalog governance is unavailable")
+	}
+	fixtureChunks := map[string]EvidenceExcerpt{}
+	if rag, exists := snapshot.Governance.Slice("rag"); exists {
+		for _, source := range rag.SourceReferences {
+			if source.Kind != "fixture" {
+				continue
+			}
+			path, err := safePath(base, source.Path)
+			if err != nil {
+				return err
+			}
+			encoded, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			decoder := json.NewDecoder(bytes.NewReader(encoded))
+			decoder.DisallowUnknownFields()
+			var fixture fixtureFile
+			if err := decoder.Decode(&fixture); err != nil || strings.TrimSpace(fixture.Version) == "" {
+				return errors.New("RAG review fixture is invalid")
+			}
+			for _, chunk := range fixture.Chunks {
+				if strings.TrimSpace(chunk.ID) == "" || strings.TrimSpace(chunk.Content) == "" {
+					return errors.New("RAG review fixture chunk is invalid")
+				}
+				if _, duplicate := fixtureChunks[chunk.ID]; duplicate {
+					return errors.New("RAG review fixture chunk is duplicated")
+				}
+				fixtureChunks[chunk.ID] = chunk
+			}
+		}
+	}
+	for index := range snapshot.Cases {
+		item := &snapshot.Cases[index]
+		card, exists := snapshot.Governance.Slice(item.Slice)
+		if !exists {
+			return errors.New("catalog slice governance is missing")
+		}
+		truth, exists := snapshot.Governance.TruthClass(card.TruthType)
+		if !exists {
+			return errors.New("catalog truth class is missing")
+		}
+		guide := CaseReviewGuide{
+			ScenarioScope: card.ScenarioScope, TruthType: card.TruthType, TruthTitle: truth.Title, TruthMeaning: truth.Meaning,
+			EvaluationStage: card.EvaluationStage, Purpose: card.Purpose, ReviewQuestion: card.ReviewQuestion,
+			PassCriteria: append([]string{}, card.PassCriteria...), RejectCriteria: append([]string{}, card.RejectCriteria...),
+			SourceReferences: append([]evalgovernance.SourceRef{}, card.SourceReferences...),
+			EvidenceBoundary: "本例是受控合成输入；只验证声明的产品契约，不代表真实生产频率或准确率。",
+		}
+		if item.Slice == "rag" {
+			ids, err := expectedEvidenceIDs(item.Content)
+			if err != nil {
+				return err
+			}
+			for _, id := range ids {
+				chunk, exists := fixtureChunks[id]
+				if !exists {
+					return errors.New("RAG expected evidence is absent from governed fixture")
+				}
+				guide.EvidenceExcerpts = append(guide.EvidenceExcerpts, chunk)
+			}
+			if len(ids) == 0 {
+				guide.EvidenceBoundary = "本例期望没有可用于作答的授权证据；复核重点是是否应澄清或拒答，而不是猜测事实。"
+			} else {
+				guide.EvidenceBoundary = "以下原文来自 Hash 绑定的合成知识库，只在本评测世界内成立，不是线上部署事实。"
+			}
+		}
+		item.ReviewGuide = guide
+	}
+	return nil
+}
+
+func expectedEvidenceIDs(content map[string]any) ([]string, error) {
+	expected, ok := content["expected"].(map[string]any)
+	if !ok {
+		return nil, errors.New("RAG expected result is missing")
+	}
+	raw, exists := expected["evidence_ids"]
+	if !exists {
+		return nil, errors.New("RAG expected evidence list is missing")
+	}
+	values, ok := raw.([]any)
+	if !ok {
+		return nil, errors.New("RAG expected evidence list is invalid")
+	}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		id, ok := value.(string)
+		if !ok || strings.TrimSpace(id) == "" {
+			return nil, errors.New("RAG expected evidence id is invalid")
+		}
+		result = append(result, strings.TrimSpace(id))
+	}
+	return result, nil
 }
 
 func safePath(base, relative string) (string, error) {
@@ -182,13 +330,14 @@ type ReviewView struct {
 }
 
 type CaseView struct {
-	ID             string         `json:"id"`
-	Slice          string         `json:"slice"`
-	DatasetVersion string         `json:"dataset_version"`
-	CaseSHA256     string         `json:"case_sha256"`
-	Prompt         string         `json:"prompt"`
-	Content        map[string]any `json:"content"`
-	Review         *ReviewView    `json:"review,omitempty"`
+	ID             string          `json:"id"`
+	Slice          string          `json:"slice"`
+	DatasetVersion string          `json:"dataset_version"`
+	CaseSHA256     string          `json:"case_sha256"`
+	Prompt         string          `json:"prompt"`
+	Content        map[string]any  `json:"content"`
+	ReviewGuide    CaseReviewGuide `json:"review_guide"`
+	Review         *ReviewView     `json:"review,omitempty"`
 }
 
 type SliceProgress struct {
@@ -211,19 +360,23 @@ type Progress struct {
 }
 
 type Workbench struct {
-	SchemaVersion  string     `json:"schema_version"`
-	DatasetVersion string     `json:"dataset_version"`
-	CatalogSHA256  string     `json:"catalog_sha256"`
-	Status         string     `json:"status"`
-	Progress       Progress   `json:"progress"`
-	SliceFilter    string     `json:"slice_filter"`
-	StatusFilter   string     `json:"status_filter"`
-	Page           int        `json:"page"`
-	PageSize       int        `json:"page_size"`
-	FilteredTotal  int        `json:"filtered_total"`
-	Cases          []CaseView `json:"cases"`
-	Guardrails     []string   `json:"guardrails"`
-	Limitations    []string   `json:"limitations"`
+	SchemaVersion     string                      `json:"schema_version"`
+	DatasetVersion    string                      `json:"dataset_version"`
+	CatalogSHA256     string                      `json:"catalog_sha256"`
+	Status            string                      `json:"status"`
+	Progress          Progress                    `json:"progress"`
+	SliceFilter       string                      `json:"slice_filter"`
+	StatusFilter      string                      `json:"status_filter"`
+	Page              int                         `json:"page"`
+	PageSize          int                         `json:"page_size"`
+	FilteredTotal     int                         `json:"filtered_total"`
+	Cases             []CaseView                  `json:"cases"`
+	GovernanceVersion string                      `json:"governance_version"`
+	GovernanceSHA256  string                      `json:"governance_sha256"`
+	DatasetCard       evalgovernance.DatasetCard  `json:"dataset_card"`
+	TruthClasses      []evalgovernance.TruthClass `json:"truth_classes"`
+	Guardrails        []string                    `json:"guardrails"`
+	Limitations       []string                    `json:"limitations"`
 }
 
 type ReviewCommand struct {
@@ -321,7 +474,7 @@ func (service *Service) List(ctx context.Context, reviewer string, query Query) 
 		if !matchesStatus(query.Status, reviewed, review.Decision) {
 			continue
 		}
-		view := CaseView{ID: item.ID, Slice: item.Slice, DatasetVersion: item.DatasetVersion, CaseSHA256: item.CaseSHA256, Prompt: item.Prompt, Content: item.Content}
+		view := CaseView{ID: item.ID, Slice: item.Slice, DatasetVersion: item.DatasetVersion, CaseSHA256: item.CaseSHA256, Prompt: item.Prompt, Content: item.Content, ReviewGuide: item.ReviewGuide}
 		if reviewed {
 			value, viewErr := reviewView(review)
 			if viewErr != nil {
@@ -355,8 +508,10 @@ func (service *Service) List(ctx context.Context, reviewer string, query Query) 
 		SchemaVersion: SchemaVersion, DatasetVersion: snapshot.DatasetVersion, CatalogSHA256: snapshot.CatalogSHA256,
 		Status: status, Progress: progress, SliceFilter: query.Slice, StatusFilter: query.Status,
 		Page: query.Page, PageSize: query.PageSize, FilteredTotal: len(filtered), Cases: pageCases,
+		GovernanceVersion: snapshot.Governance.GovernanceVersion, GovernanceSHA256: snapshot.Governance.ManifestSHA256,
+		DatasetCard: snapshot.Governance.DatasetCard, TruthClasses: append([]evalgovernance.TruthClass{}, snapshot.Governance.TruthClasses...),
 		Guardrails:  []string{"authenticated_reviewer_scope", "catalog_and_case_hash_bound", "append_only_revisions", "optimistic_revision_check", "idempotent_submission", "no_dataset_mutation", "no_baseline_auto_freeze"},
-		Limitations: []string{"复核进度只属于当前登录用户，不代表双人独立标注。", "320 条全部通过只形成可封存候选；冻结数据集、重跑评测和基线晋级必须走后续独立门禁。"},
+		Limitations: []string{"本目录是合成契约回归集，不代表真实生产问题分布或未见场景泛化。", "复核进度只属于当前登录用户，不代表双人独立标注。", "320 条全部通过只形成可封存候选；冻结数据集、重跑评测和基线晋级必须走后续独立门禁。"},
 	}, nil
 }
 

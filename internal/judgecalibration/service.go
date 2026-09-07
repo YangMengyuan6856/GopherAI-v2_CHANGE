@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"GopherAI/internal/contract"
+	"GopherAI/internal/evalgovernance"
 	"GopherAI/internal/evaluation"
 	"GopherAI/model"
 
@@ -22,10 +23,12 @@ import (
 )
 
 const (
-	SchemaVersion       = "judge-calibration-audit-v1"
-	ReviewSchemaVersion = "judge-calibration-human-review-v1"
-	DefaultDatasetPath  = "evals/devsupport-judge-calibration-v1.jsonl"
-	DefaultReportPath   = "/root/GopherAI_Runtime/evaluation/judge-calibration-latest.json"
+	SchemaVersion         = "judge-calibration-audit-v1"
+	ReviewSchemaVersion   = "judge-calibration-human-review-v1"
+	DefaultDatasetPath    = "evals/devsupport-judge-calibration-v1.jsonl"
+	DefaultReportPath     = "/root/GopherAI_Runtime/evaluation/judge-calibration-latest.json"
+	DefaultGovernancePath = "evals/devsupport-eval-v1.governance.json"
+	DefaultCatalogPath    = "evals/devsupport-eval-v1.manifest.json"
 )
 
 var (
@@ -80,8 +83,10 @@ func (store *FileArtifactStore) Load() ([]evaluation.JudgeCalibrationCase, evalu
 }
 
 type EvidenceView struct {
-	ID      string `json:"id"`
-	Content string `json:"content"`
+	ID       string `json:"id"`
+	SourceID string `json:"source_id"`
+	Origin   string `json:"origin"`
+	Content  string `json:"content"`
 }
 
 type CaseView struct {
@@ -93,25 +98,30 @@ type CaseView struct {
 	Evidence        []EvidenceView                        `json:"evidence"`
 	ExpectedFacts   []string                              `json:"expected_facts"`
 	ForbiddenClaims []string                              `json:"forbidden_claims"`
+	AnswerVariant   string                                `json:"answer_variant,omitempty"`
 	Judge           evaluation.JudgeCalibrationCaseResult `json:"judge"`
 	HumanScores     *evaluation.JudgeScores               `json:"human_scores,omitempty"`
 	ReviewRevision  int                                   `json:"review_revision"`
 }
 
 type Audit struct {
-	SchemaVersion    string                          `json:"schema_version"`
-	DatasetVersion   string                          `json:"dataset_version"`
-	DatasetSHA256    string                          `json:"dataset_sha256"`
-	ReportSHA256     string                          `json:"report_sha256"`
-	JudgeModel       string                          `json:"judge_model"`
-	JudgePrompt      string                          `json:"judge_prompt"`
-	JudgeGeneratedAt time.Time                       `json:"judge_generated_at"`
-	JudgeTechnical   bool                            `json:"judge_technical_gate_passed"`
-	CaseCount        int                             `json:"case_count"`
-	Agreement        evaluation.CalibrationAgreement `json:"agreement"`
-	Cases            []CaseView                      `json:"cases"`
-	Guardrails       []string                        `json:"guardrails"`
-	Limitations      []string                        `json:"limitations"`
+	SchemaVersion     string                              `json:"schema_version"`
+	DatasetVersion    string                              `json:"dataset_version"`
+	DatasetSHA256     string                              `json:"dataset_sha256"`
+	ReportSHA256      string                              `json:"report_sha256"`
+	JudgeModel        string                              `json:"judge_model"`
+	JudgePrompt       string                              `json:"judge_prompt"`
+	JudgeGeneratedAt  time.Time                           `json:"judge_generated_at"`
+	JudgeTechnical    bool                                `json:"judge_technical_gate_passed"`
+	CaseCount         int                                 `json:"case_count"`
+	Agreement         evaluation.CalibrationAgreement     `json:"agreement"`
+	Cases             []CaseView                          `json:"cases"`
+	GovernanceVersion string                              `json:"governance_version,omitempty"`
+	GovernanceSHA256  string                              `json:"governance_sha256,omitempty"`
+	DatasetCard       evalgovernance.DatasetCard          `json:"dataset_card"`
+	CalibrationCard   evalgovernance.JudgeCalibrationCard `json:"calibration_card"`
+	Guardrails        []string                            `json:"guardrails"`
+	Limitations       []string                            `json:"limitations"`
 }
 
 type ReviewReceipt struct {
@@ -124,9 +134,11 @@ type ReviewReceipt struct {
 }
 
 type Service struct {
-	artifacts  ArtifactStore
-	repository Repository
-	clock      func() time.Time
+	artifacts      ArtifactStore
+	governancePath string
+	catalogPath    string
+	repository     Repository
+	clock          func() time.Time
 }
 
 func NewService(artifacts ArtifactStore, repository Repository, clock func() time.Time) *Service {
@@ -136,6 +148,13 @@ func NewService(artifacts ArtifactStore, repository Repository, clock func() tim
 	return &Service{artifacts: artifacts, repository: repository, clock: clock}
 }
 
+func NewGovernedService(artifacts ArtifactStore, governancePath, catalogPath string, repository Repository, clock func() time.Time) *Service {
+	service := NewService(artifacts, repository, clock)
+	service.governancePath = strings.TrimSpace(governancePath)
+	service.catalogPath = strings.TrimSpace(catalogPath)
+	return service
+}
+
 func (service *Service) Audit(ctx context.Context, reviewer string) (Audit, error) {
 	if service == nil || service.artifacts == nil || service.repository == nil || strings.TrimSpace(reviewer) == "" {
 		return Audit{}, gorm.ErrInvalidDB
@@ -143,6 +162,16 @@ func (service *Service) Audit(ctx context.Context, reviewer string) (Audit, erro
 	cases, report, err := service.artifacts.Load()
 	if err != nil {
 		return Audit{}, err
+	}
+	var governance evalgovernance.Manifest
+	if service.governancePath != "" || service.catalogPath != "" {
+		if service.governancePath == "" || service.catalogPath == "" {
+			return Audit{}, evalgovernance.ErrInvalidGovernance
+		}
+		governance, err = evalgovernance.LoadBoundCatalog(service.governancePath, service.catalogPath)
+		if err != nil || governance.JudgeCalibration.DatasetVersion != report.DatasetVersion || governance.JudgeCalibration.DatasetSHA256 != report.DatasetSHA256 {
+			return Audit{}, evalgovernance.ErrInvalidGovernance
+		}
 	}
 	reviews, err := service.repository.ListLatest(ctx, report.DatasetSHA256, hash(reviewer))
 	if err != nil {
@@ -163,11 +192,15 @@ func (service *Service) Audit(ctx context.Context, reviewer string) (Audit, erro
 		judgeByCase[result.ID] = result
 	}
 	views := make([]CaseView, 0, len(cases))
-	for _, item := range cases {
+	for index, item := range cases {
+		variant := ""
+		if len(governance.JudgeCalibration.VariantOrder) == 5 {
+			variant = governance.JudgeCalibration.VariantOrder[index%5]
+		}
 		view := CaseView{ID: item.ID, Slice: item.Slice, TaskType: item.TaskType, Question: item.Question, Answer: item.Answer, ExpectedFacts: item.ExpectedFacts, ForbiddenClaims: item.ForbiddenClaims, Judge: judgeByCase[item.ID], Evidence: evidenceViews(item.Evidence)}
 		if review, exists := reviewByCase[item.ID]; exists {
 			scores := reviewScores(review)
-			view.HumanScores, view.ReviewRevision = &scores, review.Revision
+			view.HumanScores, view.ReviewRevision, view.AnswerVariant = &scores, review.Revision, variant
 		}
 		views = append(views, view)
 	}
@@ -176,8 +209,10 @@ func (service *Service) Audit(ctx context.Context, reviewer string) (Audit, erro
 		SchemaVersion: SchemaVersion, DatasetVersion: report.DatasetVersion, DatasetSHA256: report.DatasetSHA256,
 		ReportSHA256: report.ReportSHA256, JudgeModel: report.ModelVersion, JudgePrompt: report.PromptVersion,
 		JudgeGeneratedAt: report.GeneratedAt.UTC(), JudgeTechnical: report.TechnicalGatePassed, CaseCount: len(cases), Agreement: agreement, Cases: views,
+		GovernanceVersion: governance.GovernanceVersion, GovernanceSHA256: governance.ManifestSHA256,
+		DatasetCard: governance.DatasetCard, CalibrationCard: governance.JudgeCalibration,
 		Guardrails:  []string{"current_reviewer_scope", "append_only_review_revisions", "fixed_dataset_and_case_hash", "kappa_gate_0.70", "no_active_policy_write"},
-		Limitations: append(append([]string{}, report.Limitations...), "当前实现以登录用户作为单一复核人；增加第二位独立复核人前，不宣称双人标注一致性。"),
+		Limitations: append(append(append([]string{}, report.Limitations...), governance.JudgeCalibration.Limitations...), "当前实现以登录用户作为单一复核人；增加第二位独立复核人前，不宣称双人标注一致性。"),
 	}, nil
 }
 
@@ -225,7 +260,7 @@ func (service *Service) Submit(ctx context.Context, reviewer, caseID string, sco
 func evidenceViews(evidence []contract.Evidence) []EvidenceView {
 	views := make([]EvidenceView, 0, len(evidence))
 	for _, item := range evidence {
-		views = append(views, EvidenceView{ID: item.ID, Content: item.Content})
+		views = append(views, EvidenceView{ID: item.ID, SourceID: item.SourceID, Origin: "embedded_synthetic_evidence", Content: item.Content})
 	}
 	return views
 }

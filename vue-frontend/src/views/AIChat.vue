@@ -1743,8 +1743,8 @@
                 <button :disabled="downloadingCatalogReviewEvidence" @click="downloadCatalogReviewEvidence('json')">
                   {{ downloadingCatalogReviewEvidence ? '导出中...' : '导出当前证据' }}
                 </button>
-                <button :disabled="loadingCatalogReview" @click="toggleCatalogReviewWorkbench">
-                  {{ loadingCatalogReview ? '加载中...' : (catalogReviewOpen ? '收起复核台' : '打开复核台') }}
+                <button @click="humanReviewOpen = true">
+                  打开专注复核工作台
                 </button>
               </div>
             </div>

@@ -93,6 +93,43 @@ func TestServiceScopesAppendOnlyReviewsToCurrentReviewer(t *testing.T) {
 	}
 }
 
+func TestGovernedAuditExplainsEvidenceVariantsAndScoringRubric(t *testing.T) {
+	artifacts := calibrationArtifacts(t)
+	repository := new(memoryReviewRepository)
+	service := NewGovernedService(
+		artifacts,
+		"../../evals/devsupport-eval-v1.governance.json",
+		"../../evals/devsupport-eval-v1.manifest.json",
+		repository,
+		time.Now,
+	)
+	audit, err := service.Audit(context.Background(), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if audit.GovernanceVersion != "devsupport-eval-governance-v1" || len(audit.GovernanceSHA256) != 64 || len(audit.CalibrationCard.ScoreAnchors) != 5 || len(audit.CalibrationCard.Dimensions) != 5 {
+		t.Fatalf("governed calibration card is incomplete: %+v", audit)
+	}
+	if len(audit.Cases) != 30 || audit.Cases[0].AnswerVariant != "" {
+		t.Fatalf("answer variant leaked before independent human scoring: %+v", audit.Cases)
+	}
+	for _, item := range audit.Cases {
+		for _, evidence := range item.Evidence {
+			if evidence.SourceID == "" || evidence.Origin != "embedded_synthetic_evidence" {
+				t.Fatalf("evidence provenance is missing: %+v", evidence)
+			}
+		}
+	}
+	allOne := evaluation.JudgeScores{Relevance: 1, Completeness: 1, Helpfulness: 1, Groundedness: 1, Safety: 1}
+	if _, err := service.Submit(context.Background(), "alice", artifacts.cases[0].ID, allOne); err != nil {
+		t.Fatal(err)
+	}
+	reviewed, err := service.Audit(context.Background(), "alice")
+	if err != nil || reviewed.Cases[0].AnswerVariant == "" {
+		t.Fatalf("answer variant was not revealed after scoring: %+v err=%v", reviewed.Cases[0], err)
+	}
+}
+
 func TestServiceRejectsNonQuarterScoresAndUnknownCases(t *testing.T) {
 	artifacts := calibrationArtifacts(t)
 	service := NewService(artifacts, new(memoryReviewRepository), time.Now)

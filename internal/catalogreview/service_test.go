@@ -63,9 +63,25 @@ func TestFileArtifactStoreLoadsValidatedFullCatalog(t *testing.T) {
 	if snapshot.DatasetVersion != "devsupport-eval-v1" || len(snapshot.CatalogSHA256) != 64 || len(snapshot.Cases) != 320 {
 		t.Fatalf("unexpected full catalog snapshot: version=%s hash=%s cases=%d", snapshot.DatasetVersion, snapshot.CatalogSHA256, len(snapshot.Cases))
 	}
+	if snapshot.Governance.GovernanceVersion != "devsupport-eval-governance-v1" || len(snapshot.Governance.ManifestSHA256) != 64 || len(snapshot.Governance.Slices) != 6 {
+		t.Fatalf("catalog governance was not hash-bound: %+v", snapshot.Governance)
+	}
 	first := snapshot.Cases[0]
 	if first.ID != "intent-v1-001" || first.Slice != "intent" || first.Prompt == "" || first.Content["reviewed_by"] != nil || first.Content["dataset_version"] != nil || first.Content["id"] != nil {
 		t.Fatalf("catalog case was not normalized safely: %+v", first)
+	}
+	if first.ReviewGuide.TruthType != "spec_derived" || first.ReviewGuide.ReviewQuestion == "" || len(first.ReviewGuide.SourceReferences) == 0 {
+		t.Fatalf("intent review guide is incomplete: %+v", first.ReviewGuide)
+	}
+	foundGroundedRAG := false
+	for _, item := range snapshot.Cases {
+		if item.Slice == "rag" && len(item.ReviewGuide.EvidenceExcerpts) > 0 {
+			foundGroundedRAG = item.ReviewGuide.TruthType == "fixture_grounded" && item.ReviewGuide.EvidenceExcerpts[0].Content != ""
+			break
+		}
+	}
+	if !foundGroundedRAG {
+		t.Fatal("no RAG case exposed independently governed fixture evidence")
 	}
 }
 
@@ -111,6 +127,12 @@ func TestServicePaginatesAndScopesAppendOnlyReviewProgress(t *testing.T) {
 	bob, _ := service.List(context.Background(), "bob", Query{Status: "pending", Page: 1, PageSize: 5})
 	if alice.FilteredTotal != 1 || alice.Cases[0].Review.Revision != 2 || alice.Progress.Reviewed != 1 || bob.Progress.Reviewed != 0 || bob.FilteredTotal != 3 {
 		t.Fatalf("reviewer scope or filter failed: alice=%+v bob=%+v", alice, bob)
+	}
+	command.ExpectedRevision = 2
+	command.ReasonCodes = []string{"criterion_not_independent"}
+	command.IdempotencyKey = "catalog-review-case-1-v3"
+	if receipt, submitErr := service.Submit(context.Background(), "alice", command); submitErr != nil || receipt.Review.Revision != 3 {
+		t.Fatalf("governance-specific rejection was not accepted: %+v err=%v", receipt, submitErr)
 	}
 }
 
