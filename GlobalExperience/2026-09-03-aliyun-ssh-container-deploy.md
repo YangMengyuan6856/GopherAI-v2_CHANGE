@@ -1668,3 +1668,11 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - Judge 30 默认定位第一条未评分用例，五维分数必须全部选择后才能提交；首次提交前不显示 Judge 分数，提交后才显示人工/Judge 对照。页面没有一键全通过、复制上一例评分或批量提交，避免为了省操作把人工门变成形式门。
 - Release `20260907080841-966dbd5db624`，bundle SHA-256 `001669694fb5141e90be70988f105f22868983e272232f43ea747cdc516a90d2`，716 个可追溯条目；自动清理报告 SHA `9580291dd4809ac2c8ddc3d623294ae9e07b90ad6904b50e6892111b2d849f7b`、Tracked Source `564`。全量 Go/Vet、MCP 测试、Vue lint/build、Full 320 字节门、Prometheus `2/2`、Grafana、五进程健康门全部通过。
 - 真实登录页只读冒烟确认 `0/320`、`intent-v1-001→002` 翻页、Judge `judge-cal-001` 和首次评分前隐藏对照均正常，随后关闭弹层；未勾选确认、未提交标签、未提交评分。自动化可以验证 UI 与安全门，但不能替实际复核人制造人工证据。
+
+## 94. 2026-09-07 G10 应显示人工门实时进度，但不能由进度短路封存门
+
+- `e93eb562` 将 G10 合约升级为 `g10-release-review-v2`。报告在原 Evidence Package 与简历事实确认之外，按当前登录账号读取 Full 320 队列的 Catalog/Review Set SHA、通过/退回/待审计数和封存候选状态；Judge 进度仍从已做 Hash 校验的证据包提取人工评分分子/分母与 κ，避免另造不一致来源。
+- Product Gate 的结论现在给出可行动数字，例如 `0/320`、通过 `0`、退回 `0`、Judge `0/30`。但实现故意把 `ready_for_sealed_materialization`、`sealed_baseline` 与 G10 `passed` 分开：320 条全部 approved 只允许进入封存，仍需冻结 Review Manifest 和统一评测重跑；测试明确验证中间进度不能增加 Passed Gate。
+- G10 页面新增两张实时进度卡和“进入人工验收”入口；关闭专注工作台后重新读取 G10，使刚提交的服务端审计进度可见。JSON/中文 Markdown 均包含同一进度、Hash、下一门和“正式基线是否封存”，报告 SHA 覆盖新增字段。
+- Release `20260907084242-e93eb562714a`，bundle SHA-256 `0a3f787adbc46e596d6ec06e3104b64691b493c53d7a6915e50d89c4c6d2fe4d`，716 个可追溯条目；自动清理报告 SHA `d09318bc577a0b28b31660449fcd3236857b09d27ec40ce9f5c3d75f37fcaae7`。全量 Go/Vet/Race、Vue lint/build、Prometheus `2/2`、Grafana 与五进程门通过。
+- 真实登录页展开 G10 后显示 Full 320 `0/320`、Judge `0/30`、Review Set、人工验收跳转和“不跳过独立封存与统一重跑”；跳转与关闭均正常且未写人工结论。发布后第一次 `metric_window_capture` 仍可能因 Prometheus 时间序列尚未建立而失败，但后续连续五轮均恢复 `warming/points=2`；应按调度周期复核，不能只截取第一次失败判定发布回归。
