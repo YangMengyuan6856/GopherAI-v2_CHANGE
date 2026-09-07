@@ -1676,3 +1676,11 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - G10 页面新增两张实时进度卡和“进入人工验收”入口；关闭专注工作台后重新读取 G10，使刚提交的服务端审计进度可见。JSON/中文 Markdown 均包含同一进度、Hash、下一门和“正式基线是否封存”，报告 SHA 覆盖新增字段。
 - Release `20260907084242-e93eb562714a`，bundle SHA-256 `0a3f787adbc46e596d6ec06e3104b64691b493c53d7a6915e50d89c4c6d2fe4d`，716 个可追溯条目；自动清理报告 SHA `d09318bc577a0b28b31660449fcd3236857b09d27ec40ce9f5c3d75f37fcaae7`。全量 Go/Vet/Race、Vue lint/build、Prometheus `2/2`、Grafana 与五进程门通过。
 - 真实登录页展开 G10 后显示 Full 320 `0/320`、Judge `0/30`、Review Set、人工验收跳转和“不跳过独立封存与统一重跑”；跳转与关闭均正常且未写人工结论。发布后第一次 `metric_window_capture` 仍可能因 Prometheus 时间序列尚未建立而失败，但后续连续五轮均恢复 `warming/points=2`；应按调度周期复核，不能只截取第一次失败判定发布回归。
+
+## 95. 2026-09-07 Full 320 封存必须从服务端权威复核集生成
+
+- `1948d290` 增加 Full 320 不可变候选封存门。GET 只读返回当前登录用户的 Catalog/Review Set 承诺、通过/退回/待审和封存状态；POST 必须同时提交当前两个 Hash、固定模式和显式确认语，且服务端再次确认 `320 approved / 0 rejected / 0 pending`。浏览器导出的增量证据不作为封存权威输入，避免用户修改自 Hash 文件后反向驱动服务器。
+- 封存只在 `/root/GopherAI_Runtime/evaluation/catalog-review-seals/<deterministic-id>` 创建新目录：六类 JSONL 被逐例物化为 `reviewed_by=human`，Catalog 切换为 `human_only` 并重算 Slice Hash，Review Manifest 只保存复核人 SHA-256；三个 Fixture、两个 Manifest 和六个 Slice 共 11 个文件全部进入排序承诺。相同复核集合重复请求复用同一候选；集合变化产生新 ID，既有目录不覆盖。
+- 随包 `GopherAI-catalog-seal-verify -artifact <dir>` 会脱离 Web、MySQL 和当前登录态重新计算 seal 自 Hash、11 个文件的 Hash/大小、Catalog/Review Manifest 资格和目录文件全集；未承诺的额外文件、软链接或篡改内容都 fail-closed。自 Hash 只证明内容一致性，不等于私钥签名、双人审批或不可抵赖证明。
+- Release `20260907094428-1948d2909da8`，bundle SHA-256 `7684a0843ce3b5dff82534bc29a67e9b3efbd29dffe53dfb10340529da8350e4`，724 个可追溯条目；自动清理报告 SHA `8e59a1e74a3b5c8f9b9239613cacc3a6914a3605690c97ff6b0c49c81737d488`、Tracked Source `569`，独立验证器 SHA-256 `e9f36553485d22c8e81c39e1c86c6b860c0f509ca6d5da033a183ea3fd2a33f7`。真实浏览器为 `0/320`，只显示“还需复核 320 条”，服务器封存候选目录数为 `0`；这证明部署没有代签或提前产生假基线。启动后连续六轮指标采集为 `warming/points=2`。
+- 封存候选只解决“人工结果如何形成可重放输入”，不会写 baseline pointer、active policy 或触发生产切流。候选生成后仍必须从该目录重跑 Intent/RAG/Diagnosis/Tool/Memory 和统一 Runner，并通过技术门、Judge 校准与独立审批；当前阶段不能宣称 Full 320 正式基线已经完成。
