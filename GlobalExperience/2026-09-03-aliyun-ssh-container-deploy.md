@@ -1684,3 +1684,10 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 随包 `GopherAI-catalog-seal-verify -artifact <dir>` 会脱离 Web、MySQL 和当前登录态重新计算 seal 自 Hash、11 个文件的 Hash/大小、Catalog/Review Manifest 资格和目录文件全集；未承诺的额外文件、软链接或篡改内容都 fail-closed。自 Hash 只证明内容一致性，不等于私钥签名、双人审批或不可抵赖证明。
 - Release `20260907094428-1948d2909da8`，bundle SHA-256 `7684a0843ce3b5dff82534bc29a67e9b3efbd29dffe53dfb10340529da8350e4`，724 个可追溯条目；自动清理报告 SHA `8e59a1e74a3b5c8f9b9239613cacc3a6914a3605690c97ff6b0c49c81737d488`、Tracked Source `569`，独立验证器 SHA-256 `e9f36553485d22c8e81c39e1c86c6b860c0f509ca6d5da033a183ea3fd2a33f7`。真实浏览器为 `0/320`，只显示“还需复核 320 条”，服务器封存候选目录数为 `0`；这证明部署没有代签或提前产生假基线。启动后连续六轮指标采集为 `warming/points=2`。
 - 封存候选只解决“人工结果如何形成可重放输入”，不会写 baseline pointer、active policy 或触发生产切流。候选生成后仍必须从该目录重跑 Intent/RAG/Diagnosis/Tool/Memory 和统一 Runner，并通过技术门、Judge 校准与独立审批；当前阶段不能宣称 Full 320 正式基线已经完成。
+
+## 96. 2026-09-07 G10 必须把队列、候选和正式基线拆成三个状态
+
+- `d5b63585` 将 G10 升级为 `g10-release-review-v3`，并把封存服务的只读状态纳入报告自 Hash。后端要求封存状态的 Dataset、Catalog SHA、Review Set SHA、全部计数和 `ready_for_materializing` 与同次人工队列视图完全一致；任一不一致都让 G10 fail-closed，避免并发变化或错误拼接产生虚假进度。
+- 报告新增 `catalog_sealing`，分开记录 `eligible`、`candidate_ready`、`artifact_integrity_verified`、Seal/输出 Manifest Hash 和下一门。即使测试构造 `320/320 + sealed_candidate_ready`，只要 Evidence Package 还没有重跑并冻结正式基线，`sealed_baseline=false`、产品 Gate 保持 blocked、Passed Gates 不增加；这是专门的回归测试，不依赖页面文案自觉。
+- Release `20260907104051-d5b6358563c5`，bundle SHA-256 `cd8ea19930b1d1c60d1a92186eab8ca1e217f7a3568c9ba15ec05bb5d4673a39`，724 个可追溯条目；自动清理报告 SHA `15abd1fe8f3d0fb72c6e45c69a5e25d064ca6ca73d70459d962efe4d68bcb2e3`、Tracked Source `569`。真实页面同屏显示人工队列 `0/320`、候选“未准入”、Judge `0/30` 和产品门仍阻断；封存目录为 0，启动后连续六轮采集恢复 `warming/points=2`。
+- 前端没有增加第三个巨型工作台，而是在 Full 320 进度卡内加入紧凑的候选状态段，保持既有两列布局和独立工作区滚动。信息分层应该靠语义和紧凑状态，不应再次要求用户把整页缩小到不可读。
