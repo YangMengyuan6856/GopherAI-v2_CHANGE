@@ -9,6 +9,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"GopherAI/internal/catalogreview"
 
 	"github.com/gin-gonic/gin"
 )
@@ -17,6 +20,17 @@ type stubInterviewEvidenceService struct {
 	report    InterviewEvidencePackage
 	err       error
 	principal string
+}
+
+type stubG10CatalogReviewSource struct {
+	workbench catalogreview.Workbench
+	err       error
+	principal string
+}
+
+func (source *stubG10CatalogReviewSource) List(_ context.Context, principal string, _ catalogreview.Query) (catalogreview.Workbench, error) {
+	source.principal = principal
+	return source.workbench, source.err
 }
 
 func (service *stubInterviewEvidenceService) Build(_ context.Context, principal string) (InterviewEvidencePackage, error) {
@@ -96,6 +110,36 @@ func TestG10ReviewServiceForwardsPrincipal(t *testing.T) {
 	report, err := NewG10ReviewService(stub).Build(context.Background(), "alice")
 	if err != nil || stub.principal != "alice" || report.ReleaseID != evidence.ReleaseID {
 		t.Fatalf("unexpected service result: err=%v principal=%q report=%+v", err, stub.principal, report)
+	}
+}
+
+func TestG10ReviewServiceAddsCurrentHumanGateProgressWithoutUnlockingProductGate(t *testing.T) {
+	evidence, err := buildInterviewEvidencePackage(validInterviewEvidenceInputs(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewSource := &stubG10CatalogReviewSource{workbench: catalogreview.Workbench{
+		SchemaVersion: catalogreview.SchemaVersion, DatasetVersion: "devsupport-eval-v1", CatalogSHA256: strings.Repeat("a", 64), Status: "human_review_in_progress",
+		Progress: catalogreview.Progress{Total: 320, Reviewed: 12, Approved: 10, Rejected: 2, Pending: 308, ReviewSetSHA256: strings.Repeat("b", 64)},
+	}}
+	service := newG10ReviewService(&stubInterviewEvidenceService{report: evidence}, nil, time.Now)
+	service.catalogReview = reviewSource
+	report, err := service.Build(context.Background(), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reviewSource.principal != "alice" || report.HumanGateProgress == nil || report.HumanGateProgress.CatalogReview.Reviewed != 12 || report.HumanGateProgress.JudgeCalibration.Total != 30 {
+		t.Fatalf("human progress missing: %+v", report.HumanGateProgress)
+	}
+	if report.PassedGates != 1 || report.ProductionReleaseReady || report.HumanGateProgress.SealedBaseline {
+		t.Fatalf("queue progress must not unlock G10: %+v", report)
+	}
+	gate := map[string]G10ReviewGate{}
+	for _, item := range report.Gates {
+		gate[item.ID] = item
+	}
+	if !strings.Contains(gate["product_total_acceptance"].Conclusion, "12/320") || gate["product_total_acceptance"].Status != "blocked" {
+		t.Fatalf("product gate does not expose bounded progress: %+v", gate["product_total_acceptance"])
 	}
 }
 

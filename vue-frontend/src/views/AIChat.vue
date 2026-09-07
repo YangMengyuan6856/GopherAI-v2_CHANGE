@@ -58,7 +58,7 @@
         />
       </div>
 
-      <HumanReviewWorkbench v-if="humanReviewOpen" @close="humanReviewOpen = false" />
+      <HumanReviewWorkbench v-if="humanReviewOpen" @close="closeHumanReviewWorkbench" />
 
       <div
         v-show="interviewDemoOpen || policyControlOpen || toolRuntimeOpen || evaluationCatalogOpen || knowledgeDocuments.length > 0 || knowledgeSearchOpen || memoryPreviewOpen || diagnosticMode"
@@ -758,6 +758,23 @@
                 <div><strong>{{ g10Review.resume_fact_count }}</strong><span>通过技术证据门</span></div>
                 <div><strong>{{ g10Review.excluded_fact_count }}</strong><span>禁止写入简历</span></div>
                 <div><strong>{{ g10Review.production_release_ready ? '允许' : '禁止' }}</strong><span>生产总门</span></div>
+              </div>
+              <div v-if="g10Review.human_gate_progress" class="g10-human-progress">
+                <article>
+                  <div>
+                    <strong>Full 320 人工队列 · {{ g10Review.human_gate_progress.catalog_review.reviewed }}/{{ g10Review.human_gate_progress.catalog_review.total }}</strong>
+                    <span>通过 {{ g10Review.human_gate_progress.catalog_review.approved }} · 退回 {{ g10Review.human_gate_progress.catalog_review.rejected }} · 待审 {{ g10Review.human_gate_progress.catalog_review.pending }}</span>
+                  </div>
+                  <small>Review Set {{ shortRevision(g10Review.human_gate_progress.catalog_review.review_set_sha256) }} · {{ g10Review.human_gate_progress.catalog_review.ready_for_sealed_materialization ? '可进入独立封存' : '尚未达到封存条件' }}</small>
+                </article>
+                <article>
+                  <div>
+                    <strong>Judge 人工校准 · {{ g10Review.human_gate_progress.judge_calibration.reviewed }}/{{ g10Review.human_gate_progress.judge_calibration.total }}</strong>
+                    <span>κ {{ g10Review.human_gate_progress.judge_calibration.kappa_available ? g10Review.human_gate_progress.judge_calibration.linear_weighted_kappa.toFixed(4) : '待满 30 条后计算' }}</span>
+                  </div>
+                  <small>{{ g10Review.human_gate_progress.judge_calibration.calibration_gate_passed ? '校准门通过' : '校准门未通过' }} · 队列完成也不会跳过独立封存与统一重跑</small>
+                </article>
+                <button type="button" @click="humanReviewOpen = true">进入人工验收</button>
               </div>
               <div class="g10-gate-grid">
                 <article v-for="gate in g10Review.gates" :key="gate.id">
@@ -4091,6 +4108,17 @@ export default {
       }
     }
 
+    const closeHumanReviewWorkbench = async () => {
+      humanReviewOpen.value = false
+      try {
+        const response = await api.get('/evaluations/g10/latest')
+        g10Review.value = response.data
+        hydrateG10ResumeSelection()
+      } catch (_) {
+        // G10 may not have been loaded yet; the full evaluation workbench keeps its own explicit error path.
+      }
+    }
+
     const toggleCatalogReviewWorkbench = async () => {
       catalogReviewOpen.value = !catalogReviewOpen.value
       if (catalogReviewOpen.value) await loadCatalogReviewWorkbench()
@@ -5227,6 +5255,7 @@ export default {
       currentInterviewDemoStep,
       evaluationCatalogOpen,
       humanReviewOpen,
+      closeHumanReviewWorkbench,
       loadingEvaluationCatalog,
       evaluationCatalog,
       evaluationRun,
@@ -7799,6 +7828,45 @@ export default {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.g10-human-progress {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  align-items: stretch;
+  gap: 9px;
+  margin-bottom: 10px;
+}
+
+.g10-human-progress article {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid rgba(42, 157, 143, 0.24);
+  border-radius: 8px;
+  background: #f3fcf8;
+}
+
+.g10-human-progress article > div {
+  display: grid;
+  gap: 3px;
+}
+
+.g10-human-progress span,
+.g10-human-progress small {
+  color: #5c746d;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.g10-human-progress button {
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: #238d71;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .g10-gate-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -7988,7 +8056,8 @@ export default {
   }
 
   .g10-review-card .interview-evidence-summary,
-  .g10-gate-grid {
+  .g10-gate-grid,
+  .g10-human-progress {
     grid-template-columns: 1fr;
   }
 
