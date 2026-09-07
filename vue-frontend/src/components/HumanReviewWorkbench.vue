@@ -398,7 +398,8 @@ export default {
       try {
         submittingCatalog.value = true
         await api.post('/evaluations/catalog/reviews', {
-          mode: 'human_catalog_case_review', catalog_sha256: catalogWorkbench.value.catalog_sha256, case_id: item.id,
+          mode: 'human_catalog_case_review', catalog_sha256: catalogWorkbench.value.catalog_sha256,
+          governance_sha256: catalogWorkbench.value.governance_sha256, case_id: item.id,
           case_sha256: item.case_sha256, expected_revision: item.review?.revision || 0, decision: catalogDecision.value,
           reason_codes: catalogDecision.value === 'approved' ? ['label_verified'] : [catalogRejectReason.value],
           idempotency_key: catalogIdempotencyKey.value, acknowledgment: 'I_REVIEWED_CASE_AND_EXPECTED_RESULT'

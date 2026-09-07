@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"GopherAI/internal/evalgovernance"
 	"GopherAI/model"
 )
 
@@ -19,10 +20,10 @@ type memoryRepository struct {
 	rows []model.EvaluationCatalogReview
 }
 
-func (repository *memoryRepository) ListLatest(_ context.Context, catalogSHA, reviewerHash string) ([]model.EvaluationCatalogReview, error) {
+func (repository *memoryRepository) ListLatest(_ context.Context, catalogSHA, governanceSHA, reviewerHash string) ([]model.EvaluationCatalogReview, error) {
 	latest := map[string]model.EvaluationCatalogReview{}
 	for _, row := range repository.rows {
-		if row.CatalogSHA256 == catalogSHA && row.ReviewerHash == reviewerHash && row.Revision > latest[row.CaseID].Revision {
+		if row.CatalogSHA256 == catalogSHA && row.GovernanceSHA256 == governanceSHA && row.ReviewerHash == reviewerHash && row.Revision > latest[row.CaseID].Revision {
 			latest[row.CaseID] = row
 		}
 	}
@@ -44,7 +45,7 @@ func (repository *memoryRepository) Append(_ context.Context, candidate model.Ev
 	}
 	current := 0
 	for _, row := range repository.rows {
-		if row.CatalogSHA256 == candidate.CatalogSHA256 && row.ReviewerHash == candidate.ReviewerHash && row.CaseID == candidate.CaseID && row.Revision > current {
+		if row.CatalogSHA256 == candidate.CatalogSHA256 && row.GovernanceSHA256 == candidate.GovernanceSHA256 && row.ReviewerHash == candidate.ReviewerHash && row.CaseID == candidate.CaseID && row.Revision > current {
 			current = row.Revision
 		}
 	}
@@ -94,7 +95,7 @@ func TestServicePaginatesAndScopesAppendOnlyReviewProgress(t *testing.T) {
 		t.Fatalf("unexpected initial workbench: %+v err=%v", initial, err)
 	}
 	command := ReviewCommand{
-		CatalogSHA256: snapshot.CatalogSHA256, CaseID: "case-1", CaseSHA256: snapshot.Cases[0].CaseSHA256,
+		CatalogSHA256: snapshot.CatalogSHA256, GovernanceSHA256: snapshot.Governance.ManifestSHA256, CaseID: "case-1", CaseSHA256: snapshot.Cases[0].CaseSHA256,
 		ExpectedRevision: 0, Decision: "approved", ReasonCodes: []string{"label_verified"},
 		IdempotencyKey: "catalog-review-case-1-v1", Acknowledgment: Acknowledgment,
 	}
@@ -115,7 +116,7 @@ func TestServicePaginatesAndScopesAppendOnlyReviewProgress(t *testing.T) {
 		t.Fatalf("append-only correction failed: %+v err=%v", corrected, err)
 	}
 	oldReplay := ReviewCommand{
-		CatalogSHA256: snapshot.CatalogSHA256, CaseID: "case-1", CaseSHA256: snapshot.Cases[0].CaseSHA256,
+		CatalogSHA256: snapshot.CatalogSHA256, GovernanceSHA256: snapshot.Governance.ManifestSHA256, CaseID: "case-1", CaseSHA256: snapshot.Cases[0].CaseSHA256,
 		ExpectedRevision: 0, Decision: "approved", ReasonCodes: []string{"label_verified"},
 		IdempotencyKey: "catalog-review-case-1-v1", Acknowledgment: Acknowledgment,
 	}
@@ -141,7 +142,7 @@ func TestServiceRejectsStaleUnsafeAndConflictingReviews(t *testing.T) {
 	repository := new(memoryRepository)
 	service := NewService(artifactStub{snapshot: snapshot}, repository, time.Now)
 	valid := ReviewCommand{
-		CatalogSHA256: snapshot.CatalogSHA256, CaseID: "case-1", CaseSHA256: snapshot.Cases[0].CaseSHA256,
+		CatalogSHA256: snapshot.CatalogSHA256, GovernanceSHA256: snapshot.Governance.ManifestSHA256, CaseID: "case-1", CaseSHA256: snapshot.Cases[0].CaseSHA256,
 		ExpectedRevision: 0, Decision: "approved", ReasonCodes: []string{"label_verified"},
 		IdempotencyKey: "catalog-review-safety-0001", Acknowledgment: Acknowledgment,
 	}
@@ -170,6 +171,11 @@ func TestServiceRejectsStaleUnsafeAndConflictingReviews(t *testing.T) {
 	stale.CatalogSHA256 = strings.Repeat("f", 64)
 	if _, err := service.Submit(context.Background(), "alice", stale); !errors.Is(err, ErrRevisionConflict) {
 		t.Fatalf("stale catalog was accepted: %v", err)
+	}
+	staleGovernance := valid
+	staleGovernance.GovernanceSHA256 = strings.Repeat("f", 64)
+	if _, err := service.Submit(context.Background(), "alice", staleGovernance); !errors.Is(err, ErrRevisionConflict) {
+		t.Fatalf("stale governance was accepted: %v", err)
 	}
 	if _, err := service.Submit(context.Background(), "alice", valid); err != nil {
 		t.Fatal(err)
@@ -208,7 +214,7 @@ func TestEvidenceSnapshotIsSelfHashedAndTracksLatestRevision(t *testing.T) {
 	if err := ValidateEvidenceSnapshot(empty, true); err != nil {
 		t.Fatalf("empty evidence did not self-validate: %v", err)
 	}
-	command := ReviewCommand{CatalogSHA256: snapshot.CatalogSHA256, CaseID: "case-1", CaseSHA256: snapshot.Cases[0].CaseSHA256, ExpectedRevision: 0, Decision: "approved", ReasonCodes: []string{"label_verified"}, IdempotencyKey: "catalog-evidence-case-1-v1", Acknowledgment: Acknowledgment}
+	command := ReviewCommand{CatalogSHA256: snapshot.CatalogSHA256, GovernanceSHA256: snapshot.Governance.ManifestSHA256, CaseID: "case-1", CaseSHA256: snapshot.Cases[0].CaseSHA256, ExpectedRevision: 0, Decision: "approved", ReasonCodes: []string{"label_verified"}, IdempotencyKey: "catalog-evidence-case-1-v1", Acknowledgment: Acknowledgment}
 	if _, err := service.Submit(context.Background(), "alice", command); err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +248,7 @@ func TestEvidenceSnapshotBecomesReadyOnlyWhenEveryCaseIsApproved(t *testing.T) {
 	service := NewService(artifactStub{snapshot: snapshot}, repository, time.Now)
 	for index, item := range snapshot.Cases {
 		_, err := service.Submit(context.Background(), "alice", ReviewCommand{
-			CatalogSHA256: snapshot.CatalogSHA256, CaseID: item.ID, CaseSHA256: item.CaseSHA256,
+			CatalogSHA256: snapshot.CatalogSHA256, GovernanceSHA256: snapshot.Governance.ManifestSHA256, CaseID: item.ID, CaseSHA256: item.CaseSHA256,
 			ExpectedRevision: 0, Decision: "approved", ReasonCodes: []string{"label_verified"},
 			IdempotencyKey: fmt.Sprintf("catalog-evidence-ready-%04d", index), Acknowledgment: Acknowledgment,
 		})
@@ -259,6 +265,7 @@ func TestEvidenceSnapshotBecomesReadyOnlyWhenEveryCaseIsApproved(t *testing.T) {
 func reviewSnapshot() Snapshot {
 	return Snapshot{
 		DatasetVersion: "dataset-v1", CatalogSHA256: strings.Repeat("a", 64),
+		Governance: evalgovernance.Manifest{ManifestSHA256: strings.Repeat("b", 64)},
 		Cases: []Case{
 			{ID: "case-1", Slice: "intent", DatasetVersion: "slice-v1", CaseSHA256: strings.Repeat("1", 64), Prompt: "first", Content: map[string]any{"question": "first", "expected": map[string]any{"intent": "project_qa"}}},
 			{ID: "case-2", Slice: "intent", DatasetVersion: "slice-v1", CaseSHA256: strings.Repeat("2", 64), Prompt: "second", Content: map[string]any{"question": "second"}},

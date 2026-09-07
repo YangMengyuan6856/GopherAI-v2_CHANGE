@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-const EvidenceSchemaVersion = "evaluation-catalog-review-evidence-v1"
+const EvidenceSchemaVersion = "evaluation-catalog-review-evidence-v2"
 
 type EvidenceEntry struct {
 	CaseID       string    `json:"case_id"`
@@ -27,6 +27,7 @@ type EvidenceSnapshot struct {
 	SchemaVersion                 string          `json:"schema_version"`
 	DatasetVersion                string          `json:"dataset_version"`
 	CatalogSHA256                 string          `json:"catalog_sha256"`
+	GovernanceSHA256              string          `json:"governance_sha256"`
 	ReviewerScope                 string          `json:"reviewer_scope"`
 	Status                        string          `json:"status"`
 	TotalCases                    int             `json:"total_cases"`
@@ -56,12 +57,12 @@ func (service *Service) Evidence(ctx context.Context, reviewer string) (Evidence
 		return EvidenceSnapshot{}, err
 	}
 	report := EvidenceSnapshot{
-		SchemaVersion: EvidenceSchemaVersion, DatasetVersion: snapshot.DatasetVersion, CatalogSHA256: snapshot.CatalogSHA256,
+		SchemaVersion: EvidenceSchemaVersion, DatasetVersion: snapshot.DatasetVersion, CatalogSHA256: snapshot.CatalogSHA256, GovernanceSHA256: snapshot.Governance.ManifestSHA256,
 		ReviewerScope: "current_authenticated_reviewer", Status: "human_review_in_progress",
 		TotalCases: progress.Total, ReviewedCases: progress.Reviewed, ApprovedCases: progress.Approved,
 		RejectedCases: progress.Rejected, PendingCases: progress.Pending, ReviewSetSHA256: progress.ReviewSetSHA256,
 		ReadyForSealedMaterialization: progress.ReadyForMaterializing, Entries: make([]EvidenceEntry, 0, len(reviews)),
-		Guardrails:  []string{"catalog_and_case_hash_bound", "latest_append_only_revision_per_case", "reviewer_identity_not_exported", "no_prompt_or_expected_payload_exported", "self_hash_verified", "no_baseline_auto_freeze"},
+		Guardrails:  []string{"catalog_governance_and_case_hash_bound", "latest_append_only_revision_per_case", "reviewer_identity_not_exported", "no_prompt_or_expected_payload_exported", "self_hash_verified", "no_baseline_auto_freeze"},
 		Limitations: []string{"该快照只证明当前登录复核人的逐例决策，不代表双人独立标注。", "ready 只允许进入独立封存与重跑评测，不代表正式基线或生产切流已获批。"},
 	}
 	if progress.Rejected > 0 {
@@ -106,7 +107,7 @@ func FinalizeEvidenceSnapshot(report *EvidenceSnapshot) error {
 }
 
 func ValidateEvidenceSnapshot(report EvidenceSnapshot, requireHash bool) error {
-	if report.SchemaVersion != EvidenceSchemaVersion || strings.TrimSpace(report.DatasetVersion) == "" || len(report.CatalogSHA256) != 64 || report.ReviewerScope != "current_authenticated_reviewer" || report.TotalCases < 1 || report.ReviewedCases < 0 || report.ApprovedCases < 0 || report.RejectedCases < 0 || report.PendingCases < 0 || report.ReviewedCases != report.ApprovedCases+report.RejectedCases || report.TotalCases != report.ReviewedCases+report.PendingCases || len(report.ReviewSetSHA256) != 64 || len(report.Entries) != report.ReviewedCases {
+	if report.SchemaVersion != EvidenceSchemaVersion || strings.TrimSpace(report.DatasetVersion) == "" || len(report.CatalogSHA256) != 64 || len(report.GovernanceSHA256) != 64 || report.ReviewerScope != "current_authenticated_reviewer" || report.TotalCases < 1 || report.ReviewedCases < 0 || report.ApprovedCases < 0 || report.RejectedCases < 0 || report.PendingCases < 0 || report.ReviewedCases != report.ApprovedCases+report.RejectedCases || report.TotalCases != report.ReviewedCases+report.PendingCases || len(report.ReviewSetSHA256) != 64 || len(report.Entries) != report.ReviewedCases {
 		return errors.New("catalog review evidence identity or counts are invalid")
 	}
 	expectedReady := report.ReviewedCases == report.TotalCases && report.ApprovedCases == report.TotalCases && report.RejectedCases == 0
@@ -173,7 +174,7 @@ func ValidateEvidenceAgainstSnapshot(report EvidenceSnapshot, snapshot Snapshot)
 	if err := ValidateEvidenceSnapshot(report, true); err != nil {
 		return err
 	}
-	if report.DatasetVersion != snapshot.DatasetVersion || report.CatalogSHA256 != snapshot.CatalogSHA256 || report.TotalCases != len(snapshot.Cases) {
+	if report.DatasetVersion != snapshot.DatasetVersion || report.CatalogSHA256 != snapshot.CatalogSHA256 || report.GovernanceSHA256 != snapshot.Governance.ManifestSHA256 || report.TotalCases != len(snapshot.Cases) {
 		return errors.New("catalog review evidence does not match the catalog snapshot")
 	}
 	caseByID := make(map[string]Case, len(snapshot.Cases))
@@ -195,7 +196,7 @@ func RenderEvidenceMarkdown(report EvidenceSnapshot) (string, error) {
 	}
 	var builder strings.Builder
 	fmt.Fprintf(&builder, "# Full 320 人工复核增量证据\n\n")
-	fmt.Fprintf(&builder, "- 状态：`%s`\n- 数据集：`%s`\n- Catalog SHA-256：`%s`\n- Review Set SHA-256：`%s`\n- Snapshot SHA-256：`%s`\n", report.Status, report.DatasetVersion, report.CatalogSHA256, report.ReviewSetSHA256, report.SnapshotSHA256)
+	fmt.Fprintf(&builder, "- 状态：`%s`\n- 数据集：`%s`\n- Catalog SHA-256：`%s`\n- Governance SHA-256：`%s`\n- Review Set SHA-256：`%s`\n- Snapshot SHA-256：`%s`\n", report.Status, report.DatasetVersion, report.CatalogSHA256, report.GovernanceSHA256, report.ReviewSetSHA256, report.SnapshotSHA256)
 	fmt.Fprintf(&builder, "- 进度：`%d/%d`；通过 `%d`；退回 `%d`；待复核 `%d`\n- 可进入独立封存：`%t`\n\n", report.ReviewedCases, report.TotalCases, report.ApprovedCases, report.RejectedCases, report.PendingCases, report.ReadyForSealedMaterialization)
 	builder.WriteString("## 最新逐例决策\n\n")
 	if len(report.Entries) == 0 {

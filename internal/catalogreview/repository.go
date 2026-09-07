@@ -11,7 +11,7 @@ import (
 )
 
 type Repository interface {
-	ListLatest(context.Context, string, string) ([]model.EvaluationCatalogReview, error)
+	ListLatest(context.Context, string, string, string) ([]model.EvaluationCatalogReview, error)
 	Append(context.Context, model.EvaluationCatalogReview) (bool, model.EvaluationCatalogReview, error)
 }
 
@@ -19,7 +19,7 @@ type GormRepository struct{ db *gorm.DB }
 
 func NewGormRepository(db *gorm.DB) *GormRepository { return &GormRepository{db: db} }
 
-func (repository *GormRepository) ListLatest(ctx context.Context, catalogSHA, reviewerHash string) ([]model.EvaluationCatalogReview, error) {
+func (repository *GormRepository) ListLatest(ctx context.Context, catalogSHA, governanceSHA, reviewerHash string) ([]model.EvaluationCatalogReview, error) {
 	if repository == nil || repository.db == nil {
 		return nil, gorm.ErrInvalidDB
 	}
@@ -30,11 +30,11 @@ FROM evaluation_catalog_reviews AS reviews
 JOIN (
   SELECT case_id, MAX(revision) AS revision
   FROM evaluation_catalog_reviews
-  WHERE catalog_sha256 = ? AND reviewer_hash = ?
+  WHERE catalog_sha256 = ? AND governance_sha256 = ? AND reviewer_hash = ?
   GROUP BY case_id
 ) AS latest ON latest.case_id = reviews.case_id AND latest.revision = reviews.revision
-WHERE reviews.catalog_sha256 = ? AND reviews.reviewer_hash = ?
-ORDER BY reviews.case_id ASC`, catalogSHA, reviewerHash, catalogSHA, reviewerHash).Scan(&rows).Error
+WHERE reviews.catalog_sha256 = ? AND reviews.governance_sha256 = ? AND reviews.reviewer_hash = ?
+ORDER BY reviews.case_id ASC`, catalogSHA, governanceSHA, reviewerHash, catalogSHA, governanceSHA, reviewerHash).Scan(&rows).Error
 	return rows, err
 }
 
@@ -60,7 +60,7 @@ func (repository *GormRepository) Append(ctx context.Context, candidate model.Ev
 
 		var latest model.EvaluationCatalogReview
 		result = tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("catalog_sha256 = ? AND case_id = ? AND reviewer_hash = ?", candidate.CatalogSHA256, candidate.CaseID, candidate.ReviewerHash).
+			Where("catalog_sha256 = ? AND governance_sha256 = ? AND case_id = ? AND reviewer_hash = ?", candidate.CatalogSHA256, candidate.GovernanceSHA256, candidate.CaseID, candidate.ReviewerHash).
 			Order("revision DESC").Limit(1).Find(&latest)
 		if result.Error != nil {
 			return result.Error

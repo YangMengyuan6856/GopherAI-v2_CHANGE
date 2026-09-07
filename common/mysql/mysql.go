@@ -60,7 +60,7 @@ func InitMysql() error {
 }
 
 func migration() error {
-	return DB.AutoMigrate(
+	if err := DB.AutoMigrate(
 		new(model.User),
 		new(model.Session),
 		new(model.Message),
@@ -99,7 +99,15 @@ func migration() error {
 		new(model.HarnessControlEvent),
 		new(model.G10ResumeFactConfirmation),
 		new(model.EvaluationCatalogReview),
-	)
+	); err != nil {
+		return err
+	}
+	// Governance changes intentionally start a new review lineage. The old
+	// catalog-only unique index would make revision 1 collide across lineages.
+	if DB.Migrator().HasIndex(new(model.EvaluationCatalogReview), "uk_catalog_review_revision") {
+		return DB.Migrator().DropIndex(new(model.EvaluationCatalogReview), "uk_catalog_review_revision")
+	}
+	return nil
 }
 
 func InsertUser(user *model.User) (*model.User, error) {

@@ -58,10 +58,10 @@ func TestCatalogReviewHandlerRejectsUnknownFieldsAndForwardsCAS(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	stub := &catalogReviewServiceStub{receipt: catalogreview.Receipt{SchemaVersion: catalogreview.ReviewSchemaVersion}}
 	router := catalogReviewTestRouter(stub)
-	body := fmt.Sprintf(`{"mode":"%s","catalog_sha256":"%s","case_id":"case-1","case_sha256":"%s","expected_revision":2,"decision":"rejected","reason_codes":["missing_context"],"idempotency_key":"catalog-review-handler-0001","acknowledgment":"%s"}`, catalogReviewMode, strings.Repeat("a", 64), strings.Repeat("b", 64), catalogreview.Acknowledgment)
+	body := fmt.Sprintf(`{"mode":"%s","catalog_sha256":"%s","governance_sha256":"%s","case_id":"case-1","case_sha256":"%s","expected_revision":2,"decision":"rejected","reason_codes":["missing_context"],"idempotency_key":"catalog-review-handler-0001","acknowledgment":"%s"}`, catalogReviewMode, strings.Repeat("a", 64), strings.Repeat("c", 64), strings.Repeat("b", 64), catalogreview.Acknowledgment)
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/reviews", strings.NewReader(body)))
-	if response.Code != http.StatusOK || stub.reviewer != "alice" || stub.command.ExpectedRevision != 2 || stub.command.Decision != "rejected" || stub.command.ReasonCodes[0] != "missing_context" {
+	if response.Code != http.StatusOK || stub.reviewer != "alice" || stub.command.GovernanceSHA256 != strings.Repeat("c", 64) || stub.command.ExpectedRevision != 2 || stub.command.Decision != "rejected" || stub.command.ReasonCodes[0] != "missing_context" {
 		t.Fatalf("command was not forwarded safely: code=%d reviewer=%s command=%+v body=%s", response.Code, stub.reviewer, stub.command, response.Body.String())
 	}
 	unknown := httptest.NewRecorder()
@@ -75,7 +75,7 @@ func TestCatalogReviewHandlerMapsStaleRevisionToConflict(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	stub := &catalogReviewServiceStub{err: catalogreview.ErrRevisionConflict}
 	router := catalogReviewTestRouter(stub)
-	body := fmt.Sprintf(`{"mode":"%s","catalog_sha256":"%s","case_id":"case-1","case_sha256":"%s","expected_revision":0,"decision":"approved","reason_codes":["label_verified"],"idempotency_key":"catalog-review-handler-0002","acknowledgment":"%s"}`, catalogReviewMode, strings.Repeat("a", 64), strings.Repeat("b", 64), catalogreview.Acknowledgment)
+	body := fmt.Sprintf(`{"mode":"%s","catalog_sha256":"%s","governance_sha256":"%s","case_id":"case-1","case_sha256":"%s","expected_revision":0,"decision":"approved","reason_codes":["label_verified"],"idempotency_key":"catalog-review-handler-0002","acknowledgment":"%s"}`, catalogReviewMode, strings.Repeat("a", 64), strings.Repeat("c", 64), strings.Repeat("b", 64), catalogreview.Acknowledgment)
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/reviews", strings.NewReader(body)))
 	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "CATALOG_REVIEW_STALE") {
@@ -86,7 +86,7 @@ func TestCatalogReviewHandlerMapsStaleRevisionToConflict(t *testing.T) {
 func TestCatalogReviewHandlerDownloadsValidatedEvidenceFormats(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	report := catalogreview.EvidenceSnapshot{
-		SchemaVersion: catalogreview.EvidenceSchemaVersion, DatasetVersion: "dataset-v1", CatalogSHA256: strings.Repeat("a", 64),
+		SchemaVersion: catalogreview.EvidenceSchemaVersion, DatasetVersion: "dataset-v1", CatalogSHA256: strings.Repeat("a", 64), GovernanceSHA256: strings.Repeat("b", 64),
 		ReviewerScope: "current_authenticated_reviewer", Status: "human_review_in_progress", TotalCases: 3,
 		PendingCases: 3, ReviewSetSHA256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 		Entries: []catalogreview.EvidenceEntry{}, Guardrails: []string{"self_hash_verified"}, Limitations: []string{"not a baseline"},

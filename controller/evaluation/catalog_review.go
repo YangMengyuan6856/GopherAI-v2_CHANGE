@@ -76,6 +76,7 @@ func (handler *CatalogReviewHandler) List(ginContext *gin.Context) {
 type catalogReviewRequest struct {
 	Mode             string   `json:"mode"`
 	CatalogSHA256    string   `json:"catalog_sha256"`
+	GovernanceSHA256 string   `json:"governance_sha256"`
 	CaseID           string   `json:"case_id"`
 	CaseSHA256       string   `json:"case_sha256"`
 	ExpectedRevision int      `json:"expected_revision"`
@@ -105,7 +106,7 @@ func (handler *CatalogReviewHandler) Submit(ginContext *gin.Context) {
 	ctx, cancel := context.WithTimeout(ginContext.Request.Context(), 5*time.Second)
 	defer cancel()
 	receipt, err := handler.service.Submit(ctx, ginContext.GetString("userName"), catalogreview.ReviewCommand{
-		CatalogSHA256: request.CatalogSHA256, CaseID: request.CaseID, CaseSHA256: request.CaseSHA256,
+		CatalogSHA256: request.CatalogSHA256, GovernanceSHA256: request.GovernanceSHA256, CaseID: request.CaseID, CaseSHA256: request.CaseSHA256,
 		ExpectedRevision: request.ExpectedRevision, Decision: request.Decision, ReasonCodes: request.ReasonCodes,
 		IdempotencyKey: request.IdempotencyKey, Acknowledgment: request.Acknowledgment,
 	})
