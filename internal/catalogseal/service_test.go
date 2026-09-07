@@ -37,7 +37,7 @@ func TestSealRequiresAllApprovedAndMaterializesValidatedImmutableCatalog(t *test
 	}}
 	service := NewService(source, catalogPath, reviewPath, t.TempDir(), clock)
 	status, err := service.Status(context.Background(), "reviewer")
-	if err != nil || status.Eligible || status.Status != "blocked_human_review" || status.Progress.Pending != 320 {
+	if err != nil || status.Eligible || status.Status != "blocked_human_review" || status.DatasetVersion != snapshot.DatasetVersion || status.Progress.Pending != 320 {
 		t.Fatalf("unexpected blocked status: err=%v status=%+v", err, status)
 	}
 	command := Command{CatalogSHA256: snapshot.CatalogSHA256, ReviewSetSHA256: source.progress.ReviewSetSHA256, Acknowledgment: Acknowledgment}

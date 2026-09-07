@@ -20,7 +20,7 @@ import (
 
 const (
 	SchemaVersion             = "evaluation-catalog-seal-v1"
-	StatusSchemaVersion       = "evaluation-catalog-seal-status-v1"
+	StatusSchemaVersion       = "evaluation-catalog-seal-status-v2"
 	DefaultCatalogPath        = "evals/devsupport-eval-v1.manifest.json"
 	DefaultReviewManifestPath = "evals/devsupport-eval-v1.review.json"
 	DefaultOutputRoot         = "/root/GopherAI_Runtime/evaluation/catalog-review-seals"
@@ -74,15 +74,16 @@ type Receipt struct {
 }
 
 type Status struct {
-	SchemaVersion string                 `json:"schema_version"`
-	Status        string                 `json:"status"`
-	Eligible      bool                   `json:"eligible"`
-	CatalogSHA256 string                 `json:"catalog_sha256"`
-	ReviewSetSHA  string                 `json:"review_set_sha256"`
-	Progress      catalogreview.Progress `json:"progress"`
-	CurrentSeal   *Report                `json:"current_seal,omitempty"`
-	NextGate      string                 `json:"next_gate"`
-	Guardrails    []string               `json:"guardrails"`
+	SchemaVersion  string                 `json:"schema_version"`
+	Status         string                 `json:"status"`
+	Eligible       bool                   `json:"eligible"`
+	DatasetVersion string                 `json:"dataset_version"`
+	CatalogSHA256  string                 `json:"catalog_sha256"`
+	ReviewSetSHA   string                 `json:"review_set_sha256"`
+	Progress       catalogreview.Progress `json:"progress"`
+	CurrentSeal    *Report                `json:"current_seal,omitempty"`
+	NextGate       string                 `json:"next_gate"`
+	Guardrails     []string               `json:"guardrails"`
 }
 
 type Command struct {
@@ -113,7 +114,7 @@ func (service *Service) Status(ctx context.Context, reviewer string) (Status, er
 	}
 	result := Status{
 		SchemaVersion: StatusSchemaVersion, Status: "blocked_human_review", Eligible: progress.ReadyForMaterializing,
-		CatalogSHA256: snapshot.CatalogSHA256, ReviewSetSHA: progress.ReviewSetSHA256, Progress: progress,
+		DatasetVersion: snapshot.DatasetVersion, CatalogSHA256: snapshot.CatalogSHA256, ReviewSetSHA: progress.ReviewSetSHA256, Progress: progress,
 		NextGate:   "全部 320 条必须由当前登录复核人逐例 approved，且退回数为 0。",
 		Guardrails: []string{"server_side_database_source_only", "no_exported_snapshot_as_authority", "all_320_approved_required", "immutable_create_only_artifact", "no_baseline_pointer_write", "no_policy_write"},
 	}

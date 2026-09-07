@@ -16,12 +16,13 @@ import (
 
 	"GopherAI/common/mysql"
 	"GopherAI/internal/catalogreview"
+	"GopherAI/internal/catalogseal"
 	"GopherAI/middleware/requestid"
 
 	"github.com/gin-gonic/gin"
 )
 
-const g10ReviewSchemaVersion = "g10-release-review-v2"
+const g10ReviewSchemaVersion = "g10-release-review-v3"
 
 type G10ReviewGate struct {
 	ID                       string   `json:"id"`
@@ -77,11 +78,24 @@ type G10JudgeReviewProgress struct {
 	CalibrationGatePassed bool    `json:"calibration_gate_passed"`
 }
 
+type G10CatalogSealingProgress struct {
+	Status                    string `json:"status"`
+	Eligible                  bool   `json:"eligible"`
+	CandidateReady            bool   `json:"candidate_ready"`
+	ArtifactIntegrityVerified bool   `json:"artifact_integrity_verified"`
+	SealID                    string `json:"seal_id,omitempty"`
+	SealSHA256                string `json:"seal_sha256,omitempty"`
+	OutputCatalogSHA256       string `json:"output_catalog_sha256,omitempty"`
+	OutputReviewSHA256        string `json:"output_review_manifest_sha256,omitempty"`
+	NextGate                  string `json:"next_gate"`
+}
+
 type G10HumanGateProgress struct {
-	CatalogReview    G10CatalogReviewProgress `json:"catalog_review"`
-	JudgeCalibration G10JudgeReviewProgress   `json:"judge_calibration"`
-	SealedBaseline   bool                     `json:"sealed_baseline"`
-	NextRequiredGate string                   `json:"next_required_gate"`
+	CatalogReview    G10CatalogReviewProgress  `json:"catalog_review"`
+	CatalogSealing   G10CatalogSealingProgress `json:"catalog_sealing"`
+	JudgeCalibration G10JudgeReviewProgress    `json:"judge_calibration"`
+	SealedBaseline   bool                      `json:"sealed_baseline"`
+	NextRequiredGate string                    `json:"next_required_gate"`
 }
 
 type G10ReleaseReview struct {
@@ -116,11 +130,16 @@ type evidenceBackedG10ReviewService struct {
 	evidence      InterviewEvidenceService
 	confirmations G10ResumeConfirmationStore
 	catalogReview G10CatalogReviewProgressSource
+	catalogSeal   G10CatalogSealStatusSource
 	clock         func() time.Time
 }
 
 type G10CatalogReviewProgressSource interface {
 	List(context.Context, string, catalogreview.Query) (catalogreview.Workbench, error)
+}
+
+type G10CatalogSealStatusSource interface {
+	Status(context.Context, string) (catalogseal.Status, error)
 }
 
 func NewG10ReviewService(evidence InterviewEvidenceService) G10ReviewService {
@@ -129,10 +148,12 @@ func NewG10ReviewService(evidence InterviewEvidenceService) G10ReviewService {
 
 func newDefaultG10ReviewService() G10ReviewService {
 	service := newG10ReviewService(newDefaultInterviewEvidenceService(), NewGormG10ResumeConfirmationStore(mysql.DB), time.Now)
-	service.catalogReview = catalogreview.NewService(
+	reviews := catalogreview.NewService(
 		catalogreview.NewFileArtifactStore(catalogreview.DefaultManifestPath),
 		catalogreview.NewGormRepository(mysql.DB), time.Now,
 	)
+	service.catalogReview = reviews
+	service.catalogSeal = catalogseal.NewService(reviews, catalogseal.DefaultCatalogPath, catalogseal.DefaultReviewManifestPath, catalogseal.DefaultOutputRoot, time.Now)
 	return service
 }
 
@@ -160,7 +181,15 @@ func (service *evidenceBackedG10ReviewService) Build(ctx context.Context, princi
 		if listErr != nil {
 			return G10ReleaseReview{}, listErr
 		}
-		if err := applyG10HumanGateProgress(&report, packageReport, workbench); err != nil {
+		var sealStatus *catalogseal.Status
+		if service.catalogSeal != nil {
+			current, statusErr := service.catalogSeal.Status(ctx, principal)
+			if statusErr != nil {
+				return G10ReleaseReview{}, statusErr
+			}
+			sealStatus = &current
+		}
+		if err := applyG10HumanGateProgress(&report, packageReport, workbench, sealStatus); err != nil {
 			return G10ReleaseReview{}, err
 		}
 	}
@@ -179,7 +208,7 @@ func (service *evidenceBackedG10ReviewService) Build(ctx context.Context, princi
 	return report, nil
 }
 
-func applyG10HumanGateProgress(report *G10ReleaseReview, evidence InterviewEvidencePackage, workbench catalogreview.Workbench) error {
+func applyG10HumanGateProgress(report *G10ReleaseReview, evidence InterviewEvidencePackage, workbench catalogreview.Workbench, sealStatus *catalogseal.Status) error {
 	if report == nil || workbench.SchemaVersion != catalogreview.SchemaVersion || workbench.Progress.Total <= 0 || workbench.Progress.Total != workbench.Progress.Reviewed+workbench.Progress.Pending || workbench.Progress.Reviewed != workbench.Progress.Approved+workbench.Progress.Rejected || len(workbench.CatalogSHA256) != 64 || len(workbench.Progress.ReviewSetSHA256) != 64 {
 		return errors.New("G10 catalog review progress is invalid")
 	}
@@ -199,6 +228,24 @@ func applyG10HumanGateProgress(report *G10ReleaseReview, evidence InterviewEvide
 	if !found {
 		return errors.New("G10 judge kappa source is missing")
 	}
+	sealing := G10CatalogSealingProgress{
+		Status: "blocked_human_review", Eligible: workbench.Progress.ReadyForMaterializing,
+		NextGate: "完成 320 条逐例人工复核且退回数为 0 后，创建不可变封存候选。",
+	}
+	if workbench.Progress.ReadyForMaterializing {
+		sealing.Status, sealing.NextGate = "ready_for_seal", "显式确认后创建不可变封存候选；候选仍须重跑五类评测与统一 Runner。"
+	}
+	if sealStatus != nil {
+		if err := validateG10SealStatus(*sealStatus, workbench); err != nil {
+			return err
+		}
+		sealing.Status, sealing.Eligible, sealing.NextGate = sealStatus.Status, sealStatus.Eligible, sealStatus.NextGate
+		if sealStatus.CurrentSeal != nil {
+			sealing.CandidateReady, sealing.ArtifactIntegrityVerified = true, true
+			sealing.SealID, sealing.SealSHA256 = sealStatus.CurrentSeal.SealID, sealStatus.CurrentSeal.SealSHA256
+			sealing.OutputCatalogSHA256, sealing.OutputReviewSHA256 = sealStatus.CurrentSeal.OutputCatalogSHA256, sealStatus.CurrentSeal.OutputReviewSHA256
+		}
+	}
 	progress := &G10HumanGateProgress{
 		CatalogReview: G10CatalogReviewProgress{
 			DatasetVersion: workbench.DatasetVersion, CatalogSHA256: workbench.CatalogSHA256,
@@ -207,12 +254,16 @@ func applyG10HumanGateProgress(report *G10ReleaseReview, evidence InterviewEvide
 			Rejected: workbench.Progress.Rejected, Pending: workbench.Progress.Pending,
 			ReadyForSealedMaterialization: workbench.Progress.ReadyForMaterializing,
 		},
+		CatalogSealing: sealing,
 		JudgeCalibration: G10JudgeReviewProgress{
 			Status: judgeStatement.Status, Reviewed: judgeReviewed, Total: judgeTotal, LinearWeightedKappa: kappa,
 			KappaAvailable: judgeReviewed == judgeTotal, CalibrationGatePassed: judgeStatement.ResumeMetricEligible,
 		},
 		SealedBaseline:   fullStatement.ResumeMetricEligible,
-		NextRequiredGate: "完成逐例复核后独立封存 Review Manifest，并用冻结输入重跑统一评测；队列完成本身不解锁基线。",
+		NextRequiredGate: sealing.NextGate,
+	}
+	if sealing.CandidateReady {
+		progress.NextRequiredGate = "封存候选完整性已复验；必须从候选目录重跑五类评测与统一 Runner，并经基线审批后才可标记 sealed baseline。"
 	}
 	if progress.SealedBaseline && progress.JudgeCalibration.CalibrationGatePassed {
 		progress.NextRequiredGate = "产品人工门已由当前证据包验证；继续执行仍未完成的用户确认与隔离生产环境门。"
@@ -226,11 +277,39 @@ func applyG10HumanGateProgress(report *G10ReleaseReview, evidence InterviewEvide
 			report.Gates[index].Conclusion = fmt.Sprintf("Full 320 当前账号已复核 %d/%d，正式基线已封存；Judge 已人工评分 %d/%d 且校准门通过。", progress.CatalogReview.Reviewed, progress.CatalogReview.Total, progress.JudgeCalibration.Reviewed, progress.JudgeCalibration.Total)
 		} else {
 			report.Gates[index].Conclusion = fmt.Sprintf("Full 320 当前账号已复核 %d/%d（通过 %d、退回 %d）；Judge 已人工评分 %d/%d。独立封存与统一重跑尚未完成。", progress.CatalogReview.Reviewed, progress.CatalogReview.Total, progress.CatalogReview.Approved, progress.CatalogReview.Rejected, progress.JudgeCalibration.Reviewed, progress.JudgeCalibration.Total)
+			if progress.CatalogSealing.CandidateReady {
+				report.Gates[index].Conclusion += fmt.Sprintf(" 不可变候选 %s 已通过完整性复验，但正式基线证据尚未重跑冻结。", progress.CatalogSealing.SealID)
+			}
 		}
-		report.Gates[index].EvidenceRefs = []string{"catalog_review_queue", "full_320_evaluation", "judge_human_calibration"}
+		report.Gates[index].EvidenceRefs = []string{"catalog_review_queue", "catalog_sealed_candidate", "full_320_evaluation", "judge_human_calibration"}
 		report.Gates[index].NextAction = progress.NextRequiredGate
 	}
 	return finalizeG10ReleaseReview(report)
+}
+
+func validateG10SealStatus(status catalogseal.Status, workbench catalogreview.Workbench) error {
+	progress := status.Progress
+	if status.SchemaVersion != catalogseal.StatusSchemaVersion || strings.TrimSpace(status.DatasetVersion) == "" || status.DatasetVersion != workbench.DatasetVersion || status.CatalogSHA256 != workbench.CatalogSHA256 || status.ReviewSetSHA != workbench.Progress.ReviewSetSHA256 || progress.ReviewSetSHA256 != workbench.Progress.ReviewSetSHA256 || progress.Total != workbench.Progress.Total || progress.Reviewed != workbench.Progress.Reviewed || progress.Approved != workbench.Progress.Approved || progress.Rejected != workbench.Progress.Rejected || progress.Pending != workbench.Progress.Pending || progress.ReadyForMaterializing != workbench.Progress.ReadyForMaterializing || status.Eligible != workbench.Progress.ReadyForMaterializing || strings.TrimSpace(status.NextGate) == "" {
+		return errors.New("G10 catalog seal status is inconsistent")
+	}
+	switch status.Status {
+	case "blocked_human_review":
+		if status.Eligible || status.CurrentSeal != nil {
+			return errors.New("G10 blocked seal status is invalid")
+		}
+	case "ready_for_seal":
+		if !status.Eligible || status.CurrentSeal != nil {
+			return errors.New("G10 ready seal status is invalid")
+		}
+	case "sealed_candidate_ready":
+		current := status.CurrentSeal
+		if !status.Eligible || current == nil || current.SchemaVersion != catalogseal.SchemaVersion || current.Status != "sealed_candidate_ready" || current.SourceCatalogSHA256 != status.CatalogSHA256 || current.SourceReviewSetSHA256 != status.ReviewSetSHA || current.CaseCount != 320 || current.ApprovedCases != 320 || len(current.SealID) != len("catalog-seal-")+32 || len(current.SealSHA256) != 64 || len(current.OutputCatalogSHA256) != 64 || len(current.OutputReviewSHA256) != 64 {
+			return errors.New("G10 sealed candidate status is invalid")
+		}
+	default:
+		return errors.New("G10 catalog seal status is unknown")
+	}
+	return nil
 }
 
 func interviewStatementByID(report InterviewEvidencePackage, id string) (InterviewEvidenceStatement, bool) {
@@ -429,9 +508,19 @@ func finalizeG10ReleaseReview(report *G10ReleaseReview) error {
 	}
 	if progress := report.HumanGateProgress; progress != nil {
 		catalog := progress.CatalogReview
+		sealing := progress.CatalogSealing
 		judge := progress.JudgeCalibration
-		if catalog.Total <= 0 || catalog.Reviewed < 0 || catalog.Pending < 0 || catalog.Approved < 0 || catalog.Rejected < 0 || catalog.Reviewed+catalog.Pending != catalog.Total || catalog.Approved+catalog.Rejected != catalog.Reviewed || len(catalog.CatalogSHA256) != 64 || len(catalog.ReviewSetSHA256) != 64 || strings.TrimSpace(catalog.DatasetVersion) == "" || strings.TrimSpace(catalog.Status) == "" || judge.Total <= 0 || judge.Reviewed < 0 || judge.Reviewed > judge.Total || judge.KappaAvailable != (judge.Reviewed == judge.Total) || strings.TrimSpace(judge.Status) == "" || strings.TrimSpace(progress.NextRequiredGate) == "" {
+		if catalog.Total <= 0 || catalog.Reviewed < 0 || catalog.Pending < 0 || catalog.Approved < 0 || catalog.Rejected < 0 || catalog.Reviewed+catalog.Pending != catalog.Total || catalog.Approved+catalog.Rejected != catalog.Reviewed || len(catalog.CatalogSHA256) != 64 || len(catalog.ReviewSetSHA256) != 64 || strings.TrimSpace(catalog.DatasetVersion) == "" || strings.TrimSpace(catalog.Status) == "" || sealing.Eligible != catalog.ReadyForSealedMaterialization || strings.TrimSpace(sealing.Status) == "" || strings.TrimSpace(sealing.NextGate) == "" || sealing.CandidateReady != sealing.ArtifactIntegrityVerified || judge.Total <= 0 || judge.Reviewed < 0 || judge.Reviewed > judge.Total || judge.KappaAvailable != (judge.Reviewed == judge.Total) || strings.TrimSpace(judge.Status) == "" || strings.TrimSpace(progress.NextRequiredGate) == "" {
 			return errors.New("G10 human gate progress is invalid")
+		}
+		if sealing.CandidateReady {
+			if !sealing.Eligible || sealing.Status != "sealed_candidate_ready" || len(sealing.SealID) != len("catalog-seal-")+32 || len(sealing.SealSHA256) != 64 || len(sealing.OutputCatalogSHA256) != 64 || len(sealing.OutputReviewSHA256) != 64 {
+				return errors.New("G10 catalog sealing progress is invalid")
+			}
+		} else if sealing.SealID != "" || sealing.SealSHA256 != "" || sealing.OutputCatalogSHA256 != "" || sealing.OutputReviewSHA256 != "" {
+			return errors.New("G10 unsealed progress contains artifact identity")
+		} else if (sealing.Status == "blocked_human_review" && sealing.Eligible) || (sealing.Status == "ready_for_seal" && !sealing.Eligible) || (sealing.Status != "blocked_human_review" && sealing.Status != "ready_for_seal") {
+			return errors.New("G10 catalog sealing state is invalid")
 		}
 	}
 	report.ReportSHA256 = ""
@@ -460,7 +549,7 @@ func writeG10ReviewMarkdown(writer io.Writer, report G10ReleaseReview) error {
 		}
 	}
 	if progress := report.HumanGateProgress; progress != nil {
-		if _, err := fmt.Fprintf(writer, "\n## 人工门实时进度\n\n- Full 320：`%d/%d`，通过 `%d`，退回 `%d`，待审 `%d`，Review Set `%s`\n- Judge 30：`%d/%d`，κ `%s`，校准门 `%t`\n- 正式基线已封存：`%t`\n- 下一门：%s\n\n", progress.CatalogReview.Reviewed, progress.CatalogReview.Total, progress.CatalogReview.Approved, progress.CatalogReview.Rejected, progress.CatalogReview.Pending, progress.CatalogReview.ReviewSetSHA256, progress.JudgeCalibration.Reviewed, progress.JudgeCalibration.Total, formatG10Kappa(progress.JudgeCalibration), progress.JudgeCalibration.CalibrationGatePassed, progress.SealedBaseline, progress.NextRequiredGate); err != nil {
+		if _, err := fmt.Fprintf(writer, "\n## 人工门实时进度\n\n- Full 320：`%d/%d`，通过 `%d`，退回 `%d`，待审 `%d`，Review Set `%s`\n- 不可变封存候选：状态 `%s`，完整性复验 `%t`，Seal `%s`\n- Judge 30：`%d/%d`，κ `%s`，校准门 `%t`\n- 正式基线已封存：`%t`\n- 下一门：%s\n\n", progress.CatalogReview.Reviewed, progress.CatalogReview.Total, progress.CatalogReview.Approved, progress.CatalogReview.Rejected, progress.CatalogReview.Pending, progress.CatalogReview.ReviewSetSHA256, progress.CatalogSealing.Status, progress.CatalogSealing.ArtifactIntegrityVerified, emptyG10SealID(progress.CatalogSealing.SealID), progress.JudgeCalibration.Reviewed, progress.JudgeCalibration.Total, formatG10Kappa(progress.JudgeCalibration), progress.JudgeCalibration.CalibrationGatePassed, progress.SealedBaseline, progress.NextRequiredGate); err != nil {
 			return err
 		}
 	}
@@ -493,6 +582,13 @@ func formatG10Kappa(progress G10JudgeReviewProgress) string {
 		return "待满全部人工评分后计算"
 	}
 	return fmt.Sprintf("%.4f", progress.LinearWeightedKappa)
+}
+
+func emptyG10SealID(id string) string {
+	if strings.TrimSpace(id) == "" {
+		return "未生成"
+	}
+	return id
 }
 
 type G10ReviewHandler struct{ service G10ReviewService }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"GopherAI/internal/catalogreview"
+	"GopherAI/internal/catalogseal"
 
 	"github.com/gin-gonic/gin"
 )
@@ -26,6 +27,17 @@ type stubG10CatalogReviewSource struct {
 	workbench catalogreview.Workbench
 	err       error
 	principal string
+}
+
+type stubG10CatalogSealSource struct {
+	status    catalogseal.Status
+	err       error
+	principal string
+}
+
+func (source *stubG10CatalogSealSource) Status(_ context.Context, principal string) (catalogseal.Status, error) {
+	source.principal = principal
+	return source.status, source.err
 }
 
 func (source *stubG10CatalogReviewSource) List(_ context.Context, principal string, _ catalogreview.Query) (catalogreview.Workbench, error) {
@@ -124,14 +136,21 @@ func TestG10ReviewServiceAddsCurrentHumanGateProgressWithoutUnlockingProductGate
 	}}
 	service := newG10ReviewService(&stubInterviewEvidenceService{report: evidence}, nil, time.Now)
 	service.catalogReview = reviewSource
+	sealSource := &stubG10CatalogSealSource{status: catalogseal.Status{
+		SchemaVersion: catalogseal.StatusSchemaVersion, Status: "blocked_human_review", DatasetVersion: "devsupport-eval-v1",
+		CatalogSHA256: strings.Repeat("a", 64), ReviewSetSHA: strings.Repeat("b", 64),
+		Progress: catalogreview.Progress{Total: 320, Reviewed: 12, Approved: 10, Rejected: 2, Pending: 308, ReviewSetSHA256: strings.Repeat("b", 64)},
+		NextGate: "complete human review",
+	}}
+	service.catalogSeal = sealSource
 	report, err := service.Build(context.Background(), "alice")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reviewSource.principal != "alice" || report.HumanGateProgress == nil || report.HumanGateProgress.CatalogReview.Reviewed != 12 || report.HumanGateProgress.JudgeCalibration.Total != 30 {
+	if reviewSource.principal != "alice" || sealSource.principal != "alice" || report.HumanGateProgress == nil || report.HumanGateProgress.CatalogReview.Reviewed != 12 || report.HumanGateProgress.JudgeCalibration.Total != 30 {
 		t.Fatalf("human progress missing: %+v", report.HumanGateProgress)
 	}
-	if report.PassedGates != 1 || report.ProductionReleaseReady || report.HumanGateProgress.SealedBaseline {
+	if report.PassedGates != 1 || report.ProductionReleaseReady || report.HumanGateProgress.SealedBaseline || report.HumanGateProgress.CatalogSealing.CandidateReady {
 		t.Fatalf("queue progress must not unlock G10: %+v", report)
 	}
 	gate := map[string]G10ReviewGate{}
@@ -140,6 +159,45 @@ func TestG10ReviewServiceAddsCurrentHumanGateProgressWithoutUnlockingProductGate
 	}
 	if !strings.Contains(gate["product_total_acceptance"].Conclusion, "12/320") || gate["product_total_acceptance"].Status != "blocked" {
 		t.Fatalf("product gate does not expose bounded progress: %+v", gate["product_total_acceptance"])
+	}
+}
+
+func TestG10SealedCandidateDoesNotBecomeSealedBaselineOrUnlockProductGate(t *testing.T) {
+	evidence, err := buildInterviewEvidencePackage(validInterviewEvidenceInputs(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	progress := catalogreview.Progress{Total: 320, Reviewed: 320, Approved: 320, ReviewSetSHA256: strings.Repeat("d", 64), ReadyForMaterializing: true}
+	reviewSource := &stubG10CatalogReviewSource{workbench: catalogreview.Workbench{
+		SchemaVersion: catalogreview.SchemaVersion, DatasetVersion: "devsupport-eval-v1", CatalogSHA256: strings.Repeat("c", 64), Status: "ready_for_sealed_materialization", Progress: progress,
+	}}
+	sealSource := &stubG10CatalogSealSource{status: catalogseal.Status{
+		SchemaVersion: catalogseal.StatusSchemaVersion, Status: "sealed_candidate_ready", Eligible: true, DatasetVersion: "devsupport-eval-v1",
+		CatalogSHA256: strings.Repeat("c", 64), ReviewSetSHA: strings.Repeat("d", 64), Progress: progress, NextGate: "rerun all evaluations",
+		CurrentSeal: &catalogseal.Report{
+			SchemaVersion: catalogseal.SchemaVersion, Status: "sealed_candidate_ready", SealID: "catalog-seal-" + strings.Repeat("e", 32), SealSHA256: strings.Repeat("f", 64),
+			SourceCatalogSHA256: strings.Repeat("c", 64), SourceReviewSetSHA256: strings.Repeat("d", 64), CaseCount: 320, ApprovedCases: 320,
+			OutputCatalogSHA256: strings.Repeat("1", 64), OutputReviewSHA256: strings.Repeat("2", 64),
+		},
+	}}
+	service := newG10ReviewService(&stubInterviewEvidenceService{report: evidence}, nil, time.Now)
+	service.catalogReview, service.catalogSeal = reviewSource, sealSource
+	report, err := service.Build(context.Background(), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	human := report.HumanGateProgress
+	if human == nil || !human.CatalogSealing.CandidateReady || !human.CatalogSealing.ArtifactIntegrityVerified || human.SealedBaseline || report.PassedGates != 1 || report.ProductionReleaseReady {
+		t.Fatalf("sealed candidate crossed a forbidden gate: %+v", report)
+	}
+	var product G10ReviewGate
+	for _, gate := range report.Gates {
+		if gate.ID == "product_total_acceptance" {
+			product = gate
+		}
+	}
+	if product.Status != "blocked" || !strings.Contains(product.Conclusion, "正式基线证据尚未重跑冻结") || !strings.Contains(human.NextRequiredGate, "统一 Runner") {
+		t.Fatalf("candidate boundary is not explicit: gate=%+v progress=%+v", product, human)
 	}
 }
 

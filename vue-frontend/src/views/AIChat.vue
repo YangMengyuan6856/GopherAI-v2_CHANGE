@@ -766,6 +766,11 @@
                     <span>通过 {{ g10Review.human_gate_progress.catalog_review.approved }} · 退回 {{ g10Review.human_gate_progress.catalog_review.rejected }} · 待审 {{ g10Review.human_gate_progress.catalog_review.pending }}</span>
                   </div>
                   <small>Review Set {{ shortRevision(g10Review.human_gate_progress.catalog_review.review_set_sha256) }} · {{ g10Review.human_gate_progress.catalog_review.ready_for_sealed_materialization ? '可进入独立封存' : '尚未达到封存条件' }}</small>
+                  <div class="g10-seal-progress">
+                    <strong>不可变封存候选 · {{ g10Review.human_gate_progress.catalog_sealing.candidate_ready ? '已生成并复验' : (g10Review.human_gate_progress.catalog_sealing.eligible ? '等待显式生成' : '未准入') }}</strong>
+                    <span v-if="g10Review.human_gate_progress.catalog_sealing.candidate_ready">Seal {{ shortRevision(g10Review.human_gate_progress.catalog_sealing.seal_sha256) }} · 仍不是正式基线</span>
+                    <span v-else>{{ g10Review.human_gate_progress.catalog_sealing.next_gate }}</span>
+                  </div>
                 </article>
                 <article>
                   <div>
@@ -7848,6 +7853,17 @@ export default {
 .g10-human-progress article > div {
   display: grid;
   gap: 3px;
+}
+
+.g10-human-progress .g10-seal-progress {
+  margin-top: 2px;
+  padding-top: 7px;
+  border-top: 1px dashed rgba(42, 157, 143, 0.32);
+}
+
+.g10-seal-progress strong {
+  color: #315f55;
+  font-size: 11px;
 }
 
 .g10-human-progress span,
