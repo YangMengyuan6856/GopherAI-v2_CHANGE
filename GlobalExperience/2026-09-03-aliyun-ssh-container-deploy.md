@@ -1699,3 +1699,10 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 每个最终报告恒为 `promotion_eligible=false`，且 Guardrail 明确禁止 baseline pointer、policy write 和 automatic promotion。`-verify-run` 不依赖历史 Release 仍在线，会严格读取保存的 Plan/Result、重算每个日志与输出 Hash、验证检查点前缀和文件全集；它提供可复验完整性，不应表述为非对称数字签名或审批。
 - Release `20260907123958-32ebb1655936`，bundle SHA-256 `b2eab90834e05bd1c8b7b40816fd9ead47abe725114504acb98cf1c46720eaa5`，735 个包条目；清理报告 SHA `2fca3bc19e98b2d53f260e5456f1dce8b19ce1ba5536caeef78f45ed9ad0acde`，Tracked Source `572`。全仓 Go/MCP 测试、Vet、`catalogrerun/catalogseal` Race、PowerShell 解析、Vue production build、七个 Linux Runner 交叉编译、19 条 Prometheus 规则、2/2 targets、私网 Grafana 与服务健康门全部通过。
 - 云端只读检查确认七个 Runner 可执行且已进入 Release Manifest；封存候选目录 `0`、重跑目录 `0`，因此发布没有越过真实人工门。真实页面仍显示当前 Release、G10 `1/4`、Full 320 `0/320`、候选未准入与 Judge `0/30`，浏览器检查结束后恢复原人工工作台。以后只有项目所有者完成 320 条复核并显式封存后，才生成只读计划并人工确认执行；失败 Run 不原地续写，修复后创建新 Run 保留对照。
+
+## 98. 2026-09-07 G10 必须展示重跑事实，不能只写“仍需重跑”
+
+- `ad1a6598` 将 G10 升级为 `g10-release-review-v4`，以只读 Inspector 从当前 Seal 的运行数据域推导 `not_started/running/execution_failed/technical_gate_failed/technical_passed` 五类状态。完成态必须重新验证最终报告及物理日志、产物和 checkpoint Hash；最新目录被篡改时整个 G10 fail-closed，不能退回模糊的“未运行”。
+- 页面在 Full 320 卡片内紧凑显示固定重跑状态、Run、`0～6` 步、证据复验和“不自动晋级”。即使状态为 `technical_passed`，只要正式 Evidence Statement、Judge 校准或独立基线审批未通过，产品 Gate 仍不能增加；所有报告继续固定 `promotion_eligible=false`。
+- Release `20260907143513-ad1a6598f6d0`，bundle SHA-256 `c6aee76cea08e638b9c0616a48c174cadfa43d415b1f82f557befd0d18011661`，737 个可追溯条目；自动清理报告 SHA `376d1f13b002269995ea0856a9fbbec614f777a902674b4b0aa81d76625537d8`、Tracked Source `574`。全量 Go/Vet、定向 Race、Vue lint/build、Prometheus/Grafana 与五进程健康门通过。
+- 真实浏览器显示当前 Release、G10 `1/4`、Full 320 `0/320`、Judge `0/30`、固定技术重跑“未运行（等待封存）”；Smoke 后恢复原人工验收工作台，未提交任何人工标签或评分。首次指标采集仍可能在 Release 切换后短暂 `capture_failed`，应等待调度周期复核，不把一次预热失败当成业务回归。
