@@ -258,6 +258,24 @@ func NewService(artifacts ArtifactStore, repository Repository, clock func() tim
 	return &Service{artifacts: artifacts, repository: repository, clock: clock}
 }
 
+// SealSnapshot returns the exact catalog content and the current review-set
+// commitment for a trusted server-side materializer. It does not mutate the
+// source dataset and intentionally does not accept an exported evidence file.
+func (service *Service) SealSnapshot(ctx context.Context, reviewer string) (Snapshot, Progress, error) {
+	if service == nil || service.artifacts == nil || service.repository == nil || strings.TrimSpace(reviewer) == "" {
+		return Snapshot{}, Progress{}, ErrArtifactUnavailable
+	}
+	snapshot, reviews, _, err := service.load(ctx, reviewer)
+	if err != nil {
+		return Snapshot{}, Progress{}, err
+	}
+	progress, err := buildProgress(snapshot, reviews)
+	if err != nil {
+		return Snapshot{}, Progress{}, err
+	}
+	return snapshot, progress, nil
+}
+
 func (service *Service) List(ctx context.Context, reviewer string, query Query) (Workbench, error) {
 	if service == nil || service.artifacts == nil || service.repository == nil || strings.TrimSpace(reviewer) == "" {
 		return Workbench{}, ErrArtifactUnavailable

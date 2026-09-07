@@ -33,6 +33,24 @@
             <div><strong>{{ catalogProgress.pending ?? 320 }}</strong><span>待复核</span></div>
           </div>
 
+          <div v-if="catalogSealStatus" :class="['seal-card', { ready: catalogSealStatus.eligible, sealed: !!catalogSealStatus.current_seal }]">
+            <div>
+              <strong v-if="catalogSealStatus.current_seal">不可变封存候选已生成 · {{ catalogSealStatus.current_seal.seal_id }}</strong>
+              <strong v-else-if="catalogSealStatus.eligible">320 条均已通过，可创建不可变封存候选</strong>
+              <strong v-else>封存准入未满足 · 还需复核 {{ catalogSealStatus.progress.pending }} 条，退回 {{ catalogSealStatus.progress.rejected }} 条</strong>
+              <span>{{ catalogSealStatus.next_gate }}</span>
+              <small v-if="catalogSealStatus.current_seal">Seal SHA {{ catalogSealStatus.current_seal.seal_sha256 }} · 仍需从封存目录重跑五类评测</small>
+              <small v-else>Review Set {{ catalogSealStatus.review_set_sha256 }}</small>
+            </div>
+            <label v-if="catalogSealStatus.eligible && !catalogSealStatus.current_seal" class="seal-ack">
+              <input v-model="catalogSealAcknowledged" type="checkbox">
+              我确认请求生成只读封存候选；这不会冻结正式基线或切换策略。
+            </label>
+            <button v-if="catalogSealStatus.eligible && !catalogSealStatus.current_seal" type="button" :disabled="sealingCatalog || !catalogSealAcknowledged" @click="sealCatalog">
+              {{ sealingCatalog ? '封存中…' : '生成封存候选' }}
+            </button>
+          </div>
+
           <div class="filter-row">
             <label>切片
               <select v-model="catalogSlice" @change="resetCatalogPage">
@@ -189,6 +207,10 @@ export default {
     const catalogIdempotencyKey = ref('')
     const loadingCatalog = ref(false)
     const submittingCatalog = ref(false)
+    const catalogSealStatus = ref(null)
+    const loadingCatalogSeal = ref(false)
+    const sealingCatalog = ref(false)
+    const catalogSealAcknowledged = ref(false)
     const judgeAudit = ref(null)
     const judgeIndex = ref(0)
     const judgeDraft = ref(emptyJudgeDraft())
@@ -235,6 +257,20 @@ export default {
       }
     }
 
+    const loadCatalogSeal = async () => {
+      if (loadingCatalogSeal.value) return
+      try {
+        loadingCatalogSeal.value = true
+        const response = await api.get('/evaluations/catalog/reviews/seal/latest')
+        catalogSealStatus.value = response.data
+      } catch (error) {
+        catalogSealStatus.value = null
+        ElMessage.error(error.response?.data?.message || 'Full 320 封存状态暂不可用')
+      } finally {
+        loadingCatalogSeal.value = false
+      }
+    }
+
     const resetCatalogDecision = () => {
       catalogAcknowledged.value = false
       catalogIdempotencyKey.value = ''
@@ -273,6 +309,7 @@ export default {
         })
         ElMessage.success(`${item.id} 已保存；正在定位下一条待复核用例`)
         await loadCatalog()
+        await loadCatalogSeal()
         resetCatalogDecision()
       } catch (error) {
         if (error.response?.status === 409) {
@@ -282,6 +319,28 @@ export default {
         ElMessage.error(error.response?.data?.message || '本例复核保存失败')
       } finally {
         submittingCatalog.value = false
+      }
+    }
+
+    const sealCatalog = async () => {
+      if (!catalogSealStatus.value?.eligible || catalogSealStatus.value.current_seal || !catalogSealAcknowledged.value || sealingCatalog.value) return
+      try {
+        sealingCatalog.value = true
+        const response = await api.post('/evaluations/catalog/reviews/seal', {
+          mode: 'materialize_reviewed_catalog_candidate',
+          catalog_sha256: catalogSealStatus.value.catalog_sha256,
+          review_set_sha256: catalogSealStatus.value.review_set_sha256,
+          acknowledgment: 'I_CONFIRM_320_APPROVED_AND_REQUEST_SEALED_CANDIDATE'
+        })
+        catalogSealAcknowledged.value = false
+        await loadCatalogSeal()
+        ElMessage.success(`${response.data.created ? '已创建' : '已复用'}不可变封存候选；正式基线仍需重跑与审批`)
+      } catch (error) {
+        catalogSealAcknowledged.value = false
+        await loadCatalogSeal()
+        ElMessage.error(error.response?.data?.message || 'Full 320 封存候选生成失败')
+      } finally {
+        sealingCatalog.value = false
       }
     }
 
@@ -330,22 +389,23 @@ export default {
 
     const switchTab = async tab => {
       activeTab.value = tab
-      if (tab === 'catalog' && !catalogWorkbench.value) await loadCatalog()
+      if (tab === 'catalog' && !catalogWorkbench.value) await Promise.all([loadCatalog(), loadCatalogSeal()])
       if (tab === 'judge' && !judgeAudit.value) await loadJudge()
     }
-    const reloadActive = () => activeTab.value === 'catalog' ? loadCatalog() : loadJudge(judgeIndex.value)
+    const reloadActive = () => activeTab.value === 'catalog' ? Promise.all([loadCatalog(), loadCatalogSeal()]) : loadJudge(judgeIndex.value)
     const preventBodyScroll = () => { document.body.style.overflow = 'hidden' }
     const restoreBodyScroll = () => { document.body.style.overflow = '' }
 
-    onMounted(async () => { preventBodyScroll(); await loadCatalog(); resetCatalogDecision() })
+    onMounted(async () => { preventBodyScroll(); await Promise.all([loadCatalog(), loadCatalogSeal()]); resetCatalogDecision() })
     onUnmounted(restoreBodyScroll)
 
     return {
       activeTab, catalogWorkbench, catalogSlice, catalogStatus, catalogPage, catalogDecision, catalogRejectReason,
       catalogAcknowledged, loadingCatalog, submittingCatalog, catalogSlices, catalogProgress, catalogCase, catalogPageCount,
+      catalogSealStatus, sealingCatalog, catalogSealAcknowledged,
       judgeAudit, judgeIndex, judgeDraft, loadingJudge, submittingJudge, judgeDimensions, scoreOptions, judgeCase, judgeProgress,
       judgeDraftComplete, close, formatJSON, percent, sliceLabel, judgeSliceLabel, switchTab, resetCatalogPage, moveCatalog,
-      submitCatalog, selectJudge, submitJudge, reloadActive
+      submitCatalog, sealCatalog, selectJudge, submitJudge, reloadActive
     }
   }
 }
@@ -374,6 +434,14 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .progress-grid strong { font-size: 23px; color: #5145b5; }
 .progress-grid span { margin-top: 3px; color: #778199; font-size: 13px; }
 .filter-row { display: flex; align-items: end; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; }
+.seal-card { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 14px; margin-bottom: 16px; padding: 13px 15px; border: 1px solid #e4c878; border-radius: 11px; background: #fff8df; }
+.seal-card.ready { border-color: #64b990; background: #eaf9f2; }
+.seal-card.sealed { grid-template-columns: 1fr; border-color: #7363d6; background: #f0edff; }
+.seal-card > div { display: grid; gap: 4px; min-width: 0; }
+.seal-card span, .seal-card small { color: #6b7182; overflow-wrap: anywhere; font-size: 12px; line-height: 1.45; }
+.seal-ack { display: flex; align-items: flex-start; gap: 7px; max-width: 310px; font-size: 12px; line-height: 1.45; }
+.seal-ack input { margin-top: 3px; }
+.seal-card button { min-height: 38px; padding: 7px 12px; border: 0; border-radius: 8px; background: #268862; color: white; font-weight: 700; }
 .filter-row label, .score-grid label { display: flex; flex-direction: column; gap: 5px; color: #59647c; font-size: 13px; }
 select { min-height: 38px; padding: 6px 10px; border: 1px solid #cfd5e8; border-radius: 8px; background: white; color: #27324b; }
 .case-card { padding: 20px; border: 1px solid #dce1f2; border-radius: 16px; background: white; box-shadow: 0 8px 26px rgba(67, 59, 126, .07); }
@@ -412,6 +480,7 @@ select { min-height: 38px; padding: 6px 10px; border: 1px solid #cfd5e8; border-
   .review-tabs, .review-scroll { padding-left: 14px; padding-right: 14px; }
   .progress-grid { grid-template-columns: repeat(2, 1fr); }
   .score-grid { grid-template-columns: repeat(2, 1fr); }
+  .seal-card { grid-template-columns: 1fr; }
   .action-row { grid-template-columns: 1fr; }
   .case-index { grid-template-columns: repeat(10, 1fr); }
   .review-footer { padding: 10px 14px; }
