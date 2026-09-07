@@ -1706,3 +1706,10 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 页面在 Full 320 卡片内紧凑显示固定重跑状态、Run、`0～6` 步、证据复验和“不自动晋级”。即使状态为 `technical_passed`，只要正式 Evidence Statement、Judge 校准或独立基线审批未通过，产品 Gate 仍不能增加；所有报告继续固定 `promotion_eligible=false`。
 - Release `20260907143513-ad1a6598f6d0`，bundle SHA-256 `c6aee76cea08e638b9c0616a48c174cadfa43d415b1f82f557befd0d18011661`，737 个可追溯条目；自动清理报告 SHA `376d1f13b002269995ea0856a9fbbec614f777a902674b4b0aa81d76625537d8`、Tracked Source `574`。全量 Go/Vet、定向 Race、Vue lint/build、Prometheus/Grafana 与五进程健康门通过。
 - 真实浏览器显示当前 Release、G10 `1/4`、Full 320 `0/320`、Judge `0/30`、固定技术重跑“未运行（等待封存）”；Smoke 后恢复原人工验收工作台，未提交任何人工标签或评分。首次指标采集在 Release 切换后短暂 `capture_failed`，随后至少连续五轮恢复 `warming/points=2`；应等待调度周期复核，不把一次预热失败当成业务回归。
+
+## 99. 2026-09-07 评测真值治理发布与 PowerShell 入口兼容性
+
+- `4191534f` 为 Full 320 与 Judge 30 增加 Hash 绑定的评测治理层：数据卡明确这是合成契约回归集，六个切片分别声明真值类型、适用场景、独立来源、通过/退回条件；RAG 逐例返回实际 Fixture 原文。Judge 公开允许证据来源、五维问题和统一分数锚点，但答案变体只在人工首次提交后显示，防止标签暗示污染独立评分。
+- 首次调用 `powershell -File scripts/deploy/deploy-aliyun.ps1` 在任何上传与远端切换前失败，原因是 Windows PowerShell 5 的 `System.Diagnostics.ProcessStartInfo` 不提供脚本使用的 `ArgumentList` 属性。当前 Codex 运行时已带 PowerShell 7.6.5，稳定入口应为 `pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/deploy/deploy-aliyun.ps1`；不要再显式降级调用 `powershell.exe`。该失败没有改变线上状态。
+- Release `20260907225539-4191534f6208`、bundle SHA-256 `08134981e812b220fbadd4d76d09b5a51f3102fc09d3a228cad3eb609d9f68aa`、744 个可追溯条目。清理审计 SHA `e78e80b1357464e674865c7beb872b205d6bd5e367da2a0d583a14f9acce5583`、Tracked Source `579`。全量 Go/Vet、治理与复核链路 Race、MCP 测试、Vue lint/build、Full 320 字节门、Prometheus `2/2`、Grafana 与五进程健康门通过。
+- 公网 `/health/ready` 与 `/ai-chat` 均返回 HTTP 200；容器内治理 Manifest SHA-256 为 `017ecb2c572faf813decca1d797d983b2b5934061bf161f3dd42885ec5d9439f`，两份规则 SHA 与 Manifest 声明一致，生产前端产物包含新的“合成契约回归集”界面。发布与只读 Smoke 没有提交 Full 320 标签或 Judge 分数，正式人工进度仍应保持原值。
