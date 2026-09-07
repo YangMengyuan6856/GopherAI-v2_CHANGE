@@ -771,6 +771,13 @@
                     <span v-if="g10Review.human_gate_progress.catalog_sealing.candidate_ready">Seal {{ shortRevision(g10Review.human_gate_progress.catalog_sealing.seal_sha256) }} · 仍不是正式基线</span>
                     <span v-else>{{ g10Review.human_gate_progress.catalog_sealing.next_gate }}</span>
                   </div>
+                  <div class="g10-rerun-progress">
+                    <strong>固定技术重跑 · {{ g10CatalogRerunLabel(g10Review.human_gate_progress.catalog_rerun.state) }}</strong>
+                    <span v-if="g10Review.human_gate_progress.catalog_rerun.run_id">
+                      Run {{ shortRevision(g10Review.human_gate_progress.catalog_rerun.run_id) }} · {{ g10Review.human_gate_progress.catalog_rerun.completed_steps }}/6 步 · 证据{{ g10Review.human_gate_progress.catalog_rerun.evidence_integrity_verified ? '已复验' : '未复验' }} · 不自动晋级
+                    </span>
+                    <span v-else>{{ g10Review.human_gate_progress.catalog_rerun.next_gate }}</span>
+                  </div>
                 </article>
                 <article>
                   <div>
@@ -4363,6 +4370,15 @@ export default {
       passed: '通过', blocked: '阻断', pending_user: '待用户确认', deferred_environment: '环境延期'
     }[status] || status || '未知')
 
+    const g10CatalogRerunLabel = (state) => ({
+      not_applicable: '未运行（等待封存）',
+      not_started: '未运行',
+      running: '运行中',
+      execution_failed: '执行失败',
+      technical_gate_failed: '技术门失败',
+      technical_passed: '技术通过（未晋级）'
+    }[state] || state || '状态未知')
+
     const g10GateStatusClass = (status) => ({
       ready: status === 'passed',
       blocked: status === 'blocked',
@@ -5509,6 +5525,7 @@ export default {
       downloadInterviewEvidence,
       g10ReviewStatusLabel,
       g10GateStatusLabel,
+      g10CatalogRerunLabel,
       g10GateStatusClass,
       downloadG10Review,
       submitG10ResumeConfirmation,
@@ -7855,13 +7872,15 @@ export default {
   gap: 3px;
 }
 
-.g10-human-progress .g10-seal-progress {
+.g10-human-progress .g10-seal-progress,
+.g10-human-progress .g10-rerun-progress {
   margin-top: 2px;
   padding-top: 7px;
   border-top: 1px dashed rgba(42, 157, 143, 0.32);
 }
 
-.g10-seal-progress strong {
+.g10-seal-progress strong,
+.g10-rerun-progress strong {
   color: #315f55;
   font-size: 11px;
 }

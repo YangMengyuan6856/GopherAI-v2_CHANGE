@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"GopherAI/common/mysql"
+	"GopherAI/internal/catalogrerun"
 	"GopherAI/internal/catalogreview"
 	"GopherAI/internal/catalogseal"
 	"GopherAI/middleware/requestid"
@@ -22,7 +23,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const g10ReviewSchemaVersion = "g10-release-review-v3"
+const g10ReviewSchemaVersion = "g10-release-review-v4"
 
 type G10ReviewGate struct {
 	ID                       string   `json:"id"`
@@ -90,9 +91,25 @@ type G10CatalogSealingProgress struct {
 	NextGate                  string `json:"next_gate"`
 }
 
+type G10CatalogRerunProgress struct {
+	State                     string `json:"state"`
+	RunID                     string `json:"run_id,omitempty"`
+	PlanSHA256                string `json:"plan_sha256,omitempty"`
+	ReportSHA256              string `json:"report_sha256,omitempty"`
+	ReleaseID                 string `json:"release_id,omitempty"`
+	GitSHA                    string `json:"git_sha,omitempty"`
+	CompletedSteps            int    `json:"completed_steps"`
+	FailureStep               string `json:"failure_step,omitempty"`
+	TechnicalGatePassed       bool   `json:"technical_gate_passed"`
+	EvidenceIntegrityVerified bool   `json:"evidence_integrity_verified"`
+	PromotionEligible         bool   `json:"promotion_eligible"`
+	NextGate                  string `json:"next_gate"`
+}
+
 type G10HumanGateProgress struct {
 	CatalogReview    G10CatalogReviewProgress  `json:"catalog_review"`
 	CatalogSealing   G10CatalogSealingProgress `json:"catalog_sealing"`
+	CatalogRerun     G10CatalogRerunProgress   `json:"catalog_rerun"`
 	JudgeCalibration G10JudgeReviewProgress    `json:"judge_calibration"`
 	SealedBaseline   bool                      `json:"sealed_baseline"`
 	NextRequiredGate string                    `json:"next_required_gate"`
@@ -131,6 +148,7 @@ type evidenceBackedG10ReviewService struct {
 	confirmations G10ResumeConfirmationStore
 	catalogReview G10CatalogReviewProgressSource
 	catalogSeal   G10CatalogSealStatusSource
+	catalogRerun  G10CatalogRerunStatusSource
 	clock         func() time.Time
 }
 
@@ -140,6 +158,10 @@ type G10CatalogReviewProgressSource interface {
 
 type G10CatalogSealStatusSource interface {
 	Status(context.Context, string) (catalogseal.Status, error)
+}
+
+type G10CatalogRerunStatusSource interface {
+	Status(context.Context, string) (catalogrerun.Status, error)
 }
 
 func NewG10ReviewService(evidence InterviewEvidenceService) G10ReviewService {
@@ -154,6 +176,7 @@ func newDefaultG10ReviewService() G10ReviewService {
 	)
 	service.catalogReview = reviews
 	service.catalogSeal = catalogseal.NewService(reviews, catalogseal.DefaultCatalogPath, catalogseal.DefaultReviewManifestPath, catalogseal.DefaultOutputRoot, time.Now)
+	service.catalogRerun = catalogrerun.NewInspector(catalogrerun.DefaultOutputRoot)
 	return service
 }
 
@@ -182,14 +205,22 @@ func (service *evidenceBackedG10ReviewService) Build(ctx context.Context, princi
 			return G10ReleaseReview{}, listErr
 		}
 		var sealStatus *catalogseal.Status
+		var rerunStatus *catalogrerun.Status
 		if service.catalogSeal != nil {
 			current, statusErr := service.catalogSeal.Status(ctx, principal)
 			if statusErr != nil {
 				return G10ReleaseReview{}, statusErr
 			}
 			sealStatus = &current
+			if current.CurrentSeal != nil && service.catalogRerun != nil {
+				currentRerun, rerunErr := service.catalogRerun.Status(ctx, current.CurrentSeal.SealID)
+				if rerunErr != nil {
+					return G10ReleaseReview{}, rerunErr
+				}
+				rerunStatus = &currentRerun
+			}
 		}
-		if err := applyG10HumanGateProgress(&report, packageReport, workbench, sealStatus); err != nil {
+		if err := applyG10HumanGateProgress(&report, packageReport, workbench, sealStatus, rerunStatus); err != nil {
 			return G10ReleaseReview{}, err
 		}
 	}
@@ -208,7 +239,7 @@ func (service *evidenceBackedG10ReviewService) Build(ctx context.Context, princi
 	return report, nil
 }
 
-func applyG10HumanGateProgress(report *G10ReleaseReview, evidence InterviewEvidencePackage, workbench catalogreview.Workbench, sealStatus *catalogseal.Status) error {
+func applyG10HumanGateProgress(report *G10ReleaseReview, evidence InterviewEvidencePackage, workbench catalogreview.Workbench, sealStatus *catalogseal.Status, rerunStatus *catalogrerun.Status) error {
 	if report == nil || workbench.SchemaVersion != catalogreview.SchemaVersion || workbench.Progress.Total <= 0 || workbench.Progress.Total != workbench.Progress.Reviewed+workbench.Progress.Pending || workbench.Progress.Reviewed != workbench.Progress.Approved+workbench.Progress.Rejected || len(workbench.CatalogSHA256) != 64 || len(workbench.Progress.ReviewSetSHA256) != 64 {
 		return errors.New("G10 catalog review progress is invalid")
 	}
@@ -246,6 +277,20 @@ func applyG10HumanGateProgress(report *G10ReleaseReview, evidence InterviewEvide
 			sealing.OutputCatalogSHA256, sealing.OutputReviewSHA256 = sealStatus.CurrentSeal.OutputCatalogSHA256, sealStatus.CurrentSeal.OutputReviewSHA256
 		}
 	}
+	rerun := G10CatalogRerunProgress{
+		State: "not_applicable", PromotionEligible: false,
+		NextGate: "先完成 Full 320 人工复核并创建不可变封存候选。",
+	}
+	if sealing.CandidateReady {
+		rerun.State = "not_started"
+		rerun.NextGate = "从当前封存候选生成只读重跑计划，核对 Release 与六个 Runner Hash 后显式执行。"
+	}
+	if rerunStatus != nil {
+		if !sealing.CandidateReady || rerunStatus.SealID != sealing.SealID || validateG10RerunStatus(*rerunStatus) != nil {
+			return errors.New("G10 catalog rerun status is inconsistent")
+		}
+		rerun = buildG10RerunProgress(*rerunStatus)
+	}
 	progress := &G10HumanGateProgress{
 		CatalogReview: G10CatalogReviewProgress{
 			DatasetVersion: workbench.DatasetVersion, CatalogSHA256: workbench.CatalogSHA256,
@@ -255,6 +300,7 @@ func applyG10HumanGateProgress(report *G10ReleaseReview, evidence InterviewEvide
 			ReadyForSealedMaterialization: workbench.Progress.ReadyForMaterializing,
 		},
 		CatalogSealing: sealing,
+		CatalogRerun:   rerun,
 		JudgeCalibration: G10JudgeReviewProgress{
 			Status: judgeStatement.Status, Reviewed: judgeReviewed, Total: judgeTotal, LinearWeightedKappa: kappa,
 			KappaAvailable: judgeReviewed == judgeTotal, CalibrationGatePassed: judgeStatement.ResumeMetricEligible,
@@ -263,7 +309,10 @@ func applyG10HumanGateProgress(report *G10ReleaseReview, evidence InterviewEvide
 		NextRequiredGate: sealing.NextGate,
 	}
 	if sealing.CandidateReady {
-		progress.NextRequiredGate = "封存候选完整性已复验；必须从候选目录重跑五类评测与统一 Runner，并经基线审批后才可标记 sealed baseline。"
+		progress.NextRequiredGate = rerun.NextGate
+	}
+	if progress.SealedBaseline && (rerun.State != "technical_passed" || !rerun.TechnicalGatePassed || !rerun.EvidenceIntegrityVerified) {
+		return errors.New("G10 sealed baseline is missing a verified technical rerun")
 	}
 	if progress.SealedBaseline && progress.JudgeCalibration.CalibrationGatePassed {
 		progress.NextRequiredGate = "产品人工门已由当前证据包验证；继续执行仍未完成的用户确认与隔离生产环境门。"
@@ -276,12 +325,12 @@ func applyG10HumanGateProgress(report *G10ReleaseReview, evidence InterviewEvide
 		if report.Gates[index].Status == "passed" {
 			report.Gates[index].Conclusion = fmt.Sprintf("Full 320 当前账号已复核 %d/%d，正式基线已封存；Judge 已人工评分 %d/%d 且校准门通过。", progress.CatalogReview.Reviewed, progress.CatalogReview.Total, progress.JudgeCalibration.Reviewed, progress.JudgeCalibration.Total)
 		} else {
-			report.Gates[index].Conclusion = fmt.Sprintf("Full 320 当前账号已复核 %d/%d（通过 %d、退回 %d）；Judge 已人工评分 %d/%d。独立封存与统一重跑尚未完成。", progress.CatalogReview.Reviewed, progress.CatalogReview.Total, progress.CatalogReview.Approved, progress.CatalogReview.Rejected, progress.JudgeCalibration.Reviewed, progress.JudgeCalibration.Total)
+			report.Gates[index].Conclusion = fmt.Sprintf("Full 320 当前账号已复核 %d/%d（通过 %d、退回 %d）；Judge 已人工评分 %d/%d。独立封存与固定技术重跑尚未完成。", progress.CatalogReview.Reviewed, progress.CatalogReview.Total, progress.CatalogReview.Approved, progress.CatalogReview.Rejected, progress.JudgeCalibration.Reviewed, progress.JudgeCalibration.Total)
 			if progress.CatalogSealing.CandidateReady {
-				report.Gates[index].Conclusion += fmt.Sprintf(" 不可变候选 %s 已通过完整性复验，但正式基线证据尚未重跑冻结。", progress.CatalogSealing.SealID)
+				report.Gates[index].Conclusion += fmt.Sprintf(" 不可变候选 %s 已通过完整性复验；技术重跑状态为 %s，正式基线仍未冻结。", progress.CatalogSealing.SealID, progress.CatalogRerun.State)
 			}
 		}
-		report.Gates[index].EvidenceRefs = []string{"catalog_review_queue", "catalog_sealed_candidate", "full_320_evaluation", "judge_human_calibration"}
+		report.Gates[index].EvidenceRefs = []string{"catalog_review_queue", "catalog_sealed_candidate", "catalog_sealed_rerun", "full_320_evaluation", "judge_human_calibration"}
 		report.Gates[index].NextAction = progress.NextRequiredGate
 	}
 	return finalizeG10ReleaseReview(report)
@@ -310,6 +359,74 @@ func validateG10SealStatus(status catalogseal.Status, workbench catalogreview.Wo
 		return errors.New("G10 catalog seal status is unknown")
 	}
 	return nil
+}
+
+func validateG10RerunStatus(status catalogrerun.Status) error {
+	if status.SchemaVersion != catalogrerun.StatusSchemaVersion ||
+		len(status.SealID) != len("catalog-seal-")+32 ||
+		!strings.HasPrefix(status.SealID, "catalog-seal-") ||
+		strings.TrimSpace(status.NextGate) == "" {
+		return errors.New("G10 catalog rerun status is invalid")
+	}
+	if _, err := hex.DecodeString(strings.TrimPrefix(status.SealID, "catalog-seal-")); err != nil {
+		return errors.New("G10 catalog rerun seal id is invalid")
+	}
+	validRunID := func(value string) bool {
+		return len(value) >= len("rerun-")+8 && strings.HasPrefix(value, "rerun-") && !strings.ContainsAny(value, "/\\")
+	}
+	validateLatest := func(expectedStatus string) error {
+		if status.LatestRun == nil || status.ActiveRunID != "" || !status.EvidenceIntegrityVerified ||
+			catalogrerun.ValidateReport(*status.LatestRun) != nil || status.LatestRun.SealID != status.SealID ||
+			status.LatestRun.Status != expectedStatus || status.LatestRun.PromotionEligible {
+			return errors.New("G10 completed catalog rerun status is invalid")
+		}
+		return nil
+	}
+	switch status.State {
+	case "not_started":
+		if status.ActiveRunID != "" || status.LatestRun != nil || status.EvidenceIntegrityVerified {
+			return errors.New("G10 not-started catalog rerun status is invalid")
+		}
+	case "running":
+		if !validRunID(status.ActiveRunID) || status.LatestRun != nil || status.EvidenceIntegrityVerified {
+			return errors.New("G10 running catalog rerun status is invalid")
+		}
+	case "execution_failed":
+		if status.LatestRun != nil {
+			if err := validateLatest("failed"); err != nil {
+				return err
+			}
+		} else if !validRunID(status.ActiveRunID) || status.EvidenceIntegrityVerified {
+			return errors.New("G10 incomplete catalog rerun status is invalid")
+		}
+	case "technical_gate_failed":
+		if err := validateLatest("completed_technical_gate_failed"); err != nil {
+			return err
+		}
+	case "technical_passed":
+		if err := validateLatest("completed_technical_pass"); err != nil {
+			return err
+		}
+	default:
+		return errors.New("G10 catalog rerun state is unknown")
+	}
+	return nil
+}
+
+func buildG10RerunProgress(status catalogrerun.Status) G10CatalogRerunProgress {
+	progress := G10CatalogRerunProgress{
+		State: status.State, RunID: status.ActiveRunID, EvidenceIntegrityVerified: status.EvidenceIntegrityVerified,
+		PromotionEligible: false, NextGate: status.NextGate,
+	}
+	if status.LatestRun == nil {
+		return progress
+	}
+	report := status.LatestRun
+	progress.RunID, progress.PlanSHA256, progress.ReportSHA256 = report.RunID, report.PlanSHA256, report.ReportSHA256
+	progress.ReleaseID, progress.GitSHA = report.ReleaseID, report.GitSHA
+	progress.CompletedSteps, progress.FailureStep = len(report.Steps), report.FailureStep
+	progress.TechnicalGatePassed, progress.PromotionEligible = report.TechnicalGatePassed, report.PromotionEligible
+	return progress
 }
 
 func interviewStatementByID(report InterviewEvidencePackage, id string) (InterviewEvidenceStatement, bool) {
@@ -509,6 +626,7 @@ func finalizeG10ReleaseReview(report *G10ReleaseReview) error {
 	if progress := report.HumanGateProgress; progress != nil {
 		catalog := progress.CatalogReview
 		sealing := progress.CatalogSealing
+		rerun := progress.CatalogRerun
 		judge := progress.JudgeCalibration
 		if catalog.Total <= 0 || catalog.Reviewed < 0 || catalog.Pending < 0 || catalog.Approved < 0 || catalog.Rejected < 0 || catalog.Reviewed+catalog.Pending != catalog.Total || catalog.Approved+catalog.Rejected != catalog.Reviewed || len(catalog.CatalogSHA256) != 64 || len(catalog.ReviewSetSHA256) != 64 || strings.TrimSpace(catalog.DatasetVersion) == "" || strings.TrimSpace(catalog.Status) == "" || sealing.Eligible != catalog.ReadyForSealedMaterialization || strings.TrimSpace(sealing.Status) == "" || strings.TrimSpace(sealing.NextGate) == "" || sealing.CandidateReady != sealing.ArtifactIntegrityVerified || judge.Total <= 0 || judge.Reviewed < 0 || judge.Reviewed > judge.Total || judge.KappaAvailable != (judge.Reviewed == judge.Total) || strings.TrimSpace(judge.Status) == "" || strings.TrimSpace(progress.NextRequiredGate) == "" {
 			return errors.New("G10 human gate progress is invalid")
@@ -521,6 +639,38 @@ func finalizeG10ReleaseReview(report *G10ReleaseReview) error {
 			return errors.New("G10 unsealed progress contains artifact identity")
 		} else if (sealing.Status == "blocked_human_review" && sealing.Eligible) || (sealing.Status == "ready_for_seal" && !sealing.Eligible) || (sealing.Status != "blocked_human_review" && sealing.Status != "ready_for_seal") {
 			return errors.New("G10 catalog sealing state is invalid")
+		}
+		if strings.TrimSpace(rerun.State) == "" || strings.TrimSpace(rerun.NextGate) == "" || rerun.PromotionEligible || rerun.CompletedSteps < 0 || rerun.CompletedSteps > 6 {
+			return errors.New("G10 catalog rerun progress is invalid")
+		}
+		if !sealing.CandidateReady {
+			if rerun.State != "not_applicable" || rerun.RunID != "" || rerun.PlanSHA256 != "" || rerun.ReportSHA256 != "" || rerun.ReleaseID != "" || rerun.GitSHA != "" || rerun.CompletedSteps != 0 || rerun.FailureStep != "" || rerun.TechnicalGatePassed || rerun.EvidenceIntegrityVerified {
+				return errors.New("G10 unsealed rerun progress is invalid")
+			}
+		} else {
+			switch rerun.State {
+			case "not_started":
+				if rerun.RunID != "" || rerun.PlanSHA256 != "" || rerun.ReportSHA256 != "" || rerun.ReleaseID != "" || rerun.GitSHA != "" || rerun.CompletedSteps != 0 || rerun.FailureStep != "" || rerun.TechnicalGatePassed || rerun.EvidenceIntegrityVerified {
+					return errors.New("G10 not-started rerun progress is invalid")
+				}
+			case "running":
+				if rerun.RunID == "" || rerun.PlanSHA256 != "" || rerun.ReportSHA256 != "" || rerun.CompletedSteps != 0 || rerun.FailureStep != "" || rerun.TechnicalGatePassed || rerun.EvidenceIntegrityVerified {
+					return errors.New("G10 running rerun progress is invalid")
+				}
+			case "execution_failed":
+				if rerun.RunID == "" || rerun.TechnicalGatePassed || (rerun.EvidenceIntegrityVerified && (len(rerun.PlanSHA256) != 64 || len(rerun.ReportSHA256) != 64 || len(rerun.GitSHA) != 40 || rerun.ReleaseID == "" || rerun.FailureStep == "")) {
+					return errors.New("G10 failed rerun progress is invalid")
+				}
+			case "technical_gate_failed", "technical_passed":
+				if rerun.RunID == "" || len(rerun.PlanSHA256) != 64 || len(rerun.ReportSHA256) != 64 || rerun.ReleaseID == "" || len(rerun.GitSHA) != 40 || rerun.CompletedSteps != 6 || rerun.FailureStep != "" || !rerun.EvidenceIntegrityVerified || (rerun.State == "technical_passed") != rerun.TechnicalGatePassed {
+					return errors.New("G10 completed rerun progress is invalid")
+				}
+			default:
+				return errors.New("G10 catalog rerun state is invalid")
+			}
+		}
+		if progress.SealedBaseline && (rerun.State != "technical_passed" || !rerun.TechnicalGatePassed || !rerun.EvidenceIntegrityVerified) {
+			return errors.New("G10 sealed baseline is not bound to a verified technical rerun")
 		}
 	}
 	report.ReportSHA256 = ""
@@ -549,7 +699,7 @@ func writeG10ReviewMarkdown(writer io.Writer, report G10ReleaseReview) error {
 		}
 	}
 	if progress := report.HumanGateProgress; progress != nil {
-		if _, err := fmt.Fprintf(writer, "\n## 人工门实时进度\n\n- Full 320：`%d/%d`，通过 `%d`，退回 `%d`，待审 `%d`，Review Set `%s`\n- 不可变封存候选：状态 `%s`，完整性复验 `%t`，Seal `%s`\n- Judge 30：`%d/%d`，κ `%s`，校准门 `%t`\n- 正式基线已封存：`%t`\n- 下一门：%s\n\n", progress.CatalogReview.Reviewed, progress.CatalogReview.Total, progress.CatalogReview.Approved, progress.CatalogReview.Rejected, progress.CatalogReview.Pending, progress.CatalogReview.ReviewSetSHA256, progress.CatalogSealing.Status, progress.CatalogSealing.ArtifactIntegrityVerified, emptyG10SealID(progress.CatalogSealing.SealID), progress.JudgeCalibration.Reviewed, progress.JudgeCalibration.Total, formatG10Kappa(progress.JudgeCalibration), progress.JudgeCalibration.CalibrationGatePassed, progress.SealedBaseline, progress.NextRequiredGate); err != nil {
+		if _, err := fmt.Fprintf(writer, "\n## 人工门实时进度\n\n- Full 320：`%d/%d`，通过 `%d`，退回 `%d`，待审 `%d`，Review Set `%s`\n- 不可变封存候选：状态 `%s`，完整性复验 `%t`，Seal `%s`\n- 固定技术重跑：状态 `%s`，Run `%s`，完成 `%d/6`，证据复验 `%t`，技术门 `%t`，自动晋级 `%t`\n- Judge 30：`%d/%d`，κ `%s`，校准门 `%t`\n- 正式基线已封存：`%t`\n- 下一门：%s\n\n", progress.CatalogReview.Reviewed, progress.CatalogReview.Total, progress.CatalogReview.Approved, progress.CatalogReview.Rejected, progress.CatalogReview.Pending, progress.CatalogReview.ReviewSetSHA256, progress.CatalogSealing.Status, progress.CatalogSealing.ArtifactIntegrityVerified, emptyG10SealID(progress.CatalogSealing.SealID), progress.CatalogRerun.State, emptyG10RunID(progress.CatalogRerun.RunID), progress.CatalogRerun.CompletedSteps, progress.CatalogRerun.EvidenceIntegrityVerified, progress.CatalogRerun.TechnicalGatePassed, progress.CatalogRerun.PromotionEligible, progress.JudgeCalibration.Reviewed, progress.JudgeCalibration.Total, formatG10Kappa(progress.JudgeCalibration), progress.JudgeCalibration.CalibrationGatePassed, progress.SealedBaseline, progress.NextRequiredGate); err != nil {
 			return err
 		}
 	}
@@ -587,6 +737,13 @@ func formatG10Kappa(progress G10JudgeReviewProgress) string {
 func emptyG10SealID(id string) string {
 	if strings.TrimSpace(id) == "" {
 		return "未生成"
+	}
+	return id
+}
+
+func emptyG10RunID(id string) string {
+	if strings.TrimSpace(id) == "" {
+		return "未运行"
 	}
 	return id
 }

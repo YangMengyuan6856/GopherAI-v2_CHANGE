@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"GopherAI/internal/catalogrerun"
 	"GopherAI/internal/catalogreview"
 	"GopherAI/internal/catalogseal"
 
@@ -33,6 +34,17 @@ type stubG10CatalogSealSource struct {
 	status    catalogseal.Status
 	err       error
 	principal string
+}
+
+type stubG10CatalogRerunSource struct {
+	status catalogrerun.Status
+	err    error
+	sealID string
+}
+
+func (source *stubG10CatalogRerunSource) Status(_ context.Context, sealID string) (catalogrerun.Status, error) {
+	source.sealID = sealID
+	return source.status, source.err
 }
 
 func (source *stubG10CatalogSealSource) Status(_ context.Context, principal string) (catalogseal.Status, error) {
@@ -196,8 +208,43 @@ func TestG10SealedCandidateDoesNotBecomeSealedBaselineOrUnlockProductGate(t *tes
 			product = gate
 		}
 	}
-	if product.Status != "blocked" || !strings.Contains(product.Conclusion, "正式基线证据尚未重跑冻结") || !strings.Contains(human.NextRequiredGate, "统一 Runner") {
+	if product.Status != "blocked" || !strings.Contains(product.Conclusion, "技术重跑状态为 not_started") || !strings.Contains(human.NextRequiredGate, "六个 Runner Hash") || human.CatalogRerun.State != "not_started" || human.CatalogRerun.PromotionEligible {
 		t.Fatalf("candidate boundary is not explicit: gate=%+v progress=%+v", product, human)
+	}
+}
+
+func TestG10SealedCandidateReadsNotStartedRerunWithoutUnlockingProductGate(t *testing.T) {
+	evidence, err := buildInterviewEvidencePackage(validInterviewEvidenceInputs(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	progress := catalogreview.Progress{Total: 320, Reviewed: 320, Approved: 320, ReviewSetSHA256: strings.Repeat("d", 64), ReadyForMaterializing: true}
+	sealID := "catalog-seal-" + strings.Repeat("e", 32)
+	service := newG10ReviewService(&stubInterviewEvidenceService{report: evidence}, nil, time.Now)
+	service.catalogReview = &stubG10CatalogReviewSource{workbench: catalogreview.Workbench{
+		SchemaVersion: catalogreview.SchemaVersion, DatasetVersion: "devsupport-eval-v1", CatalogSHA256: strings.Repeat("c", 64),
+		Status: "ready_for_sealed_materialization", Progress: progress,
+	}}
+	service.catalogSeal = &stubG10CatalogSealSource{status: catalogseal.Status{
+		SchemaVersion: catalogseal.StatusSchemaVersion, Status: "sealed_candidate_ready", Eligible: true, DatasetVersion: "devsupport-eval-v1",
+		CatalogSHA256: strings.Repeat("c", 64), ReviewSetSHA: strings.Repeat("d", 64), Progress: progress, NextGate: "rerun all evaluations",
+		CurrentSeal: &catalogseal.Report{
+			SchemaVersion: catalogseal.SchemaVersion, Status: "sealed_candidate_ready", SealID: sealID, SealSHA256: strings.Repeat("f", 64),
+			SourceCatalogSHA256: strings.Repeat("c", 64), SourceReviewSetSHA256: strings.Repeat("d", 64), CaseCount: 320, ApprovedCases: 320,
+			OutputCatalogSHA256: strings.Repeat("1", 64), OutputReviewSHA256: strings.Repeat("2", 64),
+		},
+	}}
+	rerunSource := &stubG10CatalogRerunSource{status: catalogrerun.Status{
+		SchemaVersion: catalogrerun.StatusSchemaVersion, SealID: sealID, State: "not_started",
+		NextGate: "plan and execute",
+	}}
+	service.catalogRerun = rerunSource
+	report, err := service.Build(context.Background(), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rerunSource.sealID != sealID || report.HumanGateProgress == nil || report.HumanGateProgress.CatalogRerun.State != "not_started" || report.HumanGateProgress.SealedBaseline || report.PassedGates != 1 {
+		t.Fatalf("rerun status crossed a forbidden gate: source=%+v report=%+v", rerunSource, report)
 	}
 }
 
