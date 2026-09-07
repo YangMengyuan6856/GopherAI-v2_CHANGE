@@ -80,6 +80,7 @@ flowchart LR
 - Harness 自动候选在公平预算比较中表现为负收益，已被离线、人工与隔离 Shadow 门拒绝，生产活动 Pointer 为 0。这是“门禁有效”的负向证据，不是自进化成功。
 - 顶部“人工验收”提供独立可滚动的专注工作台：Full 320 与 Judge 30 分页签逐例处理、提交后续到下一待审项、刷新后按登录用户恢复断点。当前仍为 `0/320` 与 `0/30`；系统不提供批量代签。
 - Full 320 只有 `320 approved / 0 rejected / 0 pending` 才显示封存动作。后端从 MySQL 权威复核集创建只读候选目录，重新生成 `reviewed_by=human` 的六类 JSONL、Catalog、Review Manifest 与 11 个文件承诺；随包 `GopherAI-catalog-seal-verify` 可脱离 Web 服务重算全部 Hash 并拒绝额外文件。封存自 Hash 不是数字签名，候选仍须重跑五类评测与统一 Runner，且不会写正式基线或线上策略。
+- 发布包内的 `GopherAI-catalog-seal-rerun` 只接受已复验封存件与同目录 clean-SHA Release Manifest；计划绑定六个固定 Runner 的路径、参数和二进制 Hash，执行时串行运行 Intent/RAG/Diagnosis/Tool/Memory/Unified，使用单 Seal 锁、逐步超时、8 MiB 日志上限和只增不改检查点。技术通过仍为 `promotion_eligible=false`；`-verify-run` 会重新计算计划、日志、产物、检查点和最终报告的物理 Hash。当前封存件为 `0`，所以线上没有触发重跑。
 - 当前是单 ECS、单应用容器环境；真实百分比生产灰度、数据库收缩迁移与多实例故障切换没有被伪造成已完成能力。
 
 ## 主要代码入口
@@ -91,7 +92,7 @@ flowchart LR
 | RAG、索引与检索 | `controller/knowledge/`、`cmd/index-worker/` |
 | Context 与三级记忆 | `controller/memory/` |
 | 工具治理与 MCP Adapter | `controller/toolruntime/`、`common/mcp/` |
-| 评测、检测与证据包 | `controller/evaluation/`、`evals/` |
+| 评测、检测与证据包 | `controller/evaluation/`、`internal/catalogrerun/`、`evals/` |
 | 前端演示与人工验收工作台 | `vue-frontend/src/views/AIChat.vue`、`vue-frontend/src/components/HumanReviewWorkbench.vue` |
 | 云端原子发布 | `scripts/deploy/` |
 

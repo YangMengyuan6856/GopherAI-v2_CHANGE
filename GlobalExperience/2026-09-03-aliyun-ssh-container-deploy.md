@@ -1691,3 +1691,11 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 报告新增 `catalog_sealing`，分开记录 `eligible`、`candidate_ready`、`artifact_integrity_verified`、Seal/输出 Manifest Hash 和下一门。即使测试构造 `320/320 + sealed_candidate_ready`，只要 Evidence Package 还没有重跑并冻结正式基线，`sealed_baseline=false`、产品 Gate 保持 blocked、Passed Gates 不增加；这是专门的回归测试，不依赖页面文案自觉。
 - Release `20260907104051-d5b6358563c5`，bundle SHA-256 `cd8ea19930b1d1c60d1a92186eab8ca1e217f7a3568c9ba15ec05bb5d4673a39`，724 个可追溯条目；自动清理报告 SHA `15abd1fe8f3d0fb72c6e45c69a5e25d064ca6ca73d70459d962efe4d68bcb2e3`、Tracked Source `569`。真实页面同屏显示人工队列 `0/320`、候选“未准入”、Judge `0/30` 和产品门仍阻断；封存目录为 0，启动后连续六轮采集恢复 `warming/points=2`。
 - 前端没有增加第三个巨型工作台，而是在 Full 320 进度卡内加入紧凑的候选状态段，保持既有两列布局和独立工作区滚动。信息分层应该靠语义和紧凑状态，不应再次要求用户把整页缩小到不可读。
+
+## 97. 2026-09-07 封存后重跑必须绑定发布二进制，技术通过也不能自动晋级
+
+- `32ebb165` 增加 `evaluation-catalog-rerun-plan-v1/report-v1` 与 `GopherAI-catalog-seal-rerun`。计划只接受通过 `catalogseal.ValidateArtifact` 的不可变候选，且 Release Manifest 必须位于同一工作目录、标记 clean `linux/amd64` 并声明六类评测组件；计划自 Hash 同时绑定 Seal、Release/Git、输出域、六个固定 Runner 的二进制 SHA-256、固定参数、顺序与逐步超时。输出目录不得与封存件或 Release 目录重叠。
+- 执行不调用 Shell，也不接受任意命令、模型或网页参数。固定顺序为 Intent → RAG → Diagnosis → Tool → Memory → Unified；同一 Seal 使用 `O_EXCL` 活跃锁，日志各自最多 8 MiB，成功步骤追加检查点，失败步骤立即停止且保留 stdout/stderr、已生成产物和最终失败报告。RAG/Unified 的质量门非零退出可形成 `completed_technical_gate_failed`，基础执行异常形成 `failed`，两者都不会被吞成成功或隐藏重试。
+- 每个最终报告恒为 `promotion_eligible=false`，且 Guardrail 明确禁止 baseline pointer、policy write 和 automatic promotion。`-verify-run` 不依赖历史 Release 仍在线，会严格读取保存的 Plan/Result、重算每个日志与输出 Hash、验证检查点前缀和文件全集；它提供可复验完整性，不应表述为非对称数字签名或审批。
+- Release `20260907123958-32ebb1655936`，bundle SHA-256 `b2eab90834e05bd1c8b7b40816fd9ead47abe725114504acb98cf1c46720eaa5`，735 个包条目；清理报告 SHA `2fca3bc19e98b2d53f260e5456f1dce8b19ce1ba5536caeef78f45ed9ad0acde`，Tracked Source `572`。全仓 Go/MCP 测试、Vet、`catalogrerun/catalogseal` Race、PowerShell 解析、Vue production build、七个 Linux Runner 交叉编译、19 条 Prometheus 规则、2/2 targets、私网 Grafana 与服务健康门全部通过。
+- 云端只读检查确认七个 Runner 可执行且已进入 Release Manifest；封存候选目录 `0`、重跑目录 `0`，因此发布没有越过真实人工门。真实页面仍显示当前 Release、G10 `1/4`、Full 320 `0/320`、候选未准入与 Judge `0/30`，浏览器检查结束后恢复原人工工作台。以后只有项目所有者完成 320 条复核并显式封存后，才生成只读计划并人工确认执行；失败 Run 不原地续写，修复后创建新 Run 保留对照。
