@@ -41,6 +41,7 @@
         <button class="tool-runtime-toggle" :class="{ 'workspace-active': toolRuntimeOpen }" :aria-pressed="toolRuntimeOpen" :disabled="loadingToolCatalog" @click="toggleToolRuntime">🛡 受治理工具</button>
         <button class="strategy-control-toggle" :class="{ 'workspace-active': policyControlOpen }" :aria-pressed="policyControlOpen" :disabled="loadingPolicyControl" @click="togglePolicyControl">🧭 策略演算</button>
         <button class="evaluation-catalog-toggle" :class="{ 'workspace-active': evaluationCatalogOpen }" :aria-pressed="evaluationCatalogOpen" :disabled="loadingEvaluationCatalog" @click="toggleEvaluationCatalog">📊 评测总览</button>
+        <button class="human-review-toggle" :class="{ 'workspace-active': humanReviewOpen }" :aria-pressed="humanReviewOpen" @click="humanReviewOpen = true">✅ 人工验收</button>
         <button
           class="upload-btn"
           title="支持 Markdown/TXT、JSON/YAML key path 和 Go 顶层符号索引"
@@ -56,6 +57,8 @@
           @change="handleFileUpload"
         />
       </div>
+
+      <HumanReviewWorkbench v-if="humanReviewOpen" @close="humanReviewOpen = false" />
 
       <div
         v-show="interviewDemoOpen || policyControlOpen || toolRuntimeOpen || evaluationCatalogOpen || knowledgeDocuments.length > 0 || knowledgeSearchOpen || memoryPreviewOpen || diagnosticMode"
@@ -2508,9 +2511,11 @@
 import { ref, nextTick, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '../utils/api'
+import HumanReviewWorkbench from '../components/HumanReviewWorkbench.vue'
 
 export default {
   name: 'AIChat',
+  components: { HumanReviewWorkbench },
   setup() {
 
     const sessions = ref({})
@@ -2600,6 +2605,7 @@ export default {
     ]
     const currentInterviewDemoStep = computed(() => interviewDemoSteps[interviewDemoStep.value] || interviewDemoSteps[0])
     const evaluationCatalogOpen = ref(false)
+    const humanReviewOpen = ref(false)
     const loadingEvaluationCatalog = ref(false)
     // The compact interview guide intentionally preloads only four reports.
     // Keep a separate marker for the full workbench so that a preloaded catalog
@@ -5220,6 +5226,7 @@ export default {
       interviewDemoSteps,
       currentInterviewDemoStep,
       evaluationCatalogOpen,
+      humanReviewOpen,
       loadingEvaluationCatalog,
       evaluationCatalog,
       evaluationRun,
@@ -7156,6 +7163,19 @@ export default {
 .strategy-control-toggle:disabled {
   cursor: wait;
   opacity: 0.65;
+}
+
+.human-review-toggle {
+  padding: 8px 12px;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #16825d 0%, #2a9d8f 100%);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 5px 14px rgba(31, 143, 109, 0.18);
 }
 
 .strategy-control-panel {
