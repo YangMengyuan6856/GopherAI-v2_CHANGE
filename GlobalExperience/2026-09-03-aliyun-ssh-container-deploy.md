@@ -1705,4 +1705,4 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - `ad1a6598` 将 G10 升级为 `g10-release-review-v4`，以只读 Inspector 从当前 Seal 的运行数据域推导 `not_started/running/execution_failed/technical_gate_failed/technical_passed` 五类状态。完成态必须重新验证最终报告及物理日志、产物和 checkpoint Hash；最新目录被篡改时整个 G10 fail-closed，不能退回模糊的“未运行”。
 - 页面在 Full 320 卡片内紧凑显示固定重跑状态、Run、`0～6` 步、证据复验和“不自动晋级”。即使状态为 `technical_passed`，只要正式 Evidence Statement、Judge 校准或独立基线审批未通过，产品 Gate 仍不能增加；所有报告继续固定 `promotion_eligible=false`。
 - Release `20260907143513-ad1a6598f6d0`，bundle SHA-256 `c6aee76cea08e638b9c0616a48c174cadfa43d415b1f82f557befd0d18011661`，737 个可追溯条目；自动清理报告 SHA `376d1f13b002269995ea0856a9fbbec614f777a902674b4b0aa81d76625537d8`、Tracked Source `574`。全量 Go/Vet、定向 Race、Vue lint/build、Prometheus/Grafana 与五进程健康门通过。
-- 真实浏览器显示当前 Release、G10 `1/4`、Full 320 `0/320`、Judge `0/30`、固定技术重跑“未运行（等待封存）”；Smoke 后恢复原人工验收工作台，未提交任何人工标签或评分。首次指标采集仍可能在 Release 切换后短暂 `capture_failed`，应等待调度周期复核，不把一次预热失败当成业务回归。
+- 真实浏览器显示当前 Release、G10 `1/4`、Full 320 `0/320`、Judge `0/30`、固定技术重跑“未运行（等待封存）”；Smoke 后恢复原人工验收工作台，未提交任何人工标签或评分。首次指标采集在 Release 切换后短暂 `capture_failed`，随后至少连续五轮恢复 `warming/points=2`；应等待调度周期复核，不把一次预热失败当成业务回归。
