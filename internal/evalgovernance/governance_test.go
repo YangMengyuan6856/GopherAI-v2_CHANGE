@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-const catalogSHA = "6f5cff1cfb3c0c683ac5241fd9ceb117337833085626e4b8785d80f8b7108cd7"
+const catalogSHA = "69e5d1d9ea6102e2fdb12f23ebd0303a175e8d8f4e744a2edb3387ad422e7bb7"
 
 func TestLoadFileValidatesDatasetSourcesAndTruthClasses(t *testing.T) {
 	manifest, err := LoadFile("../../evals/devsupport-eval-v1.governance.json", "devsupport-eval-v1", catalogSHA)
@@ -40,7 +40,9 @@ func TestLoadFileRejectsCatalogMismatchAndTamperedSource(t *testing.T) {
 	copyFile(t, path, filepath.Join(temporary, "governance.json"))
 	copyFile(t, "../../evals/intent-rubric-v1.md", filepath.Join(temporary, "intent-rubric-v1.md"))
 	copyFile(t, "../../evals/fixtures/kb-fixture-v2.json", filepath.Join(temporary, "fixtures", "kb-fixture-v2.json"))
+	copyFile(t, "../../evals/fixtures/tool-runtime-review-v1.json", filepath.Join(temporary, "fixtures", "tool-runtime-review-v1.json"))
 	copyFile(t, "../../evals/rubrics/devsupport-contract-rubric-v1.md", filepath.Join(temporary, "rubrics", "devsupport-contract-rubric-v1.md"))
+	copyFile(t, "../../evals/rubrics/memory-selection-rules-v1.md", filepath.Join(temporary, "rubrics", "memory-selection-rules-v1.md"))
 	copyFile(t, "../../evals/rubrics/judge-human-scoring-rubric-v1.md", filepath.Join(temporary, "rubrics", "judge-human-scoring-rubric-v1.md"))
 	if err := os.WriteFile(filepath.Join(temporary, "intent-rubric-v1.md"), []byte("tampered\n"), 0o600); err != nil {
 		t.Fatal(err)

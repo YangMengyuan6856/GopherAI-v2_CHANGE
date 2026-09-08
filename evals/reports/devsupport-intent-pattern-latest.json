@@ -3,8 +3,8 @@
   "dataset_version": "devsupport-intent-v1",
   "rubric_version": "intent-rubric-v1",
   "recognizer_version": "intent-pattern-v1",
-  "candidate_version": "8dd517ad3610f97076cc5538a0cc829d6b674e6f",
-  "generated_at": "2026-09-04T11:28:25.1331139Z",
+  "candidate_version": "human-adjudicated-r2",
+  "generated_at": "2026-09-08T19:01:51.659748Z",
   "case_count": 150,
   "human_reviewed": false,
   "baseline_eligible": false,
@@ -20,11 +20,11 @@
   "g4_evaluated": false,
   "label_metrics": {
     "doc_task": {
-      "support": 25,
+      "support": 26,
       "matched": 9,
       "correct": 9,
-      "coverage": 0.36,
-      "selective_recall": 0.36
+      "coverage": 0.34615384615384615,
+      "selective_recall": 0.34615384615384615
     },
     "follow_up": {
       "support": 25,
@@ -48,11 +48,11 @@
       "selective_recall": 0.36
     },
     "tool_task": {
-      "support": 25,
+      "support": 24,
       "matched": 7,
       "correct": 7,
-      "coverage": 0.28,
-      "selective_recall": 0.28
+      "coverage": 0.2916666666666667,
+      "selective_recall": 0.2916666666666667
     },
     "troubleshooting": {
       "support": 25,
@@ -772,7 +772,7 @@
     },
     {
       "id": "intent-v1-089",
-      "expected": "tool_task",
+      "expected": "doc_task",
       "predicted": "general",
       "confidence": 0.4,
       "matched": false,

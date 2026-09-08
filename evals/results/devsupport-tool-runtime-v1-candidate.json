@@ -1,7 +1,7 @@
 {
   "evaluator_version": "tool-runtime-evaluator-v1",
   "dataset_version": "devsupport-tool-runtime-v1",
-  "generated_at": "2026-09-04T23:47:47.484438Z",
+  "generated_at": "2026-09-08T19:02:11.0345955Z",
   "human_reviewed": false,
   "baseline_eligible": false,
   "technical_gates_passed": true,
@@ -25,7 +25,7 @@
     "deterministic_replay_rate": 1,
     "bounded_repair_pass_rate": 1,
     "no_progress_termination_rate": 1,
-    "latency_p95_ms": 0.5326
+    "latency_p95_ms": 0.5337
   },
   "cases": [
     {
@@ -234,7 +234,7 @@
         "executions": 1,
         "audit_count": 1
       },
-      "latency_ms": 0
+      "latency_ms": 0.528
     },
     {
       "id": "tool-schema-003",
@@ -306,7 +306,7 @@
         "audit_count": 3,
         "repair_count": 2
       },
-      "latency_ms": 0.5326
+      "latency_ms": 0
     },
     {
       "id": "tool-schema-006",
@@ -330,7 +330,7 @@
         "executions": 0,
         "audit_count": 1
       },
-      "latency_ms": 0
+      "latency_ms": 0.5337
     },
     {
       "id": "tool-authorization-001",
@@ -542,7 +542,7 @@
         "executions": 1,
         "audit_count": 1
       },
-      "latency_ms": 21.0457
+      "latency_ms": 21.0206
     },
     {
       "id": "tool-resilience-004",
@@ -614,7 +614,7 @@
         "executions": 2,
         "audit_count": 3
       },
-      "latency_ms": 30.9996
+      "latency_ms": 30.5249
     },
     {
       "id": "tool-safety-001",

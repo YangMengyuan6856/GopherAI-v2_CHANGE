@@ -82,6 +82,7 @@ type catalogReviewRequest struct {
 	ExpectedRevision int      `json:"expected_revision"`
 	Decision         string   `json:"decision"`
 	ReasonCodes      []string `json:"reason_codes"`
+	Comment          string   `json:"comment,omitempty"`
 	IdempotencyKey   string   `json:"idempotency_key"`
 	Acknowledgment   string   `json:"acknowledgment"`
 }
@@ -108,6 +109,7 @@ func (handler *CatalogReviewHandler) Submit(ginContext *gin.Context) {
 	receipt, err := handler.service.Submit(ctx, ginContext.GetString("userName"), catalogreview.ReviewCommand{
 		CatalogSHA256: request.CatalogSHA256, GovernanceSHA256: request.GovernanceSHA256, CaseID: request.CaseID, CaseSHA256: request.CaseSHA256,
 		ExpectedRevision: request.ExpectedRevision, Decision: request.Decision, ReasonCodes: request.ReasonCodes,
+		Comment:        request.Comment,
 		IdempotencyKey: request.IdempotencyKey, Acknowledgment: request.Acknowledgment,
 	})
 	if err != nil {

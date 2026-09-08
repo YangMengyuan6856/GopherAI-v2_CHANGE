@@ -87,6 +87,7 @@ func upgradeLegacyReview(snapshot Snapshot, review model.EvaluationCatalogReview
 	upgraded := review
 	upgraded.SchemaVersion = ReviewSchemaVersion
 	upgraded.PreviousReviewSHA256 = review.ReviewSHA256
+	upgraded.RequestSHA256 = reviewRequestSHA(upgraded)
 	upgraded.ReviewSHA256 = reviewSHA(upgraded)
 	upgraded.ID = upgraded.ReviewSHA256
 	if err := validateReview(upgraded); err != nil {

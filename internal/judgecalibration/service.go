@@ -23,12 +23,13 @@ import (
 )
 
 const (
-	SchemaVersion         = "judge-calibration-audit-v1"
-	ReviewSchemaVersion   = "judge-calibration-human-review-v1"
-	DefaultDatasetPath    = "evals/devsupport-judge-calibration-v1.jsonl"
-	DefaultReportPath     = "/root/GopherAI_Runtime/evaluation/judge-calibration-latest.json"
-	DefaultGovernancePath = "evals/devsupport-eval-v1.governance.json"
-	DefaultCatalogPath    = "evals/devsupport-eval-v1.manifest.json"
+	SchemaVersion             = "judge-calibration-audit-v1"
+	LegacyReviewSchemaVersion = "judge-calibration-human-review-v1"
+	ReviewSchemaVersion       = "judge-calibration-human-review-v2"
+	DefaultDatasetPath        = "evals/devsupport-judge-calibration-v1.jsonl"
+	DefaultReportPath         = "/root/GopherAI_Runtime/evaluation/judge-calibration-latest.json"
+	DefaultGovernancePath     = "evals/devsupport-eval-v1.governance.json"
+	DefaultCatalogPath        = "evals/devsupport-eval-v1.manifest.json"
 )
 
 var (
@@ -101,6 +102,7 @@ type CaseView struct {
 	AnswerVariant   string                                `json:"answer_variant,omitempty"`
 	Judge           evaluation.JudgeCalibrationCaseResult `json:"judge"`
 	HumanScores     *evaluation.JudgeScores               `json:"human_scores,omitempty"`
+	HumanComment    string                                `json:"human_comment,omitempty"`
 	ReviewRevision  int                                   `json:"review_revision"`
 }
 
@@ -200,7 +202,7 @@ func (service *Service) Audit(ctx context.Context, reviewer string) (Audit, erro
 		view := CaseView{ID: item.ID, Slice: item.Slice, TaskType: item.TaskType, Question: item.Question, Answer: item.Answer, ExpectedFacts: item.ExpectedFacts, ForbiddenClaims: item.ForbiddenClaims, Judge: judgeByCase[item.ID], Evidence: evidenceViews(item.Evidence)}
 		if review, exists := reviewByCase[item.ID]; exists {
 			scores := reviewScores(review)
-			view.HumanScores, view.ReviewRevision, view.AnswerVariant = &scores, review.Revision, variant
+			view.HumanScores, view.HumanComment, view.ReviewRevision, view.AnswerVariant = &scores, review.Comment, review.Revision, variant
 		}
 		views = append(views, view)
 	}
@@ -217,11 +219,17 @@ func (service *Service) Audit(ctx context.Context, reviewer string) (Audit, erro
 }
 
 func (service *Service) Submit(ctx context.Context, reviewer, caseID string, scores evaluation.JudgeScores) (ReviewReceipt, error) {
+	return service.SubmitWithComment(ctx, reviewer, caseID, scores, "")
+}
+
+// SubmitWithComment preserves the human rationale inside the immutable review
+// commitment while keeping Submit and the existing HTTP contract compatible.
+func (service *Service) SubmitWithComment(ctx context.Context, reviewer, caseID string, scores evaluation.JudgeScores, comment string) (ReviewReceipt, error) {
 	if service == nil || service.artifacts == nil || service.repository == nil {
 		return ReviewReceipt{}, gorm.ErrInvalidDB
 	}
-	reviewer, caseID = strings.TrimSpace(reviewer), strings.TrimSpace(caseID)
-	if reviewer == "" || caseID == "" || invalidScores(scores) {
+	reviewer, caseID, comment = strings.TrimSpace(reviewer), strings.TrimSpace(caseID), strings.TrimSpace(comment)
+	if reviewer == "" || caseID == "" || invalidScores(scores) || len([]rune(comment)) > 4000 {
 		return ReviewReceipt{}, ErrInvalidReview
 	}
 	cases, report, err := service.artifacts.Load()
@@ -242,13 +250,13 @@ func (service *Service) Submit(ctx context.Context, reviewer, caseID string, sco
 	caseDigest := sha256.Sum256(encodedCase)
 	reviewerHash := hash(reviewer)
 	scoreJSON, _ := json.Marshal(scores)
-	reviewDigest := sha256.Sum256([]byte(report.DatasetSHA256 + "\x00" + caseID + "\x00" + reviewerHash + "\x00" + string(scoreJSON)))
+	reviewDigest := sha256.Sum256([]byte(ReviewSchemaVersion + "\x00" + report.DatasetSHA256 + "\x00" + caseID + "\x00" + reviewerHash + "\x00" + string(scoreJSON) + "\x00" + comment))
 	now := service.clock().UTC()
 	review := model.JudgeCalibrationReview{
 		ID: uuid.NewString(), SchemaVersion: ReviewSchemaVersion, DatasetVersion: report.DatasetVersion, DatasetSHA256: report.DatasetSHA256,
 		CaseID: caseID, CaseSHA256: hex.EncodeToString(caseDigest[:]), ReviewerHash: reviewerHash,
 		Relevance: scores.Relevance, Completeness: scores.Completeness, Helpfulness: scores.Helpfulness, Groundedness: scores.Groundedness, Safety: scores.Safety,
-		Overall: weightedOverall(scores), ReviewSHA256: hex.EncodeToString(reviewDigest[:]), CreatedAt: now,
+		Overall: weightedOverall(scores), Comment: comment, ReviewSHA256: hex.EncodeToString(reviewDigest[:]), CreatedAt: now,
 	}
 	created, stored, err := service.repository.Append(ctx, &review)
 	if err != nil {

@@ -13,7 +13,9 @@ import (
 const IntentDatasetVersion = "devsupport-intent-v1"
 
 type IntentContext struct {
-	PreviousIntent string `json:"previous_intent,omitempty"`
+	PreviousIntent           string `json:"previous_intent,omitempty"`
+	PreviousUserMessage      string `json:"previous_user_message,omitempty"`
+	PreviousAssistantMessage string `json:"previous_assistant_message,omitempty"`
 }
 
 type IntentExpected struct {
@@ -83,8 +85,11 @@ func LoadIntentDataset(reader io.Reader) ([]IntentCase, IntentDatasetSummary, er
 		return nil, summary, fmt.Errorf("intent dataset must contain 150 cases, got %d", len(cases))
 	}
 	for _, label := range intent.Labels() {
-		if summary.LabelCounts[label] != 25 {
-			return nil, summary, fmt.Errorf("intent label %q must contain 25 cases, got %d", label, summary.LabelCounts[label])
+		// Human adjudication is authoritative over artificial class balance. Keep
+		// enough coverage for every label, but do not force an incorrect label just
+		// to retain the original 25/label synthetic layout.
+		if summary.LabelCounts[label] < 20 {
+			return nil, summary, fmt.Errorf("intent label %q must contain at least 20 cases, got %d", label, summary.LabelCounts[label])
 		}
 	}
 	return cases, summary, nil
@@ -108,6 +113,8 @@ func validateIntentCase(item IntentCase) error {
 		return errors.New("follow_up case requires a known previous_intent")
 	case item.Expected.Intent == intent.FollowUp && (item.Context.PreviousIntent == intent.FollowUp || item.Context.PreviousIntent == intent.General):
 		return errors.New("follow_up previous_intent must be a resolvable primary intent")
+	case item.Expected.Intent == intent.FollowUp && (strings.TrimSpace(item.Context.PreviousUserMessage) == "" || strings.TrimSpace(item.Context.PreviousAssistantMessage) == ""):
+		return errors.New("follow_up case requires the previous user and assistant messages")
 	}
 	return nil
 }

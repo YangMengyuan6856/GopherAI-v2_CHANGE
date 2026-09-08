@@ -17,6 +17,7 @@ type EvaluationCatalogReview struct {
 	Revision             int       `gorm:"uniqueIndex:uk_catalog_governance_review_revision;not null" json:"revision"`
 	Decision             string    `gorm:"index;not null;type:varchar(24)" json:"decision"`
 	ReasonCodesJSON      string    `gorm:"type:text;not null" json:"-"`
+	Comment              string    `gorm:"type:text;not null" json:"comment"`
 	ExpectedRevision     int       `gorm:"not null" json:"expected_revision"`
 	IdempotencyKeyHash   string    `gorm:"uniqueIndex;not null;type:char(64)" json:"-"`
 	RequestSHA256        string    `gorm:"not null;type:char(64)" json:"request_sha256"`

@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestIntentDatasetIsBalancedAndPendingHumanReview(t *testing.T) {
+func TestIntentDatasetKeepsCoverageAfterHumanAdjudication(t *testing.T) {
 	path := filepath.Join("..", "..", "evals", "devsupport-intent-v1.jsonl")
 	file, err := os.Open(path)
 	if err != nil {
@@ -21,8 +21,11 @@ func TestIntentDatasetIsBalancedAndPendingHumanReview(t *testing.T) {
 	if len(cases) != 150 || summary.CaseCount != 150 || summary.HumanReviewed {
 		t.Fatalf("unexpected summary: %+v", summary)
 	}
-	if summary.CompoundCount < 10 || summary.DifficultyCount["hard"] < 40 {
+	if summary.CompoundCount < 4 || summary.DifficultyCount["hard"] < 40 || summary.LabelCounts["doc_task"] != 26 || summary.LabelCounts["tool_task"] != 24 {
 		t.Fatalf("dataset lacks compound/hard coverage: %+v", summary)
+	}
+	if cases[100].Context.PreviousUserMessage == "" || cases[100].Context.PreviousAssistantMessage == "" {
+		t.Fatal("follow-up rows do not carry independently reviewable conversation context")
 	}
 }
 

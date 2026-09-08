@@ -38,8 +38,12 @@ go run ./cmd/eval-catalog -manifest evals/devsupport-eval-v1.manifest.json
 
 `devsupport-eval-v1.manifest.json` now freezes six candidate slices totalling
 320 cases. A passing catalog check means the assets are structurally complete;
-because all labels remain `pending_user`, it is still not a reviewed baseline
-and cannot support resume claims about model quality.
+the immutable JSONL assets keep `reviewed_by=pending_user`, while human decisions
+are stored as separately hashed, append-only MySQL records. The first owner
+review produced 240 approvals and 80 rejections. Governance v2 repairs the
+rejected contracts, carries forward only byte-identical approved cases, and
+keeps every changed/rejected case pending; it is not a reviewed baseline until
+those remaining cases pass and the catalog is sealed and rerun.
 
 `devsupport-insufficient-evidence-v1.jsonl` supplies the previously separate
 20-case safety slice: missing documents, unauthorized scope, diagnostic
@@ -62,7 +66,7 @@ go run ./cmd/deterministic-score -candidate <git-sha>
 ```
 
 The M8 Judge adapter is `llm-judge-adapter-v1` with rubric
-`judge-rubric-v2`. It sends only the public question/history, candidate answer,
+`judge-rubric-v3-human-calibrated`. It sends only the public question/history, candidate answer,
 allowed evidence and expected/forbidden labels; temperature is fixed to zero.
 Its strict JSON contract scores relevance, completeness, helpfulness,
 groundedness and safety, while the service computes the weighted overall score.
@@ -92,13 +96,14 @@ All labels currently use `reviewed_by=pending_user`. The loader may prove the
 schema, coverage, and sanitization gates, but the dataset is not a
 human-reviewed baseline until every label is reviewed.
 
-`devsupport-intent-v1.jsonl` is the M4 150-case intent candidate. It is exactly
-balanced across `project_qa`, `troubleshooting`, `doc_task`, `tool_task`,
-`follow_up`, and `general`, with 25 cases per class. It includes difficult,
+`devsupport-intent-v1.jsonl` is the M4 150-case intent candidate. Human
+adjudication is authoritative over cosmetic class balance: every class retains
+at least 20 cases, while corrected labels may make class counts unequal. It
+includes difficult,
 compound, contextual follow-up, quoted-keyword, Prompt Injection, denied-write,
 and out-of-scope demo cases. Boundaries and serious-misroute rules are frozen in
-`intent-rubric-v1.md`. All labels remain `pending_user`, so this candidate is
-not eligible to be called a reviewed or interview baseline yet.
+`intent-rubric-v1.md`. Review decisions live outside the JSONL lineage, so this
+candidate is not eligible to be called a reviewed or interview baseline yet.
 
 `devsupport-rag-core-v1.jsonl` is the first 20-case versioned RAG release slice required by M3-18. It covers exact facts, paraphrases, multi-fact questions, cross-section questions and tenant-isolation decoys. Its labels remain `pending_user` until a human reviews them; technical metrics may run before that, but the report cannot be frozen as an interview or release baseline.
 

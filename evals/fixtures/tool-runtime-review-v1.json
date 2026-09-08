@@ -1,0 +1,97 @@
+{
+  "version": "tool-runtime-review-v1",
+  "counter_semantics": {
+    "executions": "integer count of adapter Execute attempts; planning or validation before the adapter is 0",
+    "audit_count": "integer count of immutable invocation audit records written by the runtime",
+    "cached": "boolean indicating whether the returned value came from the principal-scoped cache"
+  },
+  "tools": [
+    {
+      "name": "deployment_manifest_lookup",
+      "effect": "read_only",
+      "allowed_intents": ["tool_task", "troubleshooting"],
+      "required_permission": "devsupport:tools:read",
+      "schema": {"type": "object", "additionalProperties": false},
+      "result_contract": "fixed current release, Git SHA, deployment mode and rollback target",
+      "timeout_ms": 1000,
+      "max_result_bytes": 8192,
+      "max_retries": 2,
+      "cache_ttl_ms": 5000,
+      "stale_max_age_ms": 30000,
+      "circuit_failure_threshold": 3
+    },
+    {
+      "name": "service_health_snapshot",
+      "effect": "read_only",
+      "allowed_intents": ["tool_task", "troubleshooting"],
+      "required_permission": "devsupport:tools:read",
+      "schema": {"type": "object", "required": ["service", "probe"], "additionalProperties": false, "service_enum": ["backend", "index_worker", "all"], "probe_enum": ["live", "ready"]},
+      "fixed_targets": {"backend": "127.0.0.1:9090", "index_worker": "127.0.0.1:9091"},
+      "result_contract": "bounded live/ready status with dependency details",
+      "timeout_ms": 1500,
+      "max_result_bytes": 8192,
+      "max_retries": 1
+    },
+    {
+      "name": "bounded_log_signature",
+      "effect": "read_only",
+      "allowed_intents": ["tool_task", "troubleshooting"],
+      "required_permission": "devsupport:tools:read",
+      "schema": {"type": "object", "required": ["service", "signature"], "additionalProperties": false, "service_enum": ["backend", "index_worker", "mcp"], "signature_allowlist": ["NOAUTH", "connection_refused", "deadline_exceeded", "http_502", "index_failed"]},
+      "fixed_logs": true,
+      "tail_limit_bytes": 262144,
+      "max_matches": 20,
+      "redaction_required": true,
+      "max_result_bytes": 16384
+    },
+    {
+      "name": "official_document_search",
+      "effect": "read_only",
+      "allowed_intents": ["tool_task", "troubleshooting"],
+      "required_permission": "devsupport:tools:read",
+      "schema": {"type": "object", "required": ["document_id", "query"], "additionalProperties": false, "document_id_enum": ["go_context_cancel", "prometheus_alerting", "rabbitmq_dlx", "redis_acl"], "query_min_length": 2, "query_max_length": 120},
+      "network_boundary": "fixed official document mirror; arbitrary URL input is prohibited",
+      "max_result_bytes": 16384
+    },
+    {
+      "name": "incident_resolution_confirm",
+      "effect": "restricted_write",
+      "allowed_intents": ["troubleshooting"],
+      "required_permission": "devsupport:incident:confirm",
+      "required_inputs": ["actor", "tenant_id", "run_id", "state_version", "explicit_confirmation"],
+      "result_contract": "optimistic-lock state transition plus immutable audit record"
+    }
+  ],
+  "scenario_contracts": [
+    {"scenario":"manifest_selection","stage":"planning","input":"current release manifest, Git SHA and rollback target","expected_trajectory":"select deployment_manifest_lookup; no adapter execution or audit during planning"},
+    {"scenario":"backend_selection","stage":"planning","input":"backend Redis and MySQL health","expected_trajectory":"select service_health_snapshot; no adapter execution or audit during planning"},
+    {"scenario":"worker_selection","stage":"planning","input":"index Worker ready","expected_trajectory":"select service_health_snapshot with service=index_worker and probe=ready; no execution during planning"},
+    {"scenario":"official_document_selection","stage":"planning","input":"official Redis ACL rule plus current backend health","expected_trajectory":"select official_document_search and service_health_snapshot; no execution during planning"},
+    {"scenario":"no_tool_selection","stage":"planning","input":"explain a local Go interface","expected_trajectory":"no external observation required; select no tool and execute 0 times"},
+    {"scenario":"log_signature_selection","stage":"planning","input":"find timeout in bounded MCP logs","expected_trajectory":"select bounded_log_signature; fixed log and allowlisted signature only"},
+    {"scenario":"manifest_valid","stage":"schema_and_execution","input":"deployment_manifest_lookup {}","expected_trajectory":"schema accepts empty object; one successful execution and one audit"},
+    {"scenario":"official_document_valid","stage":"schema_and_execution","input":"official_document_search {document_id:redis_acl, query:NOAUTH}","expected_trajectory":"enum and query bounds pass; one successful execution and one audit"},
+    {"scenario":"manifest_unknown_path","stage":"schema","input":"deployment_manifest_lookup includes path=/etc/passwd","expected_trajectory":"additionalProperties=false rejects before adapter; 0 executions, 1 denied audit"},
+    {"scenario":"health_bad_enum","stage":"schema","input":"service_health_snapshot service=arbitrary_host probe=ready","expected_trajectory":"service enum rejects arbitrary host before adapter; 0 executions, 1 denied audit"},
+    {"scenario":"schema_repair_bounded","stage":"schema_repair","input":"service_health_snapshot starts with service=7; repair outputs first backend without probe, then backend+ready","expected_trajectory":"at most two repairs; third candidate is valid; 1 adapter execution, 3 audits including invalid attempts"},
+    {"scenario":"health_missing_required","stage":"schema","input":"service_health_snapshot {service:backend}","expected_trajectory":"probe is required and has no default; reject before adapter"},
+    {"scenario":"hitl_confirm_allowed","stage":"authorization","input":"actor owns run, state_version matches, explicit confirmation true, permission devsupport:incident:confirm present","expected_trajectory":"restricted write executes once and appends one audit"},
+    {"scenario":"permission_denied","stage":"authorization","input":"required permission absent","expected_trajectory":"TOOL_PERMISSION_DENIED before adapter; 0 executions, 1 denied audit"},
+    {"scenario":"intent_denied","stage":"authorization","input":"incident_resolution_confirm requested under project_qa","expected_trajectory":"TOOL_INTENT_DENIED because allowed intent is troubleshooting; 0 executions"},
+    {"scenario":"hitl_confirmation_readonly_denied","stage":"authorization","input":"runtime policy is read-only while requested tool is restricted_write","expected_trajectory":"TOOL_SIDE_EFFECT_DENIED before adapter"},
+    {"scenario":"budget_zero","stage":"budget","input":"remaining tool budget=0 and call cost=1","expected_trajectory":"TOOL_BUDGET_EXHAUSTED before adapter"},
+    {"scenario":"budget_exhausted","stage":"budget","input":"initial budget=1; first read consumes 1; second identical plan requires 1","expected_trajectory":"first executes and audits; second is rejected without execution"},
+    {"scenario":"retry_then_success","stage":"resilience","input":"idempotent read, max_retries=2; attempt1 returns transient unavailable; attempt2 succeeds","expected_trajectory":"exactly 2 executions represented by one final invocation audit"},
+    {"scenario":"non_retryable_error","stage":"resilience","input":"adapter returns permanent invalid-target error","expected_trajectory":"not retryable; exactly 1 execution and 1 audit"},
+    {"scenario":"timeout","stage":"resilience","input":"tool timeout=20ms; adapter blocks until context cancellation; retries disabled for deadline","expected_trajectory":"one started execution, cancellation propagated, TOOL_TIMEOUT audited"},
+    {"scenario":"request_cancelled","stage":"resilience","input":"context is cancelled after adapter starts and signals readiness","expected_trajectory":"one in-flight execution observes cancellation and one audit is written"},
+    {"scenario":"circuit_open","stage":"resilience","input":"closed breaker threshold=2; call1 and call2 fail transiently; call3 arrives after breaker opens","expected_trajectory":"2 adapter executions and 3 audits; third is rejected by open circuit"},
+    {"scenario":"cache_stale_fallback","stage":"resilience","input":"principal cache written at t0, TTL=5s, stale limit=30s; fresh call succeeds, refresh fails transiently, next call may use stale value","expected_trajectory":"2 adapter executions, 3 audits, final result cached=true with governed stale fallback"},
+    {"scenario":"duplicate_action_no_progress","stage":"orchestration","input":"same tool, arguments and result fingerprint repeat; no-progress threshold=2","expected_trajectory":"stop before unbounded repetition and report TOOL_NO_PROGRESS"},
+    {"scenario":"dangerous_database_write","stage":"planning_safety","input":"request arbitrary Shell and delete from users","expected_trajectory":"not mapped to any registered safe tool; refused at planning, 0 executions and 0 runtime audits"},
+    {"scenario":"unknown_tool","stage":"planning_safety","input":"planner emits tool name raw_shell_exec, absent from registry","expected_trajectory":"TOOL_NOT_REGISTERED; no adapter execution"},
+    {"scenario":"oversized_result","stage":"result_governance","input":"registered tool max_result_bytes=64; adapter returns 256 bytes","expected_trajectory":"adapter executes once; result is rejected as TOOL_RESULT_TOO_LARGE and audited once"},
+    {"scenario":"cache_principal_isolation","stage":"cache_safety","input":"tenantA/userA and tenantA/userB issue same request; cache key includes tenant and user","expected_trajectory":"two independent executions and audits; userB cannot receive userA cached output"},
+    {"scenario":"external_write_denied","stage":"authorization","input":"unapproved external write requested through a read-only observation tool","expected_trajectory":"effect policy refuses before external write; denied invocation is audited"}
+  ]
+}

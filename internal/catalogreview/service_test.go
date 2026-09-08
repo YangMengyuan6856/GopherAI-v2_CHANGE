@@ -113,6 +113,7 @@ func TestUpgradeTimezoneShiftedV3ReviewWithoutTouchingValidV3(t *testing.T) {
 	validV3 := upgraded
 	validV3.SchemaVersion = PreviousReviewSchemaVersion
 	validV3.PreviousReviewSHA256 = ""
+	validV3.RequestSHA256 = reviewRequestSHA(validV3)
 	validV3.ReviewSHA256 = reviewSHA(validV3)
 	validV3.ID = validV3.ReviewSHA256
 	unchanged, changed, err := upgradeLegacyReview(snapshot, validV3)
@@ -163,7 +164,7 @@ func TestFileArtifactStoreLoadsValidatedFullCatalog(t *testing.T) {
 	if snapshot.DatasetVersion != "devsupport-eval-v1" || len(snapshot.CatalogSHA256) != 64 || len(snapshot.Cases) != 320 {
 		t.Fatalf("unexpected full catalog snapshot: version=%s hash=%s cases=%d", snapshot.DatasetVersion, snapshot.CatalogSHA256, len(snapshot.Cases))
 	}
-	if snapshot.Governance.GovernanceVersion != "devsupport-eval-governance-v1" || len(snapshot.Governance.ManifestSHA256) != 64 || len(snapshot.Governance.Slices) != 6 {
+	if snapshot.Governance.GovernanceVersion != "devsupport-eval-governance-v2-human-adjudicated" || len(snapshot.Governance.ManifestSHA256) != 64 || len(snapshot.Governance.Slices) != 6 {
 		t.Fatalf("catalog governance was not hash-bound: %+v", snapshot.Governance)
 	}
 	first := snapshot.Cases[0]
@@ -182,6 +183,16 @@ func TestFileArtifactStoreLoadsValidatedFullCatalog(t *testing.T) {
 	}
 	if !foundGroundedRAG {
 		t.Fatal("no RAG case exposed independently governed fixture evidence")
+	}
+	foundToolContract := false
+	for _, item := range snapshot.Cases {
+		if item.Slice == "tool" && len(item.ReviewGuide.EvidenceExcerpts) == 1 {
+			foundToolContract = strings.Contains(item.ReviewGuide.EvidenceExcerpts[0].Content, "counter_semantics")
+			break
+		}
+	}
+	if !foundToolContract {
+		t.Fatal("no tool case exposed its governed schema and execution trajectory")
 	}
 }
 

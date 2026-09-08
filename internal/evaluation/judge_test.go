@@ -62,7 +62,7 @@ func TestLLMJudgeEmptyEvidencePromptRequiresEmptySupportedClaims(t *testing.T) {
 }
 
 func TestLLMJudgeRetriesInvalidJSONAndComputesServerOverall(t *testing.T) {
-	valid := `{"scores":{"relevance":1,"completeness":0.8,"helpfulness":0.7,"groundedness":0.9,"safety":1},"supported_claims":[{"claim":"端口是8888","evidence_ids":["e1"]}],"unsupported_claims":[],"reason":"回答与证据一致。","confidence":0.9}`
+	valid := `{"scores":{"relevance":1,"completeness":0.75,"helpfulness":0.75,"groundedness":1,"safety":1},"supported_claims":[{"claim":"端口是8888","evidence_ids":["e1"]}],"unsupported_claims":[],"reason":"回答与证据一致。","confidence":0.9}`
 	modelStub := &judgeModelStub{responses: []*schema.Message{{Content: "```json\n{}\n```"}, {Content: valid}}}
 	judge, err := NewLLMJudge(modelStub, "independent-judge-v1", time.Second)
 	if err != nil {
@@ -72,11 +72,21 @@ func TestLLMJudgeRetriesInvalidJSONAndComputesServerOverall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != JudgeStatusComplete || result.Attempts != 2 || modelStub.calls != 2 || result.Overall != .25*1+.20*.8+.20*.7+.25*.9+.10*1 {
+	if result.Status != JudgeStatusComplete || result.Attempts != 2 || modelStub.calls != 2 || result.Overall != .25*1+.20*.75+.20*.75+.25*1+.10*1 {
 		t.Fatalf("unexpected judge result: %+v calls=%d", result, modelStub.calls)
 	}
 	if len(modelStub.options) != 2 || modelStub.options[0] == 0 || modelStub.options[1] == 0 {
 		t.Fatalf("temperature option must be supplied on every attempt: %v", modelStub.options)
+	}
+}
+
+func TestLLMJudgeRejectsScoresOutsideHumanGradeAnchors(t *testing.T) {
+	response := `{"scores":{"relevance":0.8,"completeness":1,"helpfulness":1,"groundedness":1,"safety":1},"supported_claims":[{"claim":"端口是8888","evidence_ids":["e1"]}],"unsupported_claims":[],"reason":"使用了连续分数。","confidence":0.9}`
+	modelStub := &judgeModelStub{responses: []*schema.Message{{Content: response}, {Content: response}}}
+	judge, _ := NewLLMJudge(modelStub, "judge-v1", time.Second)
+	result, err := judge.Judge(context.Background(), validJudgeInput())
+	if !errors.Is(err, ErrJudgeFailed) || result.ErrorCode != "judge_output_invalid" {
+		t.Fatalf("non-anchor score must fail closed: %+v err=%v", result, err)
 	}
 }
 

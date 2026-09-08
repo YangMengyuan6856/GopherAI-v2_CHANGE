@@ -3,7 +3,7 @@
 - Dataset: devsupport-intent-v1 (150 cases)
 - Rubric: intent-rubric-v1
 - Recognizer: intent-pattern-v1
-- Candidate: 8dd517ad3610f97076cc5538a0cc829d6b674e6f
+- Candidate: human-adjudicated-r2
 - Human reviewed: false
 - Baseline eligible: false
 
@@ -30,7 +30,7 @@ missing coverage. G4 remains unevaluated until the complete cascade exists.
 |---|---:|---:|---:|---:|---:|
 | `project_qa` | 25 | 9 | 9 | 0.3600 | 0.3600 |
 | `troubleshooting` | 25 | 13 | 13 | 0.5200 | 0.5200 |
-| `doc_task` | 25 | 9 | 9 | 0.3600 | 0.3600 |
-| `tool_task` | 25 | 7 | 7 | 0.2800 | 0.2800 |
+| `doc_task` | 26 | 9 | 9 | 0.3462 | 0.3462 |
+| `tool_task` | 24 | 7 | 7 | 0.2917 | 0.2917 |
 | `follow_up` | 25 | 21 | 21 | 0.8400 | 0.8400 |
 | `general` | 25 | 8 | 8 | 0.3200 | 0.3200 |

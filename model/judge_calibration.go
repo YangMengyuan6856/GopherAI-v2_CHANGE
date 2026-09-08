@@ -19,6 +19,7 @@ type JudgeCalibrationReview struct {
 	Groundedness   float64   `gorm:"not null" json:"groundedness"`
 	Safety         float64   `gorm:"not null" json:"safety"`
 	Overall        float64   `gorm:"not null" json:"overall"`
+	Comment        string    `gorm:"type:text;not null" json:"comment"`
 	ReviewSHA256   string    `gorm:"index;not null;type:char(64)" json:"review_sha256"`
 	CreatedAt      time.Time `gorm:"index;not null" json:"created_at"`
 }
