@@ -1732,3 +1732,9 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 业务 API 和服务端状态没有复制或迁移；多个独立路由暂复用同一业务控制器，但每个路由只初始化并渲染自己的面板。这一过渡架构先解决页面拥挤和功能耦合，再允许后续按领域逐步拆分 SFC，避免一次性改写超大组件引入业务回归。
 - Release `20260908170906-21c36bb1485a`、bundle SHA-256 `9aece09bee74b72b1bef52a69916c2a831366a3d1d9095a1cf77a08164a93caa`、清理审计 SHA `318c4649b94aa28fa0161a82d350aa688fcc32d6a3ee696cfef8f4ef89ce1a99`、Tracked Source `583`。本地 Vue lint/build、320 条 Catalog Hash 门、静态前端网关、后端/Worker/MCP、Prometheus `2/2`、私网 Grafana 与公网浏览器检查均通过。
 - Go 静态前端网关已验证可直接打开 HTML5 History 深链 `/dashboard`、`/dashboard/tools`、`/dashboard/chat`、`/dashboard/knowledge` 和 `/dashboard/review`，无需把路由退回 Hash 模式。真实登录态下独立页面数据正常加载，Full 人工复核进度保持 `20/320`；UI 发布不修改复核数据。
+
+## 102. 2026-09-08 SSH 切换阶段断线不能直接等同于发布失败
+
+- Release `20260908190811-798bcf1ac59c` 在输出“stopping previous application processes”后，外层 SSH 被远端关闭并返回 `-1`。此时不能立即重跑部署或手工回滚：容器内的 `docker exec` 任务可能仍由 Docker daemon 继续执行，重复切换反而会制造第二次停机窗口。
+- 重新建立独立 SSH 会话后，应依次验证 `/root/GopherAI-/release-manifest.json`、`cleanup-audit-latest.json`、核心进程和公网健康接口，再判定真实状态。本次两份 Manifest 均指向 `20260908190811-798bcf1ac59c`，清理审计 SHA-256 为 `dd2ccd392918006b2e27f658f8b21c32ebadf92d9eb38ff518f67c0210e2a4cf`；Backend、Index Worker、MCP、静态前端网关均在运行，Prometheus Ready、Grafana 数据库健康，公网 `/health/live`、`/health/ready` 与前端深链均为 HTTP 200，因此这是客户端观测断线而非发布回滚。
+- 发布验收应以“当前 Release 承诺 + 清理审计 + 进程/依赖健康 + 真实登录态业务页”四类证据交叉确认，不能只看部署命令的 SSH 退出码。本次真实浏览器复查诊断、记忆、策略和人工门页面，浅色指标块已替换为低亮深色表面，人工进度仍为 Full `20/320`、Judge `5/30`。
