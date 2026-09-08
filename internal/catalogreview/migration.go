@@ -21,7 +21,7 @@ func MigrateLegacyReviews(ctx context.Context, db *gorm.DB, snapshot Snapshot) (
 	}
 	rows := make([]model.EvaluationCatalogReview, 0)
 	if err := db.WithContext(ctx).
-		Where("schema_version = ? AND catalog_sha256 = ? AND governance_sha256 = ?", LegacyReviewSchemaVersion, snapshot.CatalogSHA256, snapshot.Governance.ManifestSHA256).
+		Where("catalog_sha256 = ? AND governance_sha256 = ? AND (schema_version = ? OR (schema_version = ? AND (previous_review_sha256 IS NULL OR previous_review_sha256 = '')))", snapshot.CatalogSHA256, snapshot.Governance.ManifestSHA256, LegacyReviewSchemaVersion, PreviousReviewSchemaVersion).
 		Order("case_id ASC, revision ASC").Find(&rows).Error; err != nil {
 		return 0, err
 	}
@@ -39,7 +39,7 @@ func MigrateLegacyReviews(ctx context.Context, db *gorm.DB, snapshot Snapshot) (
 				continue
 			}
 			result := tx.Model(&model.EvaluationCatalogReview{}).
-				Where("id = ? AND schema_version = ? AND review_sha256 = ?", row.ID, LegacyReviewSchemaVersion, row.ReviewSHA256).
+				Where("id = ? AND schema_version = ? AND review_sha256 = ?", row.ID, row.SchemaVersion, row.ReviewSHA256).
 				Updates(map[string]any{
 					"id": upgraded.ID, "schema_version": upgraded.SchemaVersion,
 					"review_sha256":          upgraded.ReviewSHA256,
@@ -59,7 +59,10 @@ func MigrateLegacyReviews(ctx context.Context, db *gorm.DB, snapshot Snapshot) (
 }
 
 func upgradeLegacyReview(snapshot Snapshot, review model.EvaluationCatalogReview) (model.EvaluationCatalogReview, bool, error) {
-	if review.SchemaVersion != LegacyReviewSchemaVersion {
+	if review.SchemaVersion != LegacyReviewSchemaVersion && review.SchemaVersion != PreviousReviewSchemaVersion {
+		return review, false, nil
+	}
+	if review.SchemaVersion == PreviousReviewSchemaVersion && validateReview(review) == nil {
 		return review, false, nil
 	}
 	if review.ID != review.ReviewSHA256 || len(review.ID) != 64 || review.PreviousReviewSHA256 != "" || review.CreatedAt.Nanosecond() != 0 {

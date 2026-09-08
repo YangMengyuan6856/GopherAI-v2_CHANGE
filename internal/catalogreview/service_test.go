@@ -37,8 +37,8 @@ func (repository *memoryRepository) ListLatest(_ context.Context, catalogSHA, go
 
 func (repository *memoryRepository) Append(_ context.Context, candidate model.EvaluationCatalogReview) (bool, model.EvaluationCatalogReview, error) {
 	if repository.truncateStoredTime {
-		stored := candidate.CreatedAt.UTC().Truncate(time.Second)
-		candidate.CreatedAt = time.Date(stored.Year(), stored.Month(), stored.Day(), stored.Hour(), stored.Minute(), stored.Second(), 0, time.FixedZone("database-local", 8*60*60))
+		stored := candidate.CreatedAt.Truncate(time.Second)
+		candidate.CreatedAt = time.Date(stored.Year(), stored.Month(), stored.Day(), stored.Hour(), stored.Minute(), stored.Second(), 0, stored.Location())
 	}
 	for _, row := range repository.rows {
 		if row.IdempotencyKeyHash == candidate.IdempotencyKeyHash {
@@ -73,13 +73,51 @@ func TestServiceSurvivesMySQLSecondPrecisionRoundTrip(t *testing.T) {
 		ExpectedRevision: 0, Decision: "approved", ReasonCodes: []string{"label_verified"},
 		IdempotencyKey: "catalog-mysql-time-precision-0001", Acknowledgment: Acknowledgment,
 	})
-	wantReviewedAt := time.Date(2026, 9, 8, 0, 43, 31, 0, time.UTC)
+	wantReviewedAt := time.Date(2026, 9, 8, 0, 43, 31, 0, time.UTC).In(time.Local).UTC()
 	if err != nil || receipt.Progress.Reviewed != 1 || receipt.Progress.Pending != 2 || !receipt.Review.ReviewedAt.Equal(wantReviewedAt) {
 		t.Fatalf("second precision round-trip failed: receipt=%+v err=%v", receipt, err)
 	}
 	next, err := service.List(context.Background(), "alice", Query{Status: "pending", Page: 1, PageSize: 1})
 	if err != nil || len(next.Cases) != 1 || next.Cases[0].ID != "case-2" || next.Progress.Reviewed != 1 {
 		t.Fatalf("next pending case was unavailable after round-trip: workbench=%+v err=%v", next, err)
+	}
+}
+
+func TestUpgradeTimezoneShiftedV3ReviewWithoutTouchingValidV3(t *testing.T) {
+	snapshot := reviewSnapshot()
+	local := time.FixedZone("database-local", 8*60*60)
+	originalUTC := time.Date(2026, 9, 8, 2, 54, 33, 0, time.UTC)
+	review := model.EvaluationCatalogReview{
+		SchemaVersion: PreviousReviewSchemaVersion, DatasetVersion: snapshot.DatasetVersion,
+		CatalogSHA256: snapshot.CatalogSHA256, GovernanceSHA256: snapshot.Governance.ManifestSHA256,
+		Slice: snapshot.Cases[1].Slice, CaseID: snapshot.Cases[1].ID, CaseSHA256: snapshot.Cases[1].CaseSHA256,
+		ReviewerHash: digest("alice"), Revision: 1, Decision: "approved", ReasonCodesJSON: `["label_verified"]`,
+		ExpectedRevision: 0, IdempotencyKeyHash: digest("timezone-shifted-idempotency"), CreatedAt: originalUTC,
+	}
+	review.RequestSHA256 = reviewRequestSHA(review)
+	review.ReviewSHA256 = reviewSHA(review)
+	review.ID = review.ReviewSHA256
+	review.CreatedAt = originalUTC.In(local)
+	if validateReview(review) == nil {
+		t.Fatal("timezone-shifted v3 review unexpectedly validated before migration")
+	}
+
+	upgraded, changed, err := upgradeLegacyReview(snapshot, review)
+	if err != nil || !changed || upgraded.SchemaVersion != ReviewSchemaVersion || upgraded.PreviousReviewSHA256 != review.ReviewSHA256 || upgraded.CreatedAt != review.CreatedAt {
+		t.Fatalf("timezone-shifted v3 review was not preserved: upgraded=%+v changed=%t err=%v", upgraded, changed, err)
+	}
+	if err := validateReview(upgraded); err != nil {
+		t.Fatalf("upgraded timezone-shifted review did not validate: %v", err)
+	}
+
+	validV3 := upgraded
+	validV3.SchemaVersion = PreviousReviewSchemaVersion
+	validV3.PreviousReviewSHA256 = ""
+	validV3.ReviewSHA256 = reviewSHA(validV3)
+	validV3.ID = validV3.ReviewSHA256
+	unchanged, changed, err := upgradeLegacyReview(snapshot, validV3)
+	if err != nil || changed || unchanged.ReviewSHA256 != validV3.ReviewSHA256 {
+		t.Fatalf("valid v3 review was rewritten: unchanged=%+v changed=%t err=%v", unchanged, changed, err)
 	}
 }
 

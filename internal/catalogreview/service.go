@@ -23,12 +23,13 @@ import (
 )
 
 const (
-	SchemaVersion             = "evaluation-catalog-review-workbench-v1"
-	LegacyReviewSchemaVersion = "evaluation-catalog-human-review-v2"
-	ReviewSchemaVersion       = "evaluation-catalog-human-review-v3"
-	DefaultManifestPath       = "evals/devsupport-eval-v1.manifest.json"
-	DefaultGovernancePath     = "evals/devsupport-eval-v1.governance.json"
-	Acknowledgment            = "I_REVIEWED_CASE_AND_EXPECTED_RESULT"
+	SchemaVersion               = "evaluation-catalog-review-workbench-v1"
+	LegacyReviewSchemaVersion   = "evaluation-catalog-human-review-v2"
+	PreviousReviewSchemaVersion = "evaluation-catalog-human-review-v3"
+	ReviewSchemaVersion         = "evaluation-catalog-human-review-v4"
+	DefaultManifestPath         = "evals/devsupport-eval-v1.manifest.json"
+	DefaultGovernancePath       = "evals/devsupport-eval-v1.governance.json"
+	Acknowledgment              = "I_REVIEWED_CASE_AND_EXPECTED_RESULT"
 )
 
 var (
@@ -556,7 +557,7 @@ func (service *Service) Submit(ctx context.Context, reviewer string, command Rev
 	reasonJSON, _ := json.Marshal(reasons)
 	requestSHA := digest(strings.Join([]string{snapshot.CatalogSHA256, snapshot.Governance.ManifestSHA256, selected.ID, selected.CaseSHA256, reviewerHash, fmt.Sprint(command.ExpectedRevision), command.Decision, string(reasonJSON)}, "\x00"))
 	idempotencyHash := digest(reviewerHash + "\x00" + command.IdempotencyKey)
-	now := canonicalReviewTime(service.clock().UTC())
+	now := service.clock().In(time.Local).Truncate(time.Second)
 	revision := command.ExpectedRevision + 1
 	candidate := model.EvaluationCatalogReview{
 		SchemaVersion: ReviewSchemaVersion, DatasetVersion: snapshot.DatasetVersion, CatalogSHA256: snapshot.CatalogSHA256, GovernanceSHA256: snapshot.Governance.ManifestSHA256,
@@ -582,7 +583,7 @@ func (service *Service) Submit(ctx context.Context, reviewer string, command Rev
 	if err != nil {
 		return Receipt{}, err
 	}
-	return Receipt{SchemaVersion: ReviewSchemaVersion, Created: created, CaseID: stored.CaseID, Review: view, Progress: progress}, nil
+	return Receipt{SchemaVersion: stored.SchemaVersion, Created: created, CaseID: stored.CaseID, Review: view, Progress: progress}, nil
 }
 
 func (service *Service) load(ctx context.Context, reviewer string) (Snapshot, []model.EvaluationCatalogReview, map[string]model.EvaluationCatalogReview, error) {
@@ -662,11 +663,11 @@ func reviewView(review model.EvaluationCatalogReview) (ReviewView, error) {
 	if err := json.Unmarshal([]byte(review.ReasonCodesJSON), &reasons); err != nil {
 		return ReviewView{}, ErrArtifactUnavailable
 	}
-	return ReviewView{Decision: review.Decision, ReasonCodes: reasons, Revision: review.Revision, ReviewSHA256: review.ReviewSHA256, ReviewedAt: canonicalReviewTime(review.CreatedAt)}, nil
+	return ReviewView{Decision: review.Decision, ReasonCodes: reasons, Revision: review.Revision, ReviewSHA256: review.ReviewSHA256, ReviewedAt: review.CreatedAt.UTC()}, nil
 }
 
 func validateReview(review model.EvaluationCatalogReview) error {
-	if review.SchemaVersion != ReviewSchemaVersion || review.ID != review.ReviewSHA256 || len(review.ID) != 64 || (review.PreviousReviewSHA256 != "" && len(review.PreviousReviewSHA256) != 64) || review.CreatedAt.Nanosecond() != 0 {
+	if (review.SchemaVersion != PreviousReviewSchemaVersion && review.SchemaVersion != ReviewSchemaVersion) || review.ID != review.ReviewSHA256 || len(review.ID) != 64 || (review.PreviousReviewSHA256 != "" && len(review.PreviousReviewSHA256) != 64) || review.CreatedAt.Nanosecond() != 0 {
 		return ErrArtifactUnavailable
 	}
 	if err := validateReviewSemantics(review); err != nil {
@@ -695,19 +696,12 @@ func validateReviewSemantics(review model.EvaluationCatalogReview) error {
 	return nil
 }
 
-func canonicalReviewTime(value time.Time) time.Time {
-	// MySQL DATETIME has no timezone. The driver stores the UTC wall clock but
-	// reads it with loc=Local, so preserve its wall-clock fields and attach UTC
-	// instead of shifting the instant a second time.
-	return time.Date(value.Year(), value.Month(), value.Day(), value.Hour(), value.Minute(), value.Second(), 0, time.UTC)
-}
-
 func reviewRequestSHA(review model.EvaluationCatalogReview) string {
 	return digest(strings.Join([]string{review.CatalogSHA256, review.GovernanceSHA256, review.CaseID, review.CaseSHA256, review.ReviewerHash, fmt.Sprint(review.ExpectedRevision), review.Decision, review.ReasonCodesJSON}, "\x00"))
 }
 
 func reviewSHA(review model.EvaluationCatalogReview) string {
-	return digest(strings.Join([]string{review.SchemaVersion, review.DatasetVersion, review.CatalogSHA256, review.GovernanceSHA256, review.Slice, review.CaseID, review.CaseSHA256, review.ReviewerHash, fmt.Sprint(review.Revision), review.Decision, review.ReasonCodesJSON, fmt.Sprint(review.ExpectedRevision), review.IdempotencyKeyHash, review.RequestSHA256, review.PreviousReviewSHA256, canonicalReviewTime(review.CreatedAt).Format(time.RFC3339)}, "\x00"))
+	return digest(strings.Join([]string{review.SchemaVersion, review.DatasetVersion, review.CatalogSHA256, review.GovernanceSHA256, review.Slice, review.CaseID, review.CaseSHA256, review.ReviewerHash, fmt.Sprint(review.Revision), review.Decision, review.ReasonCodesJSON, fmt.Sprint(review.ExpectedRevision), review.IdempotencyKeyHash, review.RequestSHA256, review.PreviousReviewSHA256, review.CreatedAt.Format("2006-01-02T15:04:05Z")}, "\x00"))
 }
 
 func buildProgress(snapshot Snapshot, reviews []model.EvaluationCatalogReview) (Progress, error) {
