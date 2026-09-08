@@ -1718,6 +1718,6 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 ## 100. 2026-09-08 Full 320 Hash 必须先按存储精度规范化
 
 - 用户提交 `intent-v1-001` 后，POST 返回 503，随后 Full 队列与封存状态均返回 503；Judge 仍可正常累计到 `5/30`。只读核查确认 MySQL 已写入 1 条 Full 记录，其 Request Hash 与结论字段完全匹配，但 Review Hash 回读校验失败。
-- 根因是 Review Hash 使用 `RFC3339Nano` 时间，而当前 MySQL 驱动禁用时间精度、列类型为 `datetime(0)`。Go 候选记录中的纳秒参与 Hash 后在数据库中被截断为秒，导致“事务已提交、响应阶段回读失败”。内存仓库保留纳秒，因此原单元测试没有覆盖真实存储边界。
-- 修复原则是先规范化、再承诺：Full 复核时间在生成 Hash 前统一为 UTC 秒级，v3 Review Hash 明确提交到规范时间和上一版 Hash。启动迁移只处理绑定当前 Catalog 与 Governance 的 v2 行，并要求 Request Hash、Case Hash、Slice、决策和受控原因全部通过；旧 Review Hash 保存在 `previous_review_sha256`，不修改用户结论、原因、revision 或时间。任何语义不一致均中止启动，不删除或猜测修复。
+- 根因是 Review Hash 使用 `RFC3339Nano` 时间，而当前 MySQL 驱动禁用时间精度、列类型为 `datetime(0)`，并用 `loc=Local` 读取无时区的 DATETIME。Go 候选记录中的纳秒在数据库中被截断为秒，UTC 墙上时间回读时又被附加本地时区，导致“事务已提交、响应阶段回读失败”。内存仓库既保留纳秒也保留 UTC Location，因此原单元测试没有覆盖真实存储边界。
+- 修复原则是先规范化、再承诺：Full 复核时间在生成 Hash 前统一为 UTC 秒级，回读时把 DATETIME 的墙上字段重新解释为 UTC，v3 Review Hash 明确提交到规范时间和上一版 Hash。启动迁移只处理绑定当前 Catalog 与 Governance 的 v2 行，并要求 Request Hash、Case Hash、Slice、决策和受控原因全部通过；旧 Review Hash 保存在 `previous_review_sha256`，不修改用户结论、原因、revision 或数据库时间。任何语义不一致均中止启动，不删除或猜测修复。
 - 回归测试必须模拟 MySQL 秒级往返，而不只测试内存原值：带纳秒时钟提交后应成功返回 `1/N`、能读取下一条 pending，用例迁移重复执行应无变化，篡改 Request Hash 必须拒绝。该问题体现的是跨存储边界的 canonical serialization，不应通过关闭完整性校验或清空人工数据绕过。

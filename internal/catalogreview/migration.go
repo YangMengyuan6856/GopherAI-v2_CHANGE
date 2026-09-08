@@ -62,7 +62,7 @@ func upgradeLegacyReview(snapshot Snapshot, review model.EvaluationCatalogReview
 	if review.SchemaVersion != LegacyReviewSchemaVersion {
 		return review, false, nil
 	}
-	if review.ID != review.ReviewSHA256 || len(review.ID) != 64 || review.PreviousReviewSHA256 != "" || review.CreatedAt != canonicalReviewTime(review.CreatedAt) {
+	if review.ID != review.ReviewSHA256 || len(review.ID) != 64 || review.PreviousReviewSHA256 != "" || review.CreatedAt.Nanosecond() != 0 {
 		return model.EvaluationCatalogReview{}, false, ErrLegacyReviewMigration
 	}
 	if err := validateReviewSemantics(review); err != nil {

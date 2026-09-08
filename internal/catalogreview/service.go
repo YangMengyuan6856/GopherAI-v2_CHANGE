@@ -556,7 +556,7 @@ func (service *Service) Submit(ctx context.Context, reviewer string, command Rev
 	reasonJSON, _ := json.Marshal(reasons)
 	requestSHA := digest(strings.Join([]string{snapshot.CatalogSHA256, snapshot.Governance.ManifestSHA256, selected.ID, selected.CaseSHA256, reviewerHash, fmt.Sprint(command.ExpectedRevision), command.Decision, string(reasonJSON)}, "\x00"))
 	idempotencyHash := digest(reviewerHash + "\x00" + command.IdempotencyKey)
-	now := canonicalReviewTime(service.clock())
+	now := canonicalReviewTime(service.clock().UTC())
 	revision := command.ExpectedRevision + 1
 	candidate := model.EvaluationCatalogReview{
 		SchemaVersion: ReviewSchemaVersion, DatasetVersion: snapshot.DatasetVersion, CatalogSHA256: snapshot.CatalogSHA256, GovernanceSHA256: snapshot.Governance.ManifestSHA256,
@@ -662,11 +662,11 @@ func reviewView(review model.EvaluationCatalogReview) (ReviewView, error) {
 	if err := json.Unmarshal([]byte(review.ReasonCodesJSON), &reasons); err != nil {
 		return ReviewView{}, ErrArtifactUnavailable
 	}
-	return ReviewView{Decision: review.Decision, ReasonCodes: reasons, Revision: review.Revision, ReviewSHA256: review.ReviewSHA256, ReviewedAt: review.CreatedAt.UTC()}, nil
+	return ReviewView{Decision: review.Decision, ReasonCodes: reasons, Revision: review.Revision, ReviewSHA256: review.ReviewSHA256, ReviewedAt: canonicalReviewTime(review.CreatedAt)}, nil
 }
 
 func validateReview(review model.EvaluationCatalogReview) error {
-	if review.SchemaVersion != ReviewSchemaVersion || review.ID != review.ReviewSHA256 || len(review.ID) != 64 || (review.PreviousReviewSHA256 != "" && len(review.PreviousReviewSHA256) != 64) || review.CreatedAt != canonicalReviewTime(review.CreatedAt) {
+	if review.SchemaVersion != ReviewSchemaVersion || review.ID != review.ReviewSHA256 || len(review.ID) != 64 || (review.PreviousReviewSHA256 != "" && len(review.PreviousReviewSHA256) != 64) || review.CreatedAt.Nanosecond() != 0 {
 		return ErrArtifactUnavailable
 	}
 	if err := validateReviewSemantics(review); err != nil {
@@ -696,7 +696,10 @@ func validateReviewSemantics(review model.EvaluationCatalogReview) error {
 }
 
 func canonicalReviewTime(value time.Time) time.Time {
-	return value.UTC().Truncate(time.Second)
+	// MySQL DATETIME has no timezone. The driver stores the UTC wall clock but
+	// reads it with loc=Local, so preserve its wall-clock fields and attach UTC
+	// instead of shifting the instant a second time.
+	return time.Date(value.Year(), value.Month(), value.Day(), value.Hour(), value.Minute(), value.Second(), 0, time.UTC)
 }
 
 func reviewRequestSHA(review model.EvaluationCatalogReview) string {

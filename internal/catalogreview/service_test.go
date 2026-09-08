@@ -37,7 +37,8 @@ func (repository *memoryRepository) ListLatest(_ context.Context, catalogSHA, go
 
 func (repository *memoryRepository) Append(_ context.Context, candidate model.EvaluationCatalogReview) (bool, model.EvaluationCatalogReview, error) {
 	if repository.truncateStoredTime {
-		candidate.CreatedAt = candidate.CreatedAt.UTC().Truncate(time.Second)
+		stored := candidate.CreatedAt.UTC().Truncate(time.Second)
+		candidate.CreatedAt = time.Date(stored.Year(), stored.Month(), stored.Day(), stored.Hour(), stored.Minute(), stored.Second(), 0, time.FixedZone("database-local", 8*60*60))
 	}
 	for _, row := range repository.rows {
 		if row.IdempotencyKeyHash == candidate.IdempotencyKeyHash {
@@ -72,7 +73,8 @@ func TestServiceSurvivesMySQLSecondPrecisionRoundTrip(t *testing.T) {
 		ExpectedRevision: 0, Decision: "approved", ReasonCodes: []string{"label_verified"},
 		IdempotencyKey: "catalog-mysql-time-precision-0001", Acknowledgment: Acknowledgment,
 	})
-	if err != nil || receipt.Progress.Reviewed != 1 || receipt.Progress.Pending != 2 || receipt.Review.ReviewedAt.Nanosecond() != 0 {
+	wantReviewedAt := time.Date(2026, 9, 8, 0, 43, 31, 0, time.UTC)
+	if err != nil || receipt.Progress.Reviewed != 1 || receipt.Progress.Pending != 2 || !receipt.Review.ReviewedAt.Equal(wantReviewedAt) {
 		t.Fatalf("second precision round-trip failed: receipt=%+v err=%v", receipt, err)
 	}
 	next, err := service.List(context.Background(), "alice", Query{Status: "pending", Page: 1, PageSize: 1})
