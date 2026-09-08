@@ -1725,3 +1725,10 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - 修正时区墙上语义后的 Release `20260908104103-a78633ea2b67` 成功激活，bundle SHA-256 `ffacfd6f663b1fb064bf1c60253dd86af694815f6006587f9324c0b820726049`，清理审计 SHA `293bb14e0e09317295541b060e2b63b116fafac25a06eb986282dca69391acb7`、Tracked Source `580`。启动日志报告 `migrated=1`；数据库复验显示 `intent-v1-001` 保持 revision 1、approved/label_verified，旧 Hash 长度 64、Request Hash 与 v3 Review Hash 均可重算，Judge 记录仍为 5 条。公网 `/health/ready` 与 `/ai-chat` 均返回 200。
 - 但基础健康门通过不等于登录态工作流通过：用户刷新后 `intent-v1-002` 也已写入且 Request Hash 正确，响应仍为 503。数据库时间 `10:54:33` 与写 Hash 时的 UTC `02:54:33` 相差 8 小时，证明驱动写 DATETIME 时会按 `loc=Local` 转换。后续修复必须以真实 POST→MySQL 回读为业务门，不能只依据 `/health/ready` 宣称人工工作台可用。
 - Release `20260908113718-112fe2f573ac` 最终按 Local DATETIME 墙上秒生成 v4 承诺，bundle SHA-256 `3a164c3891fc99923c41213d89aa57b1a6b112ecb88645415321f71421f96997`，清理审计 SHA `e2d96488108af176a94ab8fb8d5bc709ca78c95c6f5053bd72e2abdd72af9e24`、Tracked Source `580`。启动只迁移 1 条失配 v3；数据库复验显示 `intent-v1-001` 保持可验证 v3，`intent-v1-002` 成为 v4，两者的 Request/Review/ID Hash 全部匹配且都保留 64 位上一承诺。使用短期内存 JWT 走真实鉴权中间件验证 Full 工作台返回 HTTP 200、`2 approved / 318 pending`、下一条 `intent-v1-003`，封存状态也返回 200；探针 token 未输出、未持久化且未执行写操作。
+
+## 101. 2026-09-08 前端独立路由工作台发布
+
+- `21c36bb1` 将原本在 `AIChat.vue` 顶部展开的能力入口迁移到 `/dashboard` 网格导航，并通过带全局侧边栏的嵌套路由隔离聊天、历史、RAG、诊断、三级记忆、工具治理、策略演算、评测、人工验收和面试导览。旧 `/menu` 与 `/ai-chat` 保留兼容重定向，鉴权仍由父路由 `requiresAuth` 守卫统一继承。
+- 业务 API 和服务端状态没有复制或迁移；多个独立路由暂复用同一业务控制器，但每个路由只初始化并渲染自己的面板。这一过渡架构先解决页面拥挤和功能耦合，再允许后续按领域逐步拆分 SFC，避免一次性改写超大组件引入业务回归。
+- Release `20260908170906-21c36bb1485a`、bundle SHA-256 `9aece09bee74b72b1bef52a69916c2a831366a3d1d9095a1cf77a08164a93caa`、清理审计 SHA `318c4649b94aa28fa0161a82d350aa688fcc32d6a3ee696cfef8f4ef89ce1a99`、Tracked Source `583`。本地 Vue lint/build、320 条 Catalog Hash 门、静态前端网关、后端/Worker/MCP、Prometheus `2/2`、私网 Grafana 与公网浏览器检查均通过。
+- Go 静态前端网关已验证可直接打开 HTML5 History 深链 `/dashboard`、`/dashboard/tools`、`/dashboard/chat`、`/dashboard/knowledge` 和 `/dashboard/review`，无需把路由退回 Hash 模式。真实登录态下独立页面数据正常加载，Full 人工复核进度保持 `20/320`；UI 发布不修改复核数据。

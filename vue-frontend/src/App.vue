@@ -130,6 +130,47 @@ html, body {
   background: var(--g-panel-raised);
 }
 
+.el-popper.is-light,
+.el-select__popper.el-popper,
+.el-dropdown__popper.el-popper {
+  border-color: var(--g-border-strong);
+  color: var(--g-text-secondary);
+  background: var(--g-panel-raised);
+}
+
+.el-select-dropdown__item,
+.el-dropdown-menu__item { color: var(--g-text-secondary); }
+
+.el-select-dropdown__item.is-hovering,
+.el-select-dropdown__item:hover,
+.el-dropdown-menu__item:not(.is-disabled):focus {
+  color: var(--g-primary);
+  background: var(--g-primary-soft);
+}
+
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper {
+  border-radius: 2px;
+  background: #0a131a;
+  box-shadow: 0 0 0 1px var(--g-border-strong) inset;
+}
+
+.el-input__inner,
+.el-textarea__inner,
+.el-select__selected-item { color: var(--g-text-primary); }
+
+.el-dialog,
+.el-drawer,
+.el-table,
+.el-table tr,
+.el-table th.el-table__cell,
+.el-table td.el-table__cell {
+  color: var(--g-text-secondary);
+  border-color: var(--g-border);
+  background: var(--g-panel-raised);
+}
+
 /* 响应式设计 */
 @media (max-width: 768px) {
   .page-enter-from,

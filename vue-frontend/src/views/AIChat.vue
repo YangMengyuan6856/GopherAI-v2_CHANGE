@@ -10065,6 +10065,101 @@ export default {
 .capability-workspace button:hover:not(:disabled) { border-color: var(--g-primary) !important; background: rgba(0, 229, 255, .08) !important; }
 .capability-workspace button:disabled { opacity: .42; }
 
+/*
+ * The legacy workbenches used plain div/span nodes for metric tiles and metadata
+ * chips. They do not carry a `card` class, so keep them in the same industrial
+ * palette explicitly instead of allowing their old white/pastel fills through.
+ */
+.capability-workspace :is(
+  .diagnostic-evaluation-grid,
+  .judge-calibration-summary,
+  .interview-evidence-summary,
+  .controller-decision-grid,
+  .online-evaluation-rates,
+  .evolution-variant-grid,
+  .evolution-paired-list,
+  .fault-campaign-summary,
+  .fault-timeline
+) > div {
+  border: 1px solid var(--g-border) !important;
+  border-radius: 2px !important;
+  color: var(--g-text-secondary) !important;
+  background: #101c26 !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+
+.capability-workspace :is(
+  .diagnostic-evaluation-grid,
+  .judge-calibration-summary,
+  .interview-evidence-summary,
+  .controller-decision-grid,
+  .online-evaluation-rates,
+  .fault-campaign-summary
+) > div > strong {
+  color: var(--g-primary) !important;
+  font-family: var(--g-font-mono);
+}
+
+.capability-workspace :is(
+  .strategy-policy-identity,
+  .strategy-dependencies,
+  .strategy-result-grid,
+  .interview-demo-stack,
+  .memory-stats,
+  .evaluation-decision-strip,
+  .evaluation-failure-list,
+  .evaluation-artifact-list,
+  .failure-proposal-line,
+  .fault-scenario-metrics,
+  .metric-component-strip,
+  .online-score-grid,
+  .tool-agent-governance
+) > span {
+  border: 1px solid var(--g-border) !important;
+  border-radius: 2px !important;
+  color: var(--g-text-secondary) !important;
+  background: #13212c !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+
+.capability-workspace :is(
+  .evaluation-candidate-warning,
+  .diagnostic-waiting,
+  .fault-campaign-limit,
+  .anomaly-result.anomaly-detected,
+  .prometheus-runtime-card.degraded,
+  .prometheus-runtime-card.warming,
+  .prometheus-runtime-card.version_mismatch,
+  .online-evaluation-acceptance.failed,
+  .evolution-promotion-gate,
+  .tool-stale-warning
+) {
+  border-color: rgba(255, 184, 77, .34) !important;
+  color: var(--g-warning) !important;
+  background: rgba(255, 184, 77, .07) !important;
+  background-image: none !important;
+}
+
+.capability-workspace :is(
+  .judge-calibration-content,
+  .evolution-promotion-attempt,
+  .evolution-shadow-pointer,
+  .metric-cardinality-guard
+) {
+  border: 1px solid var(--g-border) !important;
+  border-radius: 2px !important;
+  color: var(--g-text-secondary) !important;
+  background: #0e1922 !important;
+  background-image: none !important;
+}
+
+.capability-workspace .fault-timeline > div.phase-detected,
+.capability-workspace .fault-timeline > div.phase-injected { border-top-color: var(--g-warning) !important; }
+.capability-workspace .fault-timeline > div.phase-recommendation { border-top-color: var(--g-primary) !important; }
+.capability-workspace .fault-timeline > div.phase-recovered { border-top-color: var(--g-success) !important; }
+
 .dependency-ready,
 .policy-ok,
 .signal-on,

@@ -493,7 +493,11 @@ export default {
     const preventBodyScroll = () => { document.body.style.overflow = 'hidden' }
     const restoreBodyScroll = () => { document.body.style.overflow = '' }
 
-    onMounted(async () => { preventBodyScroll(); await Promise.all([loadCatalog(), loadCatalogSeal()]); resetCatalogDecision() })
+    onMounted(async () => {
+      preventBodyScroll()
+      await Promise.all([loadCatalog(), loadCatalogSeal(), loadJudge()])
+      resetCatalogDecision()
+    })
     onUnmounted(restoreBodyScroll)
 
     return {
