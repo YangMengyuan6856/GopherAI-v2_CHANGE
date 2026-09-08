@@ -17,7 +17,8 @@ type artifactStub struct{ snapshot Snapshot }
 func (stub artifactStub) Load() (Snapshot, error) { return stub.snapshot, nil }
 
 type memoryRepository struct {
-	rows []model.EvaluationCatalogReview
+	rows               []model.EvaluationCatalogReview
+	truncateStoredTime bool
 }
 
 func (repository *memoryRepository) ListLatest(_ context.Context, catalogSHA, governanceSHA, reviewerHash string) ([]model.EvaluationCatalogReview, error) {
@@ -35,6 +36,9 @@ func (repository *memoryRepository) ListLatest(_ context.Context, catalogSHA, go
 }
 
 func (repository *memoryRepository) Append(_ context.Context, candidate model.EvaluationCatalogReview) (bool, model.EvaluationCatalogReview, error) {
+	if repository.truncateStoredTime {
+		candidate.CreatedAt = candidate.CreatedAt.UTC().Truncate(time.Second)
+	}
 	for _, row := range repository.rows {
 		if row.IdempotencyKeyHash == candidate.IdempotencyKeyHash {
 			if row.RequestSHA256 != candidate.RequestSHA256 {
@@ -54,6 +58,61 @@ func (repository *memoryRepository) Append(_ context.Context, candidate model.Ev
 	}
 	repository.rows = append(repository.rows, candidate)
 	return true, candidate, nil
+}
+
+func TestServiceSurvivesMySQLSecondPrecisionRoundTrip(t *testing.T) {
+	snapshot := reviewSnapshot()
+	repository := &memoryRepository{truncateStoredTime: true}
+	service := NewService(artifactStub{snapshot: snapshot}, repository, func() time.Time {
+		return time.Date(2026, 9, 8, 0, 43, 31, 987654321, time.UTC)
+	})
+	receipt, err := service.Submit(context.Background(), "alice", ReviewCommand{
+		CatalogSHA256: snapshot.CatalogSHA256, GovernanceSHA256: snapshot.Governance.ManifestSHA256,
+		CaseID: snapshot.Cases[0].ID, CaseSHA256: snapshot.Cases[0].CaseSHA256,
+		ExpectedRevision: 0, Decision: "approved", ReasonCodes: []string{"label_verified"},
+		IdempotencyKey: "catalog-mysql-time-precision-0001", Acknowledgment: Acknowledgment,
+	})
+	if err != nil || receipt.Progress.Reviewed != 1 || receipt.Progress.Pending != 2 || receipt.Review.ReviewedAt.Nanosecond() != 0 {
+		t.Fatalf("second precision round-trip failed: receipt=%+v err=%v", receipt, err)
+	}
+	next, err := service.List(context.Background(), "alice", Query{Status: "pending", Page: 1, PageSize: 1})
+	if err != nil || len(next.Cases) != 1 || next.Cases[0].ID != "case-2" || next.Progress.Reviewed != 1 {
+		t.Fatalf("next pending case was unavailable after round-trip: workbench=%+v err=%v", next, err)
+	}
+}
+
+func TestUpgradeLegacyReviewPreservesSemanticDecisionAndIsIdempotent(t *testing.T) {
+	snapshot := reviewSnapshot()
+	originalTime := time.Date(2026, 9, 8, 0, 43, 31, 987654321, time.UTC)
+	review := model.EvaluationCatalogReview{
+		SchemaVersion: LegacyReviewSchemaVersion, DatasetVersion: snapshot.DatasetVersion,
+		CatalogSHA256: snapshot.CatalogSHA256, GovernanceSHA256: snapshot.Governance.ManifestSHA256,
+		Slice: snapshot.Cases[0].Slice, CaseID: snapshot.Cases[0].ID, CaseSHA256: snapshot.Cases[0].CaseSHA256,
+		ReviewerHash: digest("alice"), Revision: 1, Decision: "approved", ReasonCodesJSON: `["label_verified"]`,
+		ExpectedRevision: 0, IdempotencyKeyHash: digest("legacy-idempotency"), CreatedAt: originalTime,
+	}
+	review.RequestSHA256 = reviewRequestSHA(review)
+	review.ReviewSHA256 = digest(strings.Join([]string{review.SchemaVersion, review.DatasetVersion, review.CatalogSHA256, review.GovernanceSHA256, review.Slice, review.CaseID, review.CaseSHA256, review.ReviewerHash, "1", review.Decision, review.ReasonCodesJSON, "0", review.IdempotencyKeyHash, review.RequestSHA256, originalTime.Format(time.RFC3339Nano)}, "\x00"))
+	review.ID = review.ReviewSHA256
+	review.CreatedAt = originalTime.Truncate(time.Second)
+
+	upgraded, changed, err := upgradeLegacyReview(snapshot, review)
+	if err != nil || !changed || upgraded.SchemaVersion != ReviewSchemaVersion || upgraded.PreviousReviewSHA256 != review.ReviewSHA256 || upgraded.Decision != review.Decision || upgraded.CreatedAt != review.CreatedAt {
+		t.Fatalf("legacy review was not safely upgraded: upgraded=%+v changed=%t err=%v", upgraded, changed, err)
+	}
+	if err := validateReview(upgraded); err != nil {
+		t.Fatalf("upgraded review did not validate: %v", err)
+	}
+	again, changed, err := upgradeLegacyReview(snapshot, upgraded)
+	if err != nil || changed || again.ReviewSHA256 != upgraded.ReviewSHA256 {
+		t.Fatalf("legacy migration was not idempotent: again=%+v changed=%t err=%v", again, changed, err)
+	}
+
+	tampered := review
+	tampered.RequestSHA256 = strings.Repeat("f", 64)
+	if _, _, err := upgradeLegacyReview(snapshot, tampered); !errors.Is(err, ErrLegacyReviewMigration) {
+		t.Fatalf("tampered legacy review was migrated: %v", err)
+	}
 }
 
 func TestFileArtifactStoreLoadsValidatedFullCatalog(t *testing.T) {

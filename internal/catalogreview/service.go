@@ -23,11 +23,12 @@ import (
 )
 
 const (
-	SchemaVersion         = "evaluation-catalog-review-workbench-v1"
-	ReviewSchemaVersion   = "evaluation-catalog-human-review-v2"
-	DefaultManifestPath   = "evals/devsupport-eval-v1.manifest.json"
-	DefaultGovernancePath = "evals/devsupport-eval-v1.governance.json"
-	Acknowledgment        = "I_REVIEWED_CASE_AND_EXPECTED_RESULT"
+	SchemaVersion             = "evaluation-catalog-review-workbench-v1"
+	LegacyReviewSchemaVersion = "evaluation-catalog-human-review-v2"
+	ReviewSchemaVersion       = "evaluation-catalog-human-review-v3"
+	DefaultManifestPath       = "evals/devsupport-eval-v1.manifest.json"
+	DefaultGovernancePath     = "evals/devsupport-eval-v1.governance.json"
+	Acknowledgment            = "I_REVIEWED_CASE_AND_EXPECTED_RESULT"
 )
 
 var (
@@ -555,15 +556,16 @@ func (service *Service) Submit(ctx context.Context, reviewer string, command Rev
 	reasonJSON, _ := json.Marshal(reasons)
 	requestSHA := digest(strings.Join([]string{snapshot.CatalogSHA256, snapshot.Governance.ManifestSHA256, selected.ID, selected.CaseSHA256, reviewerHash, fmt.Sprint(command.ExpectedRevision), command.Decision, string(reasonJSON)}, "\x00"))
 	idempotencyHash := digest(reviewerHash + "\x00" + command.IdempotencyKey)
-	now := service.clock().UTC()
+	now := canonicalReviewTime(service.clock())
 	revision := command.ExpectedRevision + 1
-	reviewSHA := digest(strings.Join([]string{ReviewSchemaVersion, snapshot.DatasetVersion, snapshot.CatalogSHA256, snapshot.Governance.ManifestSHA256, selected.Slice, selected.ID, selected.CaseSHA256, reviewerHash, fmt.Sprint(revision), command.Decision, string(reasonJSON), fmt.Sprint(command.ExpectedRevision), idempotencyHash, requestSHA, now.Format(time.RFC3339Nano)}, "\x00"))
 	candidate := model.EvaluationCatalogReview{
-		ID: reviewSHA, SchemaVersion: ReviewSchemaVersion, DatasetVersion: snapshot.DatasetVersion, CatalogSHA256: snapshot.CatalogSHA256, GovernanceSHA256: snapshot.Governance.ManifestSHA256,
+		SchemaVersion: ReviewSchemaVersion, DatasetVersion: snapshot.DatasetVersion, CatalogSHA256: snapshot.CatalogSHA256, GovernanceSHA256: snapshot.Governance.ManifestSHA256,
 		Slice: selected.Slice, CaseID: selected.ID, CaseSHA256: selected.CaseSHA256, ReviewerHash: reviewerHash,
 		Revision: revision, Decision: command.Decision, ReasonCodesJSON: string(reasonJSON), ExpectedRevision: command.ExpectedRevision,
-		IdempotencyKeyHash: idempotencyHash, RequestSHA256: requestSHA, ReviewSHA256: reviewSHA, CreatedAt: now,
+		IdempotencyKeyHash: idempotencyHash, RequestSHA256: requestSHA, CreatedAt: now,
 	}
+	candidate.ReviewSHA256 = reviewSHA(candidate)
+	candidate.ID = candidate.ReviewSHA256
 	created, stored, err := service.repository.Append(ctx, candidate)
 	if err != nil {
 		return Receipt{}, err
@@ -664,7 +666,20 @@ func reviewView(review model.EvaluationCatalogReview) (ReviewView, error) {
 }
 
 func validateReview(review model.EvaluationCatalogReview) error {
-	if review.SchemaVersion != ReviewSchemaVersion || review.ID != review.ReviewSHA256 || len(review.ID) != 64 || strings.TrimSpace(review.DatasetVersion) == "" || len(review.CatalogSHA256) != 64 || len(review.GovernanceSHA256) != 64 || strings.TrimSpace(review.Slice) == "" || strings.TrimSpace(review.CaseID) == "" || len(review.CaseSHA256) != 64 || len(review.ReviewerHash) != 64 || review.Revision < 1 || review.ExpectedRevision != review.Revision-1 || len(review.IdempotencyKeyHash) != 64 || len(review.RequestSHA256) != 64 || review.CreatedAt.IsZero() {
+	if review.SchemaVersion != ReviewSchemaVersion || review.ID != review.ReviewSHA256 || len(review.ID) != 64 || (review.PreviousReviewSHA256 != "" && len(review.PreviousReviewSHA256) != 64) || review.CreatedAt != canonicalReviewTime(review.CreatedAt) {
+		return ErrArtifactUnavailable
+	}
+	if err := validateReviewSemantics(review); err != nil {
+		return ErrArtifactUnavailable
+	}
+	if review.ReviewSHA256 != reviewSHA(review) {
+		return ErrArtifactUnavailable
+	}
+	return nil
+}
+
+func validateReviewSemantics(review model.EvaluationCatalogReview) error {
+	if strings.TrimSpace(review.DatasetVersion) == "" || len(review.CatalogSHA256) != 64 || len(review.GovernanceSHA256) != 64 || strings.TrimSpace(review.Slice) == "" || strings.TrimSpace(review.CaseID) == "" || len(review.CaseSHA256) != 64 || len(review.ReviewerHash) != 64 || review.Revision < 1 || review.ExpectedRevision != review.Revision-1 || len(review.IdempotencyKeyHash) != 64 || len(review.RequestSHA256) != 64 || review.CreatedAt.IsZero() {
 		return ErrArtifactUnavailable
 	}
 	reasons := []string{}
@@ -674,11 +689,22 @@ func validateReview(review model.EvaluationCatalogReview) error {
 	if _, err := normalizeReasons(review.Decision, reasons); err != nil {
 		return ErrArtifactUnavailable
 	}
-	expected := digest(strings.Join([]string{review.SchemaVersion, review.DatasetVersion, review.CatalogSHA256, review.GovernanceSHA256, review.Slice, review.CaseID, review.CaseSHA256, review.ReviewerHash, fmt.Sprint(review.Revision), review.Decision, review.ReasonCodesJSON, fmt.Sprint(review.ExpectedRevision), review.IdempotencyKeyHash, review.RequestSHA256, review.CreatedAt.UTC().Format(time.RFC3339Nano)}, "\x00"))
-	if review.ReviewSHA256 != expected {
+	if review.RequestSHA256 != reviewRequestSHA(review) {
 		return ErrArtifactUnavailable
 	}
 	return nil
+}
+
+func canonicalReviewTime(value time.Time) time.Time {
+	return value.UTC().Truncate(time.Second)
+}
+
+func reviewRequestSHA(review model.EvaluationCatalogReview) string {
+	return digest(strings.Join([]string{review.CatalogSHA256, review.GovernanceSHA256, review.CaseID, review.CaseSHA256, review.ReviewerHash, fmt.Sprint(review.ExpectedRevision), review.Decision, review.ReasonCodesJSON}, "\x00"))
+}
+
+func reviewSHA(review model.EvaluationCatalogReview) string {
+	return digest(strings.Join([]string{review.SchemaVersion, review.DatasetVersion, review.CatalogSHA256, review.GovernanceSHA256, review.Slice, review.CaseID, review.CaseSHA256, review.ReviewerHash, fmt.Sprint(review.Revision), review.Decision, review.ReasonCodesJSON, fmt.Sprint(review.ExpectedRevision), review.IdempotencyKeyHash, review.RequestSHA256, review.PreviousReviewSHA256, canonicalReviewTime(review.CreatedAt).Format(time.RFC3339)}, "\x00"))
 }
 
 func buildProgress(snapshot Snapshot, reviews []model.EvaluationCatalogReview) (Progress, error) {

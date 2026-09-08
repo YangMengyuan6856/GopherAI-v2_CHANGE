@@ -5,6 +5,7 @@ import (
 	"GopherAI/common/rabbitmq"
 	"GopherAI/common/redis"
 	"GopherAI/config"
+	"GopherAI/internal/catalogreview"
 	"GopherAI/internal/controlrecommendation"
 	"GopherAI/internal/controlwebhook"
 	"GopherAI/internal/failurepool"
@@ -38,6 +39,19 @@ func main() {
 	if err := mysql.InitMysql(); err != nil {
 		log.Println("InitMysql error , " + err.Error())
 		return
+	}
+	catalogSnapshot, err := catalogreview.NewFileArtifactStore(catalogreview.DefaultManifestPath).Load()
+	if err != nil {
+		log.Println("catalog review migration artifact error, " + err.Error())
+		return
+	}
+	migratedCatalogReviews, err := catalogreview.MigrateLegacyReviews(context.Background(), mysql.DB, catalogSnapshot)
+	if err != nil {
+		log.Println("catalog review migration error, " + err.Error())
+		return
+	}
+	if migratedCatalogReviews > 0 {
+		log.Printf("{\"event\":\"catalog_review_hash_migration\",\"migrated\":%d}", migratedCatalogReviews)
 	}
 	//初始化redis
 	redis.Init()

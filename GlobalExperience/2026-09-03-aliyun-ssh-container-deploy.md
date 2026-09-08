@@ -1714,3 +1714,10 @@ GET API 从 MySQL 恢复公开状态，而不是把 checkpoint 内容复制到�
 - Release `20260907225539-4191534f6208`、bundle SHA-256 `08134981e812b220fbadd4d76d09b5a51f3102fc09d3a228cad3eb609d9f68aa`、744 个可追溯条目。清理审计 SHA `e78e80b1357464e674865c7beb872b205d6bd5e367da2a0d583a14f9acce5583`、Tracked Source `579`。全量 Go/Vet、治理与复核链路 Race、MCP 测试、Vue lint/build、Full 320 字节门、Prometheus `2/2`、Grafana 与五进程健康门通过。
 - 公网 `/health/ready` 与 `/ai-chat` 均返回 HTTP 200；容器内治理 Manifest SHA-256 为 `017ecb2c572faf813decca1d797d983b2b5934061bf161f3dd42885ec5d9439f`，两份规则 SHA 与 Manifest 声明一致，生产前端产物包含新的“合成契约回归集”界面。发布与只读 Smoke 没有提交 Full 320 标签或 Judge 分数，正式人工进度仍应保持原值。
 - 最终一致性补丁 `ffc6b59c` 把 Governance SHA 作为复核提交的 CAS 字段、数据库 lineage 字段、唯一 revision 维度、Review/Request Hash 输入和导出 Evidence Snapshot 字段；规则版本变化后旧复核不会被新规则静默复用。启动迁移先创建 `uk_catalog_governance_review_revision`，再移除旧的 catalog-only 唯一索引，现有行保留但只在原治理 lineage 下可见。Release `20260908000113-ffc6b59c2b23`、bundle SHA-256 `3005c9206f30911e07679dfb9c9edae266930118ab8355cf0e54a6169566f902`、清理审计 SHA `1aec54ca0dc55be17da400eb5b057f80448e1601b38f3f754a762aff6045cf9f`；迁移和全部健康门通过，公网健康/页面均为 200，启动后四轮指标采集稳定回到 `warming/points=2`。
+
+## 100. 2026-09-08 Full 320 Hash 必须先按存储精度规范化
+
+- 用户提交 `intent-v1-001` 后，POST 返回 503，随后 Full 队列与封存状态均返回 503；Judge 仍可正常累计到 `5/30`。只读核查确认 MySQL 已写入 1 条 Full 记录，其 Request Hash 与结论字段完全匹配，但 Review Hash 回读校验失败。
+- 根因是 Review Hash 使用 `RFC3339Nano` 时间，而当前 MySQL 驱动禁用时间精度、列类型为 `datetime(0)`。Go 候选记录中的纳秒参与 Hash 后在数据库中被截断为秒，导致“事务已提交、响应阶段回读失败”。内存仓库保留纳秒，因此原单元测试没有覆盖真实存储边界。
+- 修复原则是先规范化、再承诺：Full 复核时间在生成 Hash 前统一为 UTC 秒级，v3 Review Hash 明确提交到规范时间和上一版 Hash。启动迁移只处理绑定当前 Catalog 与 Governance 的 v2 行，并要求 Request Hash、Case Hash、Slice、决策和受控原因全部通过；旧 Review Hash 保存在 `previous_review_sha256`，不修改用户结论、原因、revision 或时间。任何语义不一致均中止启动，不删除或猜测修复。
+- 回归测试必须模拟 MySQL 秒级往返，而不只测试内存原值：带纳秒时钟提交后应成功返回 `1/N`、能读取下一条 pending，用例迁移重复执行应无变化，篡改 Request Hash 必须拒绝。该问题体现的是跨存储边界的 canonical serialization，不应通过关闭完整性校验或清空人工数据绕过。
