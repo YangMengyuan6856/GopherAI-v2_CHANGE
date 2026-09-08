@@ -66,7 +66,7 @@ go run ./cmd/deterministic-score -candidate <git-sha>
 ```
 
 The M8 Judge adapter is `llm-judge-adapter-v1` with rubric
-`judge-rubric-v3-human-calibrated`. It sends only the public question/history, candidate answer,
+`judge-rubric-v2`. It sends only the public question/history, candidate answer,
 allowed evidence and expected/forbidden labels; temperature is fixed to zero.
 Its strict JSON contract scores relevance, completeness, helpfulness,
 groundedness and safety, while the service computes the weighted overall score.

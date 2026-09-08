@@ -106,7 +106,7 @@ func ImportWithOptions(ctx context.Context, reviewer, workbookSHA string, conclu
 			CatalogSHA256: workbench.CatalogSHA256, GovernanceSHA256: workbench.GovernanceSHA256,
 			CaseID: current.ID, CaseSHA256: current.CaseSHA256, ExpectedRevision: expectedRevision,
 			Decision: desired.Decision, ReasonCodes: desired.ReasonCodes, Comment: desired.Comment,
-			IdempotencyKey: fullIdempotencyKey(conclusions.SourceSHA256, workbench.CatalogSHA256, desired.Ordinal),
+			IdempotencyKey: fullIdempotencyKey(conclusions.SourceSHA256, workbench.CatalogSHA256, workbench.GovernanceSHA256, desired.Ordinal),
 			Acknowledgment: catalogreview.Acknowledgment,
 		})
 		if submitErr != nil {
@@ -167,8 +167,8 @@ func ImportWithOptions(ctx context.Context, reviewer, workbookSHA string, conclu
 // and the destination catalog lineage. Reusing the conclusion workbook for a
 // corrected catalog is legitimate, but it must not collide with the prior
 // catalog's immutable request key.
-func fullIdempotencyKey(sourceSHA, catalogSHA string, ordinal int) string {
-	return fmt.Sprintf("human-review-%s-%s-full-%03d", sourceSHA[:12], catalogSHA[:12], ordinal)
+func fullIdempotencyKey(sourceSHA, catalogSHA, governanceSHA string, ordinal int) string {
+	return fmt.Sprintf("human-review-%s-%s-%s-full-%03d", sourceSHA[:10], catalogSHA[:10], governanceSHA[:10], ordinal)
 }
 
 func loadCatalogCases(ctx context.Context, reviewer string, catalog CatalogService) ([]catalogreview.CaseView, catalogreview.Workbench, error) {
