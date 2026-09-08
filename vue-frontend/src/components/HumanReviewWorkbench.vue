@@ -607,6 +607,99 @@ select { min-height: 38px; padding: 6px 10px; border: 1px solid #cfd5e8; border-
 .loading-state, .empty-state { display: flex; flex-direction: column; align-items: center; gap: 7px; padding: 60px 20px; border: 1px dashed #cbd1e8; border-radius: 14px; background: white; color: #6a748e; }
 .review-footer { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 12px 28px; border-top: 1px solid #e1e4f1; background: white; font-size: 13px; }
 .review-footer button { min-height: 34px; padding: 4px 14px; }
+
+/* Independent human-gate route: industrial dark presentation. */
+.review-overlay { position: absolute; padding: 12px; background: rgba(3, 8, 12, .88); backdrop-filter: blur(4px); }
+.review-shell {
+  width: min(1320px, 100%);
+  border: 1px solid var(--g-border-strong);
+  border-radius: 2px;
+  color: var(--g-text-primary);
+  background: var(--g-bg);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, .5);
+}
+.review-header {
+  padding: 18px 24px 14px;
+  border-bottom: 1px solid var(--g-border-strong);
+  background: linear-gradient(100deg, rgba(0, 229, 255, .08), transparent 55%), var(--g-panel);
+  box-shadow: inset 3px 0 0 var(--g-primary);
+}
+.review-header small { color: var(--g-primary); font-family: var(--g-font-mono); }
+.review-header p { color: var(--g-text-secondary); }
+.close-button,
+.action-row button,
+.review-footer button,
+.seal-card button {
+  border: 1px solid var(--g-border-strong);
+  border-radius: 2px;
+  color: var(--g-text-secondary);
+  background: #0e1922;
+}
+.review-tabs { border-color: var(--g-border); background: #0e171f; }
+.review-tabs button { color: var(--g-text-muted); }
+.review-tabs button.active { color: var(--g-primary); border-color: var(--g-primary); background: rgba(0, 229, 255, .04); }
+.review-scroll { background: #0b131a; }
+.gate-notice,
+.governance-card,
+.governance-card.warning-card,
+.claim-grid,
+.progress-grid div,
+.seal-card,
+.seal-card.ready,
+.seal-card.sealed,
+.case-card,
+.prompt-box,
+.judge-copy section,
+.review-guide,
+.review-question,
+.criteria-grid > div,
+.criteria-grid > div + div,
+.source-list,
+.evidence-excerpts > article,
+.structured-case,
+.structured-case summary,
+.decision-fieldset,
+.ack-row,
+.score-rubric,
+.score-rubric span,
+.judge-comparison,
+.loading-state,
+.empty-state,
+.review-footer {
+  border-color: var(--g-border) !important;
+  border-radius: 2px !important;
+  color: var(--g-text-secondary) !important;
+  background: var(--g-panel-raised) !important;
+  box-shadow: none !important;
+}
+.gate-notice, .review-question { border-left-color: var(--g-primary) !important; }
+.review-shell h2, .review-shell h3, .review-shell h4, .review-shell strong, .review-shell b { color: var(--g-text-primary); }
+.gate-notice span, .filter-row span, .hash-line, .review-footer, .case-title small,
+.governance-heading > span, .progress-grid span, .seal-card span, .seal-card small,
+.filter-row label, .score-grid label, .score-grid label small, .truth-explanation { color: var(--g-text-secondary); }
+.governance-heading small, .prompt-box small, .judge-copy small, .review-question small,
+.score-rubric strong, .structured-case summary { color: var(--g-primary) !important; }
+.progress-grid strong { color: var(--g-primary); font-family: var(--g-font-mono); }
+.boundary-title, .evidence-boundary { color: var(--g-warning) !important; }
+.guide-badges span, .variant-badge, .reviewed-badge {
+  border: 1px solid var(--g-border-strong);
+  border-radius: 2px;
+  color: var(--g-primary);
+  background: rgba(0, 229, 255, .06);
+}
+.evidence-excerpts small { color: var(--g-success); }
+select {
+  border: 1px solid var(--g-border-strong);
+  border-radius: 2px;
+  color: var(--g-text-primary);
+  background: #081118;
+}
+.structured-case pre { color: #cfedf3; background: #071017; }
+.action-row .primary { color: #041015; border-color: var(--g-primary); background: var(--g-primary); }
+.case-index button { border-color: var(--g-border); border-radius: 2px; color: var(--g-text-muted); background: #101a23; }
+.case-index button.reviewed { border-color: rgba(32, 227, 162, .4); color: var(--g-success); background: rgba(32, 227, 162, .08); }
+.case-index button.active { outline-color: var(--g-primary); }
+.judge-comparison { color: var(--g-success) !important; }
 @media (max-width: 900px) {
   .review-overlay { padding: 0; }
   .review-shell { border-radius: 0; }

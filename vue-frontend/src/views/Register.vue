@@ -319,4 +319,26 @@ export default {
   margin-top: 20px;
   animation: fadeIn 1s ease-out 0.5s both;
 }
+
+/* Match the authenticated industrial console. */
+.register-container {
+  background:
+    linear-gradient(rgba(0, 229, 255, .025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 229, 255, .025) 1px, transparent 1px),
+    var(--g-bg);
+  background-size: 30px 30px;
+}
+.register-container::before { display: none; }
+.register-card {
+  border: 1px solid var(--g-border-strong);
+  border-radius: 2px;
+  color: var(--g-text-primary);
+  background: var(--g-panel-raised);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .45), inset 3px 0 0 var(--g-primary);
+  backdrop-filter: none;
+}
+.card-header h2 { color: var(--g-primary); background: none; -webkit-text-fill-color: currentColor; font-family: var(--g-font-mono); }
+.el-button { border-radius: 2px; box-shadow: none; }
+.el-button::before { display: none; }
+.el-button:hover { transform: none; box-shadow: 0 0 16px rgba(0, 229, 255, .15); }
 </style>

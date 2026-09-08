@@ -1,10 +1,11 @@
 <template>
-  <div class="ai-chat-container">
+  <div :class="['ai-chat-container', `workspace-${workspaceMode}`]">
     <!-- 左侧会话列表 -->
-    <div class="session-list">
+    <div v-if="showsSessionRail" class="session-list">
       <div class="session-list-header">
-        <span>会话列表</span>
-        <button class="new-chat-btn" @click="createNewSession">＋ 新聊天</button>
+        <small>CONVERSATION LOG</small>
+        <span>{{ workspaceMode === 'memory' ? '选择记忆会话' : '历史会话' }}</span>
+        <button v-if="workspaceMode === 'chat'" class="new-chat-btn" @click="createNewSession">＋ 新聊天</button>
       </div>
       <ul class="session-list-ul">
         <li
@@ -20,35 +21,30 @@
 
     <!-- 右侧聊天区域 -->
     <div class="chat-section">
-      <div class="top-bar">
-        <button class="back-btn" @click="$router.push('/menu')">← 返回</button>
-        <button class="sync-btn" @click="syncHistory" :disabled="!currentSessionId || tempSession">同步历史数据</button>
-        <button class="interview-demo-toggle" :class="{ 'workspace-active': interviewDemoOpen }" :aria-pressed="interviewDemoOpen" :disabled="loadingInterviewDemo" @click="toggleInterviewDemo">🎤 面试导览</button>
-        <span class="route-mode" title="新识别器只记录建议和指标；实际路由仍由当前显式开关决定">🧭 意图 Shadow（不切流）</span>
-        <label for="streamingMode" style="margin-left: 20px;">
-          <input type="checkbox" id="streamingMode" v-model="isStreaming" />
-          流式响应
-        </label>
-        <label for="knowledgeMode" class="knowledge-mode" title="显式要求统一聊天入口使用 rag_fast；关闭时普通聊天保持原路径">
-          <input type="checkbox" id="knowledgeMode" v-model="knowledgeRequired" />
-          知识库回答
-        </label>
-        <label for="diagnosticMode" class="diagnostic-mode" title="显式进入可暂停、可恢复、有预算和公开步骤的故障诊断 Agent">
-          <input type="checkbox" id="diagnosticMode" v-model="diagnosticMode" @change="onDiagnosticModeChanged" />
-          故障诊断 Harness
-        </label>
-        <button class="memory-toggle-btn" :class="{ 'workspace-active': memoryPreviewOpen }" :aria-pressed="memoryPreviewOpen" :disabled="loadingMemoryPreview" @click="toggleMemoryPreview">🧠 三级记忆</button>
-        <button class="tool-runtime-toggle" :class="{ 'workspace-active': toolRuntimeOpen }" :aria-pressed="toolRuntimeOpen" :disabled="loadingToolCatalog" @click="toggleToolRuntime">🛡 受治理工具</button>
-        <button class="strategy-control-toggle" :class="{ 'workspace-active': policyControlOpen }" :aria-pressed="policyControlOpen" :disabled="loadingPolicyControl" @click="togglePolicyControl">🧭 策略演算</button>
-        <button class="evaluation-catalog-toggle" :class="{ 'workspace-active': evaluationCatalogOpen }" :aria-pressed="evaluationCatalogOpen" :disabled="loadingEvaluationCatalog" @click="toggleEvaluationCatalog">📊 评测总览</button>
-        <button class="human-review-toggle" :class="{ 'workspace-active': humanReviewOpen }" :aria-pressed="humanReviewOpen" @click="humanReviewOpen = true">✅ 人工验收</button>
-        <button
-          class="upload-btn"
-          title="支持 Markdown/TXT、JSON/YAML key path 和 Go 顶层符号索引"
-          @click="triggerFileUpload"
-          :disabled="uploading"
-        >📎 上传项目文档</button>
-        <button class="search-toggle-btn" :class="{ 'workspace-active': knowledgeSearchOpen }" :aria-pressed="knowledgeSearchOpen" @click="toggleKnowledgeSearch">🔎 证据检索</button>
+      <div class="workspace-local-header">
+        <div class="workspace-title">
+          <small>{{ workspaceMeta.code }}</small>
+          <div><strong>{{ workspaceMeta.title }}</strong><span>{{ workspaceMeta.description }}</span></div>
+        </div>
+        <div class="workspace-actions">
+          <template v-if="workspaceMode === 'chat' || workspaceMode === 'history'">
+            <button class="sync-btn" @click="syncHistory" :disabled="!currentSessionId || tempSession">同步历史</button>
+            <span class="route-mode" title="新识别器只记录建议和指标；实际路由仍由当前显式开关决定">SHADOW · 不切流</span>
+            <label for="streamingMode"><input id="streamingMode" v-model="isStreaming" type="checkbox" /> 流式响应</label>
+            <label for="knowledgeMode" class="knowledge-mode" title="显式要求统一聊天入口使用 rag_fast；关闭时普通聊天保持原路径">
+              <input id="knowledgeMode" v-model="knowledgeRequired" type="checkbox" /> 知识库回答
+            </label>
+          </template>
+          <template v-if="workspaceMode === 'knowledge'">
+            <button
+              class="upload-btn"
+              title="支持 Markdown/TXT、JSON/YAML key path 和 Go 顶层符号索引"
+              :disabled="uploading"
+              @click="triggerFileUpload"
+            >{{ uploading ? '上传中...' : '＋ 上传项目文档' }}</button>
+          </template>
+          <button class="back-btn" @click="$router.push('/dashboard')">返回工作台</button>
+        </div>
         <input
           ref="fileInput"
           type="file"
@@ -58,15 +54,15 @@
         />
       </div>
 
-      <HumanReviewWorkbench v-if="humanReviewOpen" @close="closeHumanReviewWorkbench" />
+      <HumanReviewWorkbench v-if="workspaceMode === 'review' && humanReviewOpen" @close="closeHumanReviewWorkbench" />
 
       <div
-        v-show="interviewDemoOpen || policyControlOpen || toolRuntimeOpen || evaluationCatalogOpen || knowledgeDocuments.length > 0 || knowledgeSearchOpen || memoryPreviewOpen || diagnosticMode"
+        v-if="showsCapabilityWorkspace"
         class="capability-workspace"
         aria-label="当前能力工作区"
       >
 
-      <section v-if="interviewDemoOpen" class="interview-demo-panel" aria-label="3 到 5 分钟面试导览">
+      <section v-if="workspaceMode === 'interview' && interviewDemoOpen" class="interview-demo-panel" aria-label="3 到 5 分钟面试导览">
         <div class="interview-demo-header">
           <div>
             <small>GopherAI DevSupport · LIVE WALKTHROUGH</small>
@@ -139,7 +135,7 @@
         </div>
       </section>
 
-      <section v-if="policyControlOpen" class="strategy-control-panel">
+      <section v-if="workspaceMode === 'policy' && policyControlOpen" class="strategy-control-panel">
         <div class="strategy-control-header">
           <div>
             <strong>Strategy Registry · 固定分桶演算</strong>
@@ -399,7 +395,7 @@
         <div v-else class="strategy-control-empty">当前策略暂时不可读取。</div>
       </section>
 
-      <section v-if="toolRuntimeOpen" class="tool-runtime-panel">
+      <section v-if="workspaceMode === 'tools' && toolRuntimeOpen" class="tool-runtime-panel">
         <div class="tool-runtime-header">
           <div>
             <strong>受治理 Tool Runtime</strong>
@@ -532,7 +528,7 @@
         </article>
       </section>
 
-      <section v-if="evaluationCatalogOpen" class="strategy-control-panel evaluation-catalog-panel">
+      <section v-if="workspaceMode === 'evaluation' && evaluationCatalogOpen" class="strategy-control-panel evaluation-catalog-panel">
         <div class="strategy-control-header">
           <div>
             <strong>统一评测运行 · Full 320 数据目录</strong>
@@ -786,7 +782,7 @@
                   </div>
                   <small>{{ g10Review.human_gate_progress.judge_calibration.calibration_gate_passed ? '校准门通过' : '校准门未通过' }} · 队列完成也不会跳过独立封存与统一重跑</small>
                 </article>
-                <button type="button" @click="humanReviewOpen = true">进入人工验收</button>
+                <button type="button" @click="openHumanReviewWorkbench">进入人工验收</button>
               </div>
               <div class="g10-gate-grid">
                 <article v-for="gate in g10Review.gates" :key="gate.id">
@@ -1743,7 +1739,7 @@
                 <button :disabled="downloadingCatalogReviewEvidence" @click="downloadCatalogReviewEvidence('json')">
                   {{ downloadingCatalogReviewEvidence ? '导出中...' : '导出当前证据' }}
                 </button>
-                <button @click="humanReviewOpen = true">
+                <button @click="openHumanReviewWorkbench">
                   打开专注复核工作台
                 </button>
               </div>
@@ -1864,7 +1860,7 @@
         </template>
       </section>
 
-      <div v-if="knowledgeDocuments.length" class="knowledge-status">
+      <div v-if="workspaceMode === 'knowledge' && knowledgeDocuments.length" class="knowledge-status">
         <span>📚 已接收 {{ knowledgeDocuments.length }} 份文档</span>
         <span class="knowledge-latest">
           最近：{{ knowledgeDocuments[0].display_name }} · {{ documentStatusLabel(knowledgeDocuments[0].status) }}
@@ -1932,7 +1928,7 @@
         </details>
       </div>
 
-      <div v-if="knowledgeSearchOpen" class="knowledge-search-panel">
+      <div v-if="workspaceMode === 'knowledge' && knowledgeSearchOpen" class="knowledge-search-panel">
         <div class="knowledge-search-form">
           <input
             v-model="knowledgeQuery"
@@ -2125,7 +2121,7 @@
         </div>
       </div>
 
-      <section v-if="memoryPreviewOpen" class="memory-workbench">
+      <section v-if="workspaceMode === 'memory' && memoryPreviewOpen" class="memory-workbench">
         <div class="memory-workbench-header">
           <div>
             <strong>🧠 Context Assembler v2 · 三级记忆控制台</strong>
@@ -2219,7 +2215,7 @@
         </template>
       </section>
 
-      <section v-if="diagnosticMode" class="diagnostic-workbench">
+      <section v-if="workspaceMode === 'diagnostics' && diagnosticMode" class="diagnostic-workbench">
         <div class="diagnostic-workbench-header">
           <div>
             <strong>🩺 可恢复故障诊断</strong>
@@ -2470,7 +2466,7 @@
 
       </div>
 
-      <div class="chat-messages" ref="messagesRef">
+      <div v-if="isConversationalWorkspace" class="chat-messages" ref="messagesRef">
         <div
           v-for="(message, index) in currentMessages"
           :key="index"
@@ -2510,7 +2506,7 @@
         </div>
       </div>
 
-      <div class="chat-input">
+      <div v-if="isConversationalWorkspace" class="chat-input">
         <div class="input-wrapper">
           <textarea
             v-model="inputMessage"
@@ -2538,6 +2534,7 @@
 
 
 import { ref, nextTick, computed, onMounted, onUnmounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '../utils/api'
 import HumanReviewWorkbench from '../components/HumanReviewWorkbench.vue'
@@ -2545,7 +2542,33 @@ import HumanReviewWorkbench from '../components/HumanReviewWorkbench.vue'
 export default {
   name: 'AIChat',
   components: { HumanReviewWorkbench },
-  setup() {
+  props: {
+    workspace: {
+      type: String,
+      default: 'chat'
+    }
+  },
+  setup(props) {
+
+    const route = useRoute()
+    const router = useRouter()
+    const workspaceMode = computed(() => props.workspace || 'chat')
+    const workspaceDefinitions = {
+      chat: { code: 'M-01 / CHAT', title: '统一智能对话', description: '正式回答、实际路由与意图 Shadow 在同一条消息上可追溯。' },
+      history: { code: 'M-01 / HISTORY', title: '历史会话', description: '选择历史会话，按需加载消息并同步持久化记录。' },
+      knowledge: { code: 'M-02 / RAG', title: '证据检索与知识库', description: '检索、回答、引用与文档版本管理集中在独立证据工作区。' },
+      diagnostics: { code: 'M-03 / AGENT', title: '故障诊断 Harness', description: '有状态、有预算、可暂停恢复的只读诊断 Agent。' },
+      memory: { code: 'M-04 / MEMORY', title: '三级记忆控制台', description: '查看 Working、Episodic 与 Profile 的来源、边界和冲突。' },
+      tools: { code: 'M-05 / TOOLS', title: '受治理工具运行时', description: 'Registry、Schema、权限、预算、熔断、缓存与审计统一治理。' },
+      policy: { code: 'M-06 / POLICY', title: '策略演算与多 Agent', description: '固定分桶与协作规划只做 Shadow 预演，不改变正式流量。' },
+      evaluation: { code: 'M-07 / EVAL', title: '评测与反馈闭环', description: '离线基准、在线观测、异常检测与只建议控制器统一呈现。' },
+      review: { code: 'M-08 / HUMAN GATE', title: '人工验收工作台', description: '逐例复核与 Judge 校准按登录账号隔离保存。' },
+      interview: { code: 'M-09 / GUIDE', title: '面试导览', description: '按场景、证据、Agent、治理和闭环串联项目亮点。' }
+    }
+    const workspaceMeta = computed(() => workspaceDefinitions[workspaceMode.value] || workspaceDefinitions.chat)
+    const showsSessionRail = computed(() => ['chat', 'history', 'diagnostics', 'memory'].includes(workspaceMode.value))
+    const isConversationalWorkspace = computed(() => ['chat', 'history', 'diagnostics'].includes(workspaceMode.value))
+    const showsCapabilityWorkspace = computed(() => !['chat', 'history', 'review'].includes(workspaceMode.value))
 
     const sessions = ref({})
     const currentSessionId = ref(null)
@@ -2834,17 +2857,14 @@ export default {
     }
 
     const openInterviewDemoWorkspace = async (workspace) => {
-      interviewDemoOpen.value = false
-      if (workspace === 'chat') {
-        closeUtilityWorkspaces()
-        await nextTick()
-        messageInput.value?.focus()
-        return
-      }
-      if (workspace === 'knowledge' && !knowledgeSearchOpen.value) await toggleKnowledgeSearch()
-      if (workspace === 'policy' && !policyControlOpen.value) await togglePolicyControl()
-      if (workspace === 'tools' && !toolRuntimeOpen.value) await toggleToolRuntime()
-      if (workspace === 'evaluation' && !evaluationCatalogOpen.value) await toggleEvaluationCatalog()
+      const target = {
+        chat: '/dashboard/chat',
+        knowledge: '/dashboard/knowledge',
+        policy: '/dashboard/policy',
+        tools: '/dashboard/tools',
+        evaluation: '/dashboard/evaluation'
+      }[workspace]
+      if (target) await router.push(target)
     }
 
     const renderMarkdown = (text) => {
@@ -4122,6 +4142,7 @@ export default {
 
     const closeHumanReviewWorkbench = async () => {
       humanReviewOpen.value = false
+      if (workspaceMode.value === 'review') await router.push('/dashboard')
       try {
         const response = await api.get('/evaluations/g10/latest')
         g10Review.value = response.data
@@ -4130,6 +4151,8 @@ export default {
         // G10 may not have been loaded yet; the full evaluation workbench keeps its own explicit error path.
       }
     }
+
+    const openHumanReviewWorkbench = () => router.push('/dashboard/review')
 
     const toggleCatalogReviewWorkbench = async () => {
       catalogReviewOpen.value = !catalogReviewOpen.value
@@ -5224,12 +5247,29 @@ export default {
       }
     }
 
-    onMounted(() => {
-      loadSessions()
-      loadKnowledgeDocuments()
-      if (sessionStorage.getItem(diagnosticModeStorageKey) === '1' && sessionStorage.getItem(diagnosticRunStorageKey)) {
+    onMounted(async () => {
+      if (showsSessionRail.value) await loadSessions()
+      if (workspaceMode.value === 'chat' && route.query.new === '1') createNewSession()
+
+      if (workspaceMode.value === 'knowledge') {
+        knowledgeSearchOpen.value = true
+        await loadKnowledgeDocuments()
+      } else if (workspaceMode.value === 'memory') {
+        memoryPreviewOpen.value = true
+        await loadMemoryPreview()
+      } else if (workspaceMode.value === 'tools') {
+        await toggleToolRuntime()
+      } else if (workspaceMode.value === 'policy') {
+        await togglePolicyControl()
+      } else if (workspaceMode.value === 'evaluation') {
+        await toggleEvaluationCatalog()
+      } else if (workspaceMode.value === 'interview') {
+        await toggleInterviewDemo()
+      } else if (workspaceMode.value === 'review') {
+        humanReviewOpen.value = true
+      } else if (workspaceMode.value === 'diagnostics') {
         diagnosticMode.value = true
-        restoreDiagnosticRun()
+        if (sessionStorage.getItem(diagnosticRunStorageKey)) await restoreDiagnosticRun()
       }
     })
 
@@ -5239,6 +5279,11 @@ export default {
 
     // expose to template
     return {
+      workspaceMode,
+      workspaceMeta,
+      showsSessionRail,
+      isConversationalWorkspace,
+      showsCapabilityWorkspace,
       sessions: computed(() => Object.values(sessions.value)),
       currentSessionId,
       tempSession,
@@ -5277,6 +5322,7 @@ export default {
       evaluationCatalogOpen,
       humanReviewOpen,
       closeHumanReviewWorkbench,
+      openHumanReviewWorkbench,
       loadingEvaluationCatalog,
       evaluationCatalog,
       evaluationRun,
@@ -9795,6 +9841,342 @@ export default {
   border-color: #409eff;
   box-shadow: 0 8px 30px rgba(64,158,255,0.06);
   transform: translateY(-1px);
+}
+
+/* Route-isolated industrial control theme. Keep legacy business selectors above;
+   this final layer intentionally owns presentation while APIs and state stay intact. */
+.ai-chat-container {
+  height: 100%;
+  color: var(--g-text-primary);
+  background:
+    linear-gradient(rgba(0, 229, 255, .018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 229, 255, .018) 1px, transparent 1px),
+    var(--g-bg);
+  background-size: 28px 28px;
+}
+
+.ai-chat-container::before { display: none; }
+
+.session-list {
+  width: 252px;
+  height: 100%;
+  border-right: 1px solid var(--g-border);
+  background: #0d161e;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.session-list-header {
+  align-items: stretch;
+  padding: 18px 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--g-border);
+  background: #0e1821;
+}
+
+.session-list-header small {
+  color: var(--g-primary);
+  font: 9px var(--g-font-mono);
+  letter-spacing: .12em;
+}
+
+.session-list-header span { color: var(--g-text-primary); font-size: 14px; }
+
+.new-chat-btn {
+  padding: 10px 12px;
+  border: 1px solid var(--g-primary);
+  border-radius: 2px;
+  color: var(--g-primary);
+  background: rgba(0, 229, 255, .06);
+  box-shadow: none;
+  text-align: left;
+}
+
+.new-chat-btn::before { display: none; }
+.new-chat-btn:hover { transform: none; color: #041015; background: var(--g-primary); box-shadow: 0 0 16px rgba(0, 229, 255, .16); }
+
+.session-list-ul { background: #0b141c; }
+.session-item {
+  margin: 5px 8px;
+  padding: 11px 12px;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  color: var(--g-text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.session-item:hover { transform: none; color: var(--g-text-primary); background: #13212c; }
+.session-item.active {
+  color: var(--g-primary);
+  border-color: var(--g-border-strong);
+  background: rgba(0, 229, 255, .055);
+  box-shadow: inset 2px 0 0 var(--g-primary);
+}
+
+.workspace-local-header {
+  min-height: 72px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 10px 22px;
+  border-bottom: 1px solid var(--g-border);
+  background: rgba(13, 22, 30, .96);
+}
+
+.workspace-title { min-width: 0; display: flex; align-items: center; gap: 14px; }
+.workspace-title > small {
+  min-width: 86px;
+  padding: 6px 8px;
+  border-left: 2px solid var(--g-primary);
+  color: var(--g-primary);
+  background: var(--g-primary-soft);
+  font: 9px var(--g-font-mono);
+  letter-spacing: .07em;
+}
+.workspace-title > div { min-width: 0; display: grid; gap: 4px; }
+.workspace-title strong { font-size: 16px; }
+.workspace-title span { overflow: hidden; color: var(--g-text-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.workspace-actions label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 9px;
+  border: 1px solid var(--g-border);
+  border-radius: 2px;
+  color: var(--g-text-secondary);
+  background: #101b24;
+  font-size: 11px;
+}
+.workspace-actions input { accent-color: var(--g-primary); }
+
+.back-btn,
+.sync-btn,
+.upload-btn {
+  min-height: 32px;
+  padding: 7px 11px;
+  border: 1px solid var(--g-border-strong);
+  border-radius: 2px;
+  color: var(--g-text-secondary);
+  background: #101b24;
+  box-shadow: none;
+  font-size: 11px;
+}
+.back-btn:hover, .sync-btn:hover:not(:disabled) { transform: none; color: var(--g-primary); border-color: var(--g-primary); background: var(--g-primary-soft); box-shadow: none; }
+.sync-btn:disabled, .upload-btn:disabled { color: #40515f; border-color: var(--g-border); background: #0d151c; }
+.upload-btn { color: #041015; border-color: var(--g-primary); background: var(--g-primary); }
+.upload-btn:hover:not(:disabled) { transform: none; box-shadow: 0 0 16px rgba(0, 229, 255, .15); }
+.route-mode {
+  margin: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--g-border-strong);
+  border-radius: 2px;
+  color: var(--g-primary);
+  background: rgba(0, 229, 255, .045);
+  font: 10px var(--g-font-mono);
+}
+.knowledge-mode { color: var(--g-text-secondary) !important; background: #101b24 !important; }
+
+.capability-workspace {
+  flex: 1 1 auto;
+  max-height: none;
+  padding: 16px 18px 28px;
+  overflow: auto;
+  background: transparent;
+}
+.capability-workspace::-webkit-scrollbar-thumb { border-radius: 2px; background: var(--g-border-strong); }
+.capability-workspace::-webkit-scrollbar-track { background: #091117; }
+
+.capability-workspace > section,
+.capability-workspace > div,
+.strategy-control-panel,
+.tool-runtime-panel,
+.memory-workbench,
+.interview-demo-panel,
+.diagnostic-workbench,
+.knowledge-search-panel,
+.knowledge-status {
+  margin: 0;
+  border: 1px solid var(--g-border) !important;
+  border-radius: 2px !important;
+  color: var(--g-text-primary) !important;
+  background: var(--g-panel) !important;
+  box-shadow: none !important;
+}
+
+.capability-workspace section,
+.capability-workspace article,
+.capability-workspace details,
+.capability-workspace [class*="card"],
+.capability-workspace [class*="result"],
+.capability-workspace [class*="notice"],
+.capability-workspace [class*="warning"],
+.capability-workspace [class*="summary"],
+.capability-workspace [class*="boundary"] {
+  border-color: var(--g-border) !important;
+  border-radius: 2px !important;
+  color: var(--g-text-secondary);
+  background-color: var(--g-panel-raised) !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+
+.capability-workspace article { background: #121e28 !important; }
+.capability-workspace strong,
+.capability-workspace h1,
+.capability-workspace h2,
+.capability-workspace h3,
+.capability-workspace h4 { color: var(--g-text-primary) !important; }
+.capability-workspace p,
+.capability-workspace span,
+.capability-workspace small,
+.capability-workspace li,
+.capability-workspace label { color: var(--g-text-secondary); }
+.capability-workspace summary { color: var(--g-primary) !important; }
+.capability-workspace code,
+.capability-workspace pre,
+.capability-workspace [class*="hash"],
+.capability-workspace [class*="schema"] { font-family: var(--g-font-mono); }
+.capability-workspace pre { border: 1px solid var(--g-border); border-radius: 2px !important; color: #c8edf4 !important; background: #081118 !important; }
+
+.capability-workspace input:not([type="checkbox"]):not([type="radio"]),
+.capability-workspace textarea,
+.capability-workspace select {
+  border: 1px solid var(--g-border-strong) !important;
+  border-radius: 2px !important;
+  color: var(--g-text-primary) !important;
+  background: #0a131a !important;
+  box-shadow: none !important;
+}
+.capability-workspace input:focus,
+.capability-workspace textarea:focus,
+.capability-workspace select:focus { outline: none; border-color: var(--g-primary) !important; box-shadow: 0 0 0 2px rgba(0, 229, 255, .08) !important; }
+.capability-workspace button {
+  border: 1px solid var(--g-border-strong) !important;
+  border-radius: 2px !important;
+  color: var(--g-primary) !important;
+  background: #0e1b24 !important;
+  box-shadow: none !important;
+}
+.capability-workspace button:hover:not(:disabled) { border-color: var(--g-primary) !important; background: rgba(0, 229, 255, .08) !important; }
+.capability-workspace button:disabled { opacity: .42; }
+
+.dependency-ready,
+.policy-ok,
+.signal-on,
+.evaluation-gate.passed,
+.evaluation-candidate-warning.passed { color: var(--g-success) !important; border-color: rgba(32, 227, 162, .35) !important; background: rgba(32, 227, 162, .07) !important; }
+.dependency-down,
+.policy-warning,
+.signal-off,
+.evaluation-gate.failed { color: var(--g-warning) !important; border-color: rgba(255, 184, 77, .35) !important; background: rgba(255, 184, 77, .07) !important; }
+.shadow-only-badge,
+.interview-demo-readonly { color: var(--g-primary) !important; border: 1px solid rgba(0, 229, 255, .35); background: var(--g-primary-soft) !important; }
+
+.workspace-diagnostics .capability-workspace { flex: 0 1 53%; padding-bottom: 10px; }
+.workspace-diagnostics .diagnostic-workbench { max-height: none; overflow: visible; }
+
+.chat-messages {
+  padding: 28px clamp(18px, 4vw, 56px);
+  gap: 22px;
+  background: rgba(8, 15, 21, .72);
+}
+.chat-messages::-webkit-scrollbar-thumb { border-radius: 2px; background: var(--g-border-strong); }
+.message { max-width: min(78%, 880px); border-radius: 2px; animation: none; }
+.user-message {
+  padding: 14px 16px;
+  border: 1px solid var(--g-border-strong);
+  color: var(--g-text-primary);
+  background: #172837;
+  box-shadow: none;
+}
+.user-message::after, .ai-message::after { display: none; }
+.ai-message {
+  width: min(84%, 940px);
+  max-width: min(84%, 940px);
+  padding: 8px 2px 18px;
+  border: 0;
+  border-bottom: 1px solid var(--g-border);
+  color: #d6e2eb;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.message-header { color: var(--g-primary); font-family: var(--g-font-mono); font-size: 11px; }
+.message-content { line-height: 1.75; }
+.routing-meta { color: var(--g-text-muted); font-family: var(--g-font-mono); }
+.shadow-intent-meta { color: var(--g-primary); }
+.chat-citations { border-color: var(--g-border); color: #7993a8; font-family: var(--g-font-mono); }
+.tts-btn, .answer-feedback-btn {
+  border: 1px solid var(--g-border-strong);
+  border-radius: 2px;
+  color: var(--g-text-secondary);
+  background: #101a23;
+  box-shadow: none;
+}
+
+.chat-input {
+  padding: 14px 22px 18px;
+  border-top: 1px solid var(--g-border);
+  background: #0d161e;
+  backdrop-filter: none;
+}
+.input-wrapper textarea {
+  min-height: 44px;
+  max-height: 132px;
+  padding: 11px 13px;
+  border: 1px solid var(--g-border-strong);
+  border-radius: 2px;
+  color: var(--g-text-primary);
+  background: #071017;
+  box-shadow: inset 3px 0 0 #1b4754;
+  font-family: var(--g-font-mono);
+  font-size: 13px;
+}
+.input-wrapper textarea:focus {
+  transform: none;
+  border-color: var(--g-primary);
+  box-shadow: inset 3px 0 0 var(--g-primary), 0 0 14px rgba(0, 229, 255, .11);
+}
+.input-wrapper textarea::placeholder { color: #506677; }
+.send-btn {
+  min-height: 44px;
+  padding: 10px 20px;
+  border: 1px solid var(--g-primary);
+  border-radius: 2px;
+  color: #041015;
+  background: var(--g-primary);
+  box-shadow: none;
+  font-family: var(--g-font-mono);
+}
+.send-btn:hover:not(:disabled) { transform: none; box-shadow: 0 0 16px rgba(0, 229, 255, .18); }
+.send-btn:disabled { color: #52616d; border-color: var(--g-border); background: #17212a; }
+
+@media (max-height: 800px) {
+  .capability-workspace { max-height: none; }
+  .workspace-diagnostics .capability-workspace { max-height: 52%; }
+}
+
+@media (max-width: 900px) {
+  .session-list { width: 210px; }
+  .workspace-local-header { align-items: flex-start; flex-direction: column; }
+  .workspace-actions { justify-content: flex-start; }
+  .workspace-title span { white-space: normal; }
+}
+
+@media (max-width: 680px) {
+  .session-list { width: 148px; }
+  .session-list-header { padding: 12px 8px; }
+  .session-item { margin-inline: 4px; padding-inline: 8px; }
+  .workspace-local-header { padding: 10px 12px; }
+  .workspace-title > small { display: none; }
+  .workspace-actions .route-mode { display: none; }
+  .message, .ai-message { width: 95%; max-width: 95%; }
+  .chat-input { padding: 10px; }
 }
 
 </style>
