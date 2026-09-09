@@ -3,6 +3,9 @@
 GopherAI DevSupport 是一个面向研发与运维场景的可治理 Agent 系统。它把项目知识问答、故障诊断、工具调用、分层记忆、策略路由、运行观测和离线评测放进同一条可审计链路，重点解决传统聊天机器人“能回答，但无法说明依据、控制权限或衡量效果”的问题。
 
 在线实例：[http://101.200.145.78:8080/dashboard](http://101.200.145.78:8080/dashboard)
+运行工作台页面如下：
+<img width="2479" height="1351" alt="image" src="https://github.com/user-attachments/assets/5ba29dd1-748b-4128-89db-96a6f8cc053c" />
+
 
 > 在线实例是单机工程演示环境，可能因云主机维护而短时不可用。仓库当前主开发分支为 `add_eico`。
 
