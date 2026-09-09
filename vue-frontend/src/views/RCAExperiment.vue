@@ -8,14 +8,14 @@
     <div v-if="error" role="alert" class="warning">{{ error }}</div>
     <section class="controls panel">
       <div class="control-row">
-        <label>选择案例分组<select v-model="split" :disabled="busy" @change="changeSplit"><option value="holdout">原留出集回放 · 12 例（非新盲测）</option><option value="development">开发调试 · 9 例</option><option value="reference">历史参考 · 6 例（不计测试成绩）</option></select></label>
+        <label>选择案例分组<select v-model="split" :disabled="busy" @change="changeSplit"><option value="holdout">已知故障回放 · 6 例（窗口 13–18）</option><option value="development">开发调试 · 9 例</option><option value="reference">历史参考 · 6 例（不计测试成绩）</option></select></label>
         <label class="case-select">选择一个故障案例<select v-model="selected" :disabled="busy" @change="loadObservation"><option v-for="item in visibleCases" :key="item.id" :value="item.id">{{ item.title }} · {{ item.id }}</option></select></label>
         <button class="primary" :disabled="busy || !observation" @click="run('autonomous')">{{ busy ? (loadingRecord ? '读取记录…' : `正在排查 · ${elapsed} 秒…`) : '启动自主排查 Agent' }}</button>
       </div>
       <p>操作：选一个案例 → 启动 Agent → 查看下方每轮证据和假设更新 → 最后展开标准答案核对。右侧服务选择只切换数据展示，不指定故障答案。</p>
       <p v-if="busy && !loadingRecord" role="status" class="accent">正在调用真实云端模型，最多 180 秒。完成后展示实际工具顺序；离开本页会取消本次请求。</p>
       <details><summary>规则对照（零模型调用，不是自主 Agent）</summary><div class="control-row"><button :disabled="busy || !observation" @click="run('case_based')">运行案例增强诊断（原规则版）</button><button :disabled="busy || !observation" @click="run('feature_only')">仅特征规则对照</button><button :disabled="busy || !observation" @click="run('legacy')">原文本规则对照</button></div></details>
-      <p class="muted">支持 checkoutservice、currencyservice 的 CPU 压力 / 内存压力 / 网络延迟；其他类型可能拒答，也可能误匹配，报告保留所有结果。参考样本与测试样本来自不同实验运行。</p>
+      <p class="muted">本轮演示与下方统计仅覆盖窗口 13–18：checkoutservice、currencyservice 的 CPU 压力 / 内存压力 / 网络延迟。窗口 22–27 已退出本轮测试，历史数据与完整报告仍保留；本页不评估未知类型识别能力。开发调试和历史参考不计入下方统计。</p>
       <small v-if="catalog" class="mono">{{ catalog.agent_version }} · 数据 {{ catalog.dataset_sha256.slice(0, 16) }} · 最多 8 轮模型 / 6 次工具 / 单并发</small>
     </section>
 
@@ -64,17 +64,17 @@
     <section class="panel">
       <div class="heading"><h2>03 / 自主 Agent 真实模型回放</h2><small class="mono">REAL MODEL / 非新盲测</small></div>
       <template v-if="agentReport">
-        <p>以下为另行记录的云端模型运行，不使用旧规则成绩。模型：{{ agentReport.cases[0]?.model }}。包含全部12例与执行失败；重新点击单例可能产生不同路径和结论。</p>
-        <div class="stats"><article><strong>{{ agentReport.metrics.completed || 0 }} / {{ agentReport.metrics.attempted }}</strong><span>模型形成合规结论（不等于答对）</span></article><article><strong>{{ agentReport.metrics.joint_correct || 0 }} / {{ agentReport.metrics.supported }}</strong><span>已知类型：服务与类型均正确</span></article><article><strong>{{ agentReport.metrics.unknown_rejected || 0 }} / {{ agentReport.metrics.unsupported }}</strong><span>未覆盖类型：明确拒答</span></article><article><strong>{{ agentReport.metrics.execution_failed || 0 }}</strong><span>执行失败（不计为正确拒答）</span></article></div>
-        <p class="amber">范围外误接纳 {{ agentReport.metrics.false_acceptance || 0 }} / {{ agentReport.metrics.unsupported }}；总模型请求 {{ agentReport.metrics.model_calls }} 次。只证明这些已公开案例的回放表现，不证明生产可用或新故障泛化。</p>
+        <p>以下从已保存的真实云端模型报告中取窗口 13–18，不重新运行、不使用旧规则成绩。模型：{{ agentReport.cases[0]?.model }}。保留这 6 例中的正确、错误与执行失败；重新运行单例可能产生不同路径和结论。</p>
+        <div class="stats"><article><strong>{{ agentReport.metrics.completed }} / {{ agentReport.metrics.attempted }}</strong><span>已知案例执行完成（不等于答对）</span></article><article><strong>{{ agentReport.metrics.service_top1 }} / {{ agentReport.metrics.attempted }}</strong><span>已知案例：服务定位正确</span></article><article><strong>{{ agentReport.metrics.joint_correct }} / {{ agentReport.metrics.attempted }}</strong><span>已知案例：服务与类型均正确</span></article><article><strong>{{ agentReport.metrics.execution_failed }}</strong><span>本轮范围内执行失败</span></article></div>
+        <p class="muted">仅这 {{ agentReport.metrics.attempted }} 例共 {{ agentReport.metrics.model_calls }} 次模型请求。范围缩减发生在历史回放之后，不是新盲测，也不代表整体准确率提升或具备未知故障识别能力。</p>
         <details><summary>逐例查看真实执行情况</summary><div class="table-scroll"><table><thead><tr><th>案例</th><th>是否完成</th><th>核对结果</th><th>模型轮数</th><th></th></tr></thead><tbody><tr v-for="row in agentReport.cases" :key="row.id"><td>{{ row.title }}</td><td>{{ row.valid ? '完成' : row.stop_reason }}</td><td>{{ !row.valid ? '执行失败' : row.score.answer.supported ? (row.score.joint_correct ? '服务/类型正确' : '未正确定位') : row.score.false_acceptance ? '误接纳' : '明确拒答' }}</td><td>{{ row.model_calls }}</td><td><button :disabled="busy" @click="viewRecorded(row.id)">查看记录轨迹</button> <button :disabled="busy" @click="openCase(row.id)">选择此例重新运行</button></td></tr></tbody></table></div></details>
       </template>
       <p v-else class="muted">{{ agentReportError || '正在读取自主 Agent 报告…' }}</p>
     </section>
     <section class="panel">
       <div class="heading"><h2>04 / 原规则版冻结评测（不是自主 Agent 成绩）</h2><small class="mono">RULE BASELINE / 零模型调用</small></div>
-      <p class="amber">这12例的标准答案此前已被查看。新 Agent 在此运行属于已有案例回放，不能称为新的盲测，也不能借用下表 6/6 作为模型成绩。</p>
-      <template v-if="report"><p class="muted">6 个范围内案例 + 6 个范围外案例。原始规则、观测规则与案例增强使用相同遥测，保留失败与误匹配，不选择最好一次。这里的耗时来自本地离线执行，不代表 ECS 性能。</p><div class="table-scroll"><table><thead><tr><th>策略</th><th>服务 Top-1</th><th>服务+类型正确</th><th>范围内拒答</th><th>范围外拒答</th><th>范围外误接纳</th></tr></thead><tbody><tr v-for="strategy in strategies" :key="strategy"><td>{{ modeName(strategy) }}</td><td>{{ report.metrics[strategy].top1 }} / {{ report.metrics[strategy].supported }}</td><td>{{ report.metrics[strategy].joint }} / {{ report.metrics[strategy].supported }}</td><td>{{ report.metrics[strategy].in_scope_rejected }}</td><td>{{ report.metrics[strategy].unknown_rejected }} / {{ report.metrics[strategy].unsupported }}</td><td class="amber">{{ report.metrics[strategy].false_acceptance }} / {{ report.metrics[strategy].unsupported }}</td></tr></tbody></table></div><details><summary>逐例结果与失败案例</summary><div class="table-scroll"><table><thead><tr><th>窗口</th><th>官方标签</th><th>案例增强输出</th><th>结果</th><th></th></tr></thead><tbody><tr v-for="row in caseReportRows" :key="row.id"><td class="mono">{{ row.id }}</td><td>{{ row.score.answer.service }} / {{ faultName(row.score.answer.fault) }}</td><td>{{ row.candidates.length ? row.candidates[0].service + ' / ' + faultName(row.candidates[0].fault) : '证据不足' }}</td><td>{{ reportOutcome(row) }}</td><td><button :disabled="busy" @click="openCase(row.id)">重放</button></td></tr></tbody></table></div></details><p v-for="line in report.limitations" :key="line" class="muted">{{ line }}</p><small class="mono wrap">{{ report.matcher_version }} · {{ report.dataset_sha256 }}</small></template>
+      <p class="muted">同样只展示窗口 13–18。标准答案此前已被查看，不能称为新的盲测，也不能借用下表 6/6 作为模型成绩。</p>
+      <template v-if="report"><p class="muted">三种规则使用相同的 6 个已知故障窗口，保留该范围内的错误，不选择最好一次。这里的耗时来自本地离线执行，不代表 ECS 性能。</p><div class="table-scroll"><table><thead><tr><th>策略</th><th>服务 Top-1</th><th>服务+类型正确</th><th>范围内拒答</th><th>执行失败</th></tr></thead><tbody><tr v-for="strategy in strategies" :key="strategy"><td>{{ modeName(strategy) }}</td><td>{{ report.metrics[strategy].top1 }} / {{ report.metrics[strategy].supported }}</td><td>{{ report.metrics[strategy].joint }} / {{ report.metrics[strategy].supported }}</td><td>{{ report.metrics[strategy].in_scope_rejected }}</td><td>{{ report.metrics[strategy].execution_failed }}</td></tr></tbody></table></div><details><summary>逐例结果与失败案例</summary><div class="table-scroll"><table><thead><tr><th>窗口</th><th>官方标签</th><th>案例增强输出</th><th>结果</th><th></th></tr></thead><tbody><tr v-for="row in caseReportRows" :key="row.id"><td class="mono">{{ row.id }}</td><td>{{ row.score.answer.service }} / {{ faultName(row.score.answer.fault) }}</td><td>{{ row.candidates.length ? row.candidates[0].service + ' / ' + faultName(row.candidates[0].fault) : '证据不足' }}</td><td>{{ reportOutcome(row) }}</td><td><button :disabled="busy" @click="openCase(row.id)">重放</button></td></tr></tbody></table></div></details><p v-for="line in report.limitations" :key="line" class="muted">{{ line }}</p><small class="mono wrap">{{ report.matcher_version }} · {{ report.dataset_sha256 }}</small></template>
       <p v-else class="muted">{{ reportError || '正在读取报告…' }}</p>
     </section>
     <footer class="muted">数据来自 RCAEval / RE2-OB（MIT），已知模式范围内的辅助排查实验，不等同于生产根因确认或自动修复。<a href="https://huggingface.co/datasets/phamquiluan/RCAEval" target="_blank" rel="noopener noreferrer">查看来源</a></footer>
@@ -84,6 +84,7 @@
 <script>
 import { computed, nextTick, onMounted, onBeforeUnmount, ref } from 'vue'
 import api from '../utils/api'
+import { isActiveCase, projectAgentReport, projectRuleReport } from '../utils/rcaDemoScope.mjs'
 
 export default {
   name: 'RCAExperiment',
@@ -99,7 +100,7 @@ export default {
     // Axios adds /api; the existing gateway adds /v1 before forwarding to Gin.
     const endpoint = '/experiments/rca'
     const strategies = ['legacy', 'feature_only', 'case_based']
-    const visibleCases = computed(() => (catalog.value?.cases || []).filter(c => c.split === split.value))
+    const visibleCases = computed(() => (catalog.value?.cases || []).filter(c => c.split === split.value && isActiveCase(c)))
     const service = computed(() => observation.value?.services.find(s => s.name === evidenceService.value))
     const metricRows = computed(() => ['cpu', 'mem', 'latency-90', 'workload', 'socket'].map(k => service.value?.metrics[k]).filter(Boolean))
     const diagnosis = computed(() => result.value?.run.diagnosis)
@@ -158,8 +159,8 @@ export default {
       } catch (e) { if (!controller.signal.aborted) error.value = e.response?.data?.message || e.message || '诊断失败' } finally { busy.value = false; window.clearInterval(runTimer) }
     }
     onMounted(async () => {
-      api.get(`${endpoint}/agent-report`, options).then(r => { if (!r.data.metrics || !r.data.cases) throw new Error('报告无效'); agentReport.value = r.data }).catch(e => { agentReportError.value = e.response?.data?.message || '自主 Agent 报告暂不可用，可直接运行单例' })
-      api.get(`${endpoint}/report`, options).then(r => { if (!r.data.metrics || !r.data.cases) throw new Error('登录状态或报告响应无效'); report.value = r.data }).catch(e => { reportError.value = e.response?.data?.message || '离线报告暂不可用' })
+      api.get(`${endpoint}/agent-report`, options).then(r => { if (!r.data.metrics || !r.data.cases) throw new Error('报告无效'); agentReport.value = projectAgentReport(r.data) }).catch(e => { agentReportError.value = e.response?.data?.message || '自主 Agent 报告暂不可用，可直接运行单例' })
+      api.get(`${endpoint}/report`, options).then(r => { if (!r.data.metrics || !r.data.cases) throw new Error('登录状态或报告响应无效'); report.value = projectRuleReport(r.data) }).catch(e => { reportError.value = e.response?.data?.message || '离线报告暂不可用' })
       try { const response = await api.get(endpoint, options); if (!response.data.cases) throw new Error('请重新登录后进入实验页'); catalog.value = response.data; await changeSplit() } catch (e) { if (!controller.signal.aborted) error.value = e.response?.data?.message || e.message }
     })
     onBeforeUnmount(() => { controller.abort(); window.clearInterval(runTimer) })
