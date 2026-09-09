@@ -37,3 +37,16 @@
 修复：在 `Invoke-RemoteScript` 写入 SSH stdin 前统一 CRLF→LF。这样发布不依赖某个开发目录偶然是 LF；不改变远程命令含义、不关闭容量门禁。该修复与匹配算法无关，不重新调参或覆盖首轮留出报告。
 
 首次页面验收发现新页面请求错误地重复携带 `/v1`：Axios `baseURL=/api`，现有静态网关会将 `/api/...` 改写为 `/api/v1/...`。组件请求应为 `/experiments/rca`，不是 `/v1/experiments/rca`。404 来自 `/api/v1/v1/...`，不是鉴权或数据加载失败。已统一组件 endpoint，并添加网关路径回归；保留完整发布流程而不是手动覆盖线上 JS。这说明控制器单测和构建不能代替经过网关的浏览器业务验收。
+
+## 最终上线与实测结果
+
+- 已发布 `20260909211238-24e574f9cf65`，代码 SHA `24e574f9cf653cdee31f4b4682f4d87e9de70ab8`，clean source；该提交已推送 `origin/add_eico`。manifest 的 `codex/rca-release-5ad81ae8` 是干净发布 worktree 的临时分支，不是功能另起炉灶。
+- 本地主 Go 全量测试与 Vet 退出 0；RCA 匹配和控制器 Race 通过；独立评分器分母/Hash 回归通过；网关 RCA 路径回归通过；前端 lint、生产构建通过，仅既有 vendor 体积/浏览器数据过期提示。
+- Backend Live/Ready、Worker Live/Ready、Prometheus 两个 target、Grafana 和静态网关健康门禁全部通过；公网页面与 `/health/ready` 均 200。
+- 通过已登录浏览器实际验证首页新卡片、页面刷新、观测下拉框、诊断、答案核对与向下滚动，无白块。
+- 窗口 13：checkoutservice / CPU 压力正确，4 次只读工具；窗口 16：B 误匹配 checkoutservice / 延迟，C 命中 currencyservice / CPU 压力；窗口 22：如实显示磁盘故障被误接纳成已知模式；窗口 23：证据不足。
+- 浏览器窗口 13 Trace `28dbf7b5-84a3-44ac-85b6-7d3f9afe9a06`，MySQL 只读回查确认 4 条 success 审计。没有读取/更改人工复核答案。
+- 21:21 部署后样本快照：后端 RSS 30,700 KiB、该进程 VmHWM 47,616 KiB；主机 available 408 MiB。是这一轮启动及少量点击的观测，不是压力测试或并发 SLA。
+- 辅助 HTTP 探针只在本机回环地址使用 15 分钟临时 token，未输出或持久化 token。HTTP/数据库探针不创建用户、不迁移表、不改人工评分；仅正常诊断产生 ToolAudit。校验后清理远程临时探针二进制，源码仍在本地 `.codex-tmp` 可重建，审计记录保留。
+
+本轮就此收束。用户无需新增大批标注，只按实验说明抽测窗口 13、16、22、23。报告仍保留范围外 4/6 误接纳，后续若扩大能力范围，需要新实验而不是修饰原结果。
