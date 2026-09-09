@@ -13,13 +13,6 @@
             <p>与AI进行智能对话</p>
           </div>
         </el-card>
-        <el-card class="menu-item" @click="$router.push('/image-recognition')">
-          <div class="card-content">
-            <el-icon size="48" color="#67c23a"><Camera /></el-icon>
-            <h3>图像识别</h3>
-            <p>上传图片进行AI识别</p>
-          </div>
-        </el-card>
       </div>
     </el-main>
   </div>
@@ -28,13 +21,12 @@
 <script>
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ChatDotRound, Camera } from '@element-plus/icons-vue'
+import { ChatDotRound } from '@element-plus/icons-vue'
 
 export default {
   name: 'MenuView',
   components: {
-    ChatDotRound,
-    Camera
+    ChatDotRound
   },
   setup() {
     const router = useRouter()
@@ -168,8 +160,6 @@ export default {
 }
 
 .menu-item:nth-child(1) { animation-delay: 0.1s; }
-.menu-item:nth-child(2) { animation-delay: 0.2s; }
-
 @keyframes cardSlideIn {
   from {
     opacity: 0;

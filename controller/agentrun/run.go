@@ -1,0 +1,403 @@
+package agentrun
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"GopherAI/common/mysql"
+	"GopherAI/internal/diagnostic"
+	"GopherAI/internal/harness"
+	"GopherAI/internal/incident"
+	memorydomain "GopherAI/internal/memory"
+	"GopherAI/internal/observability"
+	"GopherAI/internal/profilememory"
+	"GopherAI/internal/toolruntime"
+	"GopherAI/middleware/requestid"
+
+	"github.com/gin-gonic/gin"
+)
+
+const responseSchemaVersion = "agent-run-api-v1"
+
+type Handler struct {
+	workflow          Workflow
+	resolutions       ResolutionService
+	context           DiagnosticContextService
+	resolutionRuntime ResolutionToolRuntime
+}
+
+type Workflow interface {
+	Start(context.Context, diagnostic.StartCommand) (diagnostic.RunResponse, error)
+	Get(context.Context, string, string) (diagnostic.RunResponse, error)
+	Resume(context.Context, diagnostic.ResumeCommand) (diagnostic.RunResponse, error)
+	Cancel(context.Context, string, string) (diagnostic.RunResponse, error)
+}
+
+type ResolutionService interface {
+	Preview(context.Context, string, string, string) (incident.Proposal, error)
+	Confirm(context.Context, incident.ConfirmCommand) (incident.Confirmation, error)
+	Get(context.Context, string, string) (*incident.PublicResolvedIncident, error)
+}
+
+type DiagnosticContextService interface {
+	Window(context.Context, string, string) (memorydomain.WorkingWindow, error)
+}
+
+type ResolutionToolRuntime interface {
+	Invoke(context.Context, toolruntime.Invocation) toolruntime.ToolMessage
+}
+
+type StartRequest struct {
+	Message         string `json:"message" binding:"required"`
+	SessionID       string `json:"session_id,omitempty"`
+	ClientRequestID string `json:"client_request_id,omitempty"`
+}
+
+type ResumeRequest struct {
+	Message              string `json:"message" binding:"required"`
+	ClientRequestID      string `json:"client_request_id" binding:"required"`
+	ExpectedStateVersion int64  `json:"expected_state_version" binding:"required"`
+}
+
+type ResolutionProposalRequest struct {
+	HypothesisID string `json:"hypothesis_id" binding:"required"`
+}
+
+type ResolutionConfirmationRequest struct {
+	HypothesisID         string `json:"hypothesis_id" binding:"required"`
+	Resolution           string `json:"resolution" binding:"required"`
+	ClientRequestID      string `json:"client_request_id" binding:"required"`
+	ExpectedStateVersion int64  `json:"expected_state_version" binding:"required"`
+}
+
+type PublicCheckpoint struct {
+	Goal           string            `json:"goal"`
+	ConfirmedFacts map[string]string `json:"confirmed_facts,omitempty"`
+	OpenQuestions  []string          `json:"open_questions,omitempty"`
+	EvidenceRefs   []string          `json:"evidence_refs,omitempty"`
+	NextAction     string            `json:"next_action,omitempty"`
+}
+
+type Response struct {
+	SchemaVersion string               `json:"schema_version"`
+	Created       bool                 `json:"created"`
+	Run           harness.Run          `json:"run"`
+	Steps         []harness.PublicStep `json:"steps"`
+	Checkpoint    *PublicCheckpoint    `json:"checkpoint,omitempty"`
+	Result        *diagnostic.Result   `json:"result,omitempty"`
+}
+
+type ErrorResponse struct {
+	SchemaVersion string `json:"schema_version"`
+	Code          string `json:"code"`
+	Message       string `json:"message"`
+	Retryable     bool   `json:"retryable"`
+	TraceID       string `json:"trace_id,omitempty"`
+}
+
+func NewHandler(workflow Workflow) *Handler { return &Handler{workflow: workflow} }
+
+func NewHandlerWithResolutions(workflow Workflow, resolutions ResolutionService) *Handler {
+	return &Handler{workflow: workflow, resolutions: resolutions, resolutionRuntime: newResolutionToolRuntime(resolutions, nil, nil)}
+}
+
+func NewHandlerWithContext(workflow Workflow, resolutions ResolutionService, contextService DiagnosticContextService) *Handler {
+	handler := NewHandlerWithResolutions(workflow, resolutions)
+	handler.context = contextService
+	return handler
+}
+
+func NewDefaultHandler() *Handler {
+	lifecycle, err := harness.NewObservedService(harness.NewGormRepository(mysql.DB), harness.SystemClock{}, harness.UUIDGenerator{}, observability.DefaultMetrics())
+	if err != nil {
+		panic(err)
+	}
+	workflow, err := diagnostic.NewWorkflow(lifecycle, diagnostic.NewAgent())
+	if err != nil {
+		panic(err)
+	}
+	incidentRepository := incident.NewGormRepository(mysql.DB)
+	profileService, err := profilememory.NewService(profilememory.NewGormRepository(mysql.DB), profilememory.SystemClock{})
+	if err != nil {
+		panic(err)
+	}
+	workflow.WithCaseRetriever(incidentRepository).WithCaseRecallObserver(observability.DefaultMetrics()).WithProfileMemory(profileService)
+	resolutions, err := incident.NewService(workflow, incidentRepository, incident.SystemClock{})
+	if err != nil {
+		panic(err)
+	}
+	handler := NewHandlerWithContext(workflow, resolutions, memorydomain.NewDefaultService())
+	handler.resolutionRuntime = newResolutionToolRuntime(resolutions, toolruntime.NewGormAuditor(mysql.DB), observability.DefaultMetrics())
+	return handler
+}
+
+func newResolutionToolRuntime(resolutions ResolutionService, auditor toolruntime.Auditor, observer toolruntime.Observer) ResolutionToolRuntime {
+	registry := toolruntime.NewRegistry()
+	if err := registry.Register(toolruntime.NewConfirmResolutionTool(resolutions)); err != nil {
+		panic(err)
+	}
+	runtime, err := toolruntime.NewRuntime(registry, auditor, observer)
+	if err != nil {
+		panic(err)
+	}
+	return runtime
+}
+
+func (handler *Handler) Start(context *gin.Context) {
+	var request StartRequest
+	if err := context.ShouldBindJSON(&request); err != nil {
+		handler.writeError(context, err)
+		return
+	}
+	requestID, traceID := requestid.IDs(context)
+	clientRequestID := strings.TrimSpace(request.ClientRequestID)
+	if clientRequestID == "" {
+		clientRequestID = requestID
+	}
+	userID := context.GetString("userName")
+	response, err := handler.workflow.Start(context.Request.Context(), diagnostic.StartCommand{
+		TenantID: userID, UserID: userID, ClientRequestID: clientRequestID, RequestID: requestID, TraceID: traceID,
+		SessionID: strings.TrimSpace(request.SessionID), Message: request.Message,
+	})
+	if err != nil {
+		handler.writeError(context, err)
+		return
+	}
+	status := http.StatusOK
+	if response.Created {
+		status = http.StatusCreated
+	}
+	context.JSON(status, publicResponse(response))
+}
+
+func (handler *Handler) Get(context *gin.Context) {
+	response, err := handler.workflow.Get(context.Request.Context(), context.Param("run_id"), context.GetString("userName"))
+	if err != nil {
+		handler.writeError(context, err)
+		return
+	}
+	context.JSON(http.StatusOK, publicResponse(response))
+}
+
+func (handler *Handler) ContextCompression(context *gin.Context) {
+	budget := memorydomain.DefaultTokenBudget
+	if raw := strings.TrimSpace(context.Query("budget_tokens")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 64 || parsed > memorydomain.MaxTokenBudget {
+			handler.writeStableError(context, http.StatusBadRequest, "INVALID_CONTEXT_BUDGET", "上下文预算必须是 64 到 8192 之间的整数", false)
+			return
+		}
+		budget = parsed
+	}
+	response, err := handler.workflow.Get(context.Request.Context(), context.Param("run_id"), context.GetString("userName"))
+	if err != nil {
+		handler.writeError(context, err)
+		return
+	}
+	working := []memorydomain.WorkingMessage(nil)
+	if response.Detail.Run.SessionID != "" && handler.context != nil {
+		window, windowErr := handler.context.Window(context.Request.Context(), context.GetString("userName"), response.Detail.Run.SessionID)
+		if windowErr != nil {
+			handler.writeStableError(context, http.StatusServiceUnavailable, "CONTEXT_SOURCE_UNAVAILABLE", "会话上下文暂时不可用", true)
+			return
+		}
+		working = window.Messages
+	}
+	report, err := memorydomain.BuildHarnessContextReport(response.Detail, working, budget)
+	if err != nil {
+		handler.writeStableError(context, http.StatusConflict, "CHECKPOINT_CONTEXT_UNAVAILABLE", "该运行尚无可压缩的检查点", false)
+		return
+	}
+	context.JSON(http.StatusOK, report)
+}
+
+func (handler *Handler) Resume(context *gin.Context) {
+	var request ResumeRequest
+	if err := context.ShouldBindJSON(&request); err != nil {
+		handler.writeError(context, err)
+		return
+	}
+	userID := context.GetString("userName")
+	response, err := handler.workflow.Resume(context.Request.Context(), diagnostic.ResumeCommand{
+		RunID: context.Param("run_id"), TenantID: userID, UserID: userID, ClientRequestID: request.ClientRequestID,
+		ExpectedVersion: request.ExpectedStateVersion, Message: request.Message,
+	})
+	if err != nil {
+		handler.writeError(context, err)
+		return
+	}
+	context.JSON(http.StatusOK, publicResponse(response))
+}
+
+func (handler *Handler) Cancel(context *gin.Context) {
+	response, err := handler.workflow.Cancel(context.Request.Context(), context.Param("run_id"), context.GetString("userName"))
+	if err != nil {
+		handler.writeError(context, err)
+		return
+	}
+	context.JSON(http.StatusOK, publicResponse(response))
+}
+
+func (handler *Handler) PreviewResolution(context *gin.Context) {
+	if handler.resolutions == nil {
+		handler.writeError(context, errors.New("resolution service is required"))
+		return
+	}
+	request := new(ResolutionProposalRequest)
+	if err := context.ShouldBindJSON(request); err != nil {
+		handler.writeError(context, err)
+		return
+	}
+	proposal, err := handler.resolutions.Preview(context.Request.Context(), context.GetString("userName"), context.Param("run_id"), request.HypothesisID)
+	if err != nil {
+		handler.writeError(context, err)
+		return
+	}
+	context.JSON(http.StatusOK, proposal)
+}
+
+func (handler *Handler) ConfirmResolution(context *gin.Context) {
+	if handler.resolutions == nil {
+		handler.writeError(context, errors.New("resolution service is required"))
+		return
+	}
+	request := new(ResolutionConfirmationRequest)
+	if err := context.ShouldBindJSON(request); err != nil {
+		handler.writeError(context, err)
+		return
+	}
+	if handler.resolutionRuntime == nil {
+		handler.writeStableError(context, http.StatusServiceUnavailable, "RESOLUTION_CONFIRMATION_UNAVAILABLE", "解决方案确认治理器暂时不可用", true)
+		return
+	}
+	var confirmation incident.Confirmation
+	{
+		arguments, err := json.Marshal(map[string]any{
+			"run_id": context.Param("run_id"), "hypothesis_id": request.HypothesisID, "resolution": request.Resolution,
+			"client_request_id": request.ClientRequestID, "expected_state_version": request.ExpectedStateVersion,
+		})
+		if err != nil {
+			handler.writeStableError(context, http.StatusInternalServerError, "RESOLUTION_CONFIRMATION_UNAVAILABLE", "解决方案确认暂时不可用", true)
+			return
+		}
+		requestID, traceID := requestid.IDs(context)
+		userID := context.GetString("userName")
+		message := handler.resolutionRuntime.Invoke(context.Request.Context(), toolruntime.Invocation{
+			CallID: requestID, TraceID: traceID, ToolName: "confirm_resolution", Arguments: arguments,
+			Intent: "troubleshooting", Strategy: "human_confirmed_action_v1",
+			Principal: toolruntime.Principal{TenantID: userID, UserID: userID, Permissions: map[string]bool{
+				"devsupport:resolution:confirm": true,
+			}},
+			AllowedSideEffect: toolruntime.SideEffectInternalWrite, Budget: toolruntime.CallBudget{MaxCalls: 1},
+		})
+		if message.Status != toolruntime.StatusSuccess {
+			handler.writeResolutionToolError(context, message)
+			return
+		}
+		if err := json.Unmarshal(message.Data, &confirmation); err != nil {
+			handler.writeStableError(context, http.StatusInternalServerError, "RESOLUTION_CONFIRMATION_UNAVAILABLE", "解决方案确认暂时不可用", true)
+			return
+		}
+	}
+	status := http.StatusOK
+	if confirmation.Created {
+		status = http.StatusCreated
+	}
+	context.JSON(status, confirmation)
+}
+
+func (handler *Handler) writeResolutionToolError(context *gin.Context, message toolruntime.ToolMessage) {
+	switch message.ErrorCode {
+	case toolruntime.ErrorResolutionRunNotEligible:
+		handler.writeError(context, incident.ErrRunNotEligible)
+	case toolruntime.ErrorResolutionHypothesis:
+		handler.writeError(context, incident.ErrHypothesisNotFound)
+	case toolruntime.ErrorResolutionInvalid:
+		handler.writeError(context, incident.ErrInvalidConfirmation)
+	case toolruntime.ErrorResolutionIdempotency:
+		handler.writeError(context, incident.ErrIdempotencyConflict)
+	case toolruntime.ErrorResolutionAlreadyExists:
+		handler.writeError(context, incident.ErrAlreadyConfirmed)
+	case toolruntime.ErrorResolutionStateConflict:
+		handler.writeError(context, harness.ErrRunConflict)
+	case toolruntime.ErrorTimeout:
+		handler.writeStableError(context, http.StatusGatewayTimeout, "RESOLUTION_CONFIRMATION_TIMEOUT", "解决方案确认超时，请使用同一请求标识重试", true)
+	case toolruntime.ErrorCancelled:
+		handler.writeStableError(context, 499, "RESOLUTION_CONFIRMATION_CANCELLED", "解决方案确认已取消", true)
+	case toolruntime.ErrorPermissionDenied, toolruntime.ErrorSideEffectDenied:
+		handler.writeStableError(context, http.StatusForbidden, message.ErrorCode, "该请求没有内部确认动作权限", false)
+	default:
+		handler.writeStableError(context, http.StatusServiceUnavailable, "RESOLUTION_CONFIRMATION_UNAVAILABLE", "解决方案确认暂时不可用，请使用同一请求标识重试", true)
+	}
+}
+
+func (handler *Handler) GetResolution(context *gin.Context) {
+	if handler.resolutions == nil {
+		handler.writeError(context, errors.New("resolution service is required"))
+		return
+	}
+	resolved, err := handler.resolutions.Get(context.Request.Context(), context.GetString("userName"), context.Param("run_id"))
+	if err != nil {
+		handler.writeError(context, err)
+		return
+	}
+	if resolved == nil {
+		context.JSON(http.StatusNotFound, ErrorResponse{SchemaVersion: responseSchemaVersion, Code: "RESOLUTION_NOT_FOUND", Message: "该诊断运行尚未确认解决方案", Retryable: false})
+		return
+	}
+	context.JSON(http.StatusOK, resolved)
+}
+
+func publicResponse(response diagnostic.RunResponse) Response {
+	result := Response{SchemaVersion: responseSchemaVersion, Created: response.Created, Run: response.Detail.Run, Steps: response.Detail.Steps, Result: response.Result}
+	if response.Detail.Checkpoint != nil {
+		result.Checkpoint = &PublicCheckpoint{
+			Goal: response.Detail.Checkpoint.Goal, ConfirmedFacts: response.Detail.Checkpoint.ConfirmedFacts,
+			OpenQuestions: response.Detail.Checkpoint.OpenQuestions, EvidenceRefs: response.Detail.Checkpoint.EvidenceRefs,
+			NextAction: response.Detail.Checkpoint.NextAction,
+		}
+	}
+	return result
+}
+
+func (handler *Handler) writeError(context *gin.Context, err error) {
+	_, traceID := requestid.IDs(context)
+	status := http.StatusInternalServerError
+	response := ErrorResponse{SchemaVersion: responseSchemaVersion, Code: "AGENT_RUN_INTERNAL", Message: "诊断运行暂时不可用", Retryable: true, TraceID: traceID}
+	switch {
+	case errors.Is(err, diagnostic.ErrEmptyDiagnosticInput):
+		status, response.Code, response.Message, response.Retryable = http.StatusBadRequest, "DIAGNOSTIC_INPUT_EMPTY", "请提供故障现象或日志", false
+	case errors.Is(err, harness.ErrRunNotFound):
+		status, response.Code, response.Message, response.Retryable = http.StatusNotFound, "AGENT_RUN_NOT_FOUND", "未找到该诊断运行", false
+	case errors.Is(err, harness.ErrRunConflict):
+		status, response.Code, response.Message, response.Retryable = http.StatusConflict, "RUN_STATE_CONFLICT", "运行状态已变化，请刷新后重试", true
+	case errors.Is(err, harness.ErrBudgetExceeded):
+		status, response.Code, response.Message, response.Retryable = http.StatusTooManyRequests, "AGENT_BUDGET_EXCEEDED", "诊断已达到执行预算", false
+	case errors.Is(err, harness.ErrInvalidTransition):
+		status, response.Code, response.Message, response.Retryable = http.StatusConflict, "INVALID_RUN_TRANSITION", "当前运行状态不允许该操作", false
+	case errors.Is(err, incident.ErrRunNotEligible):
+		status, response.Code, response.Message, response.Retryable = http.StatusConflict, "RUN_NOT_RESOLUTION_ELIGIBLE", "只有成功结束且仍为待验证假设的诊断运行可以确认解决方案", false
+	case errors.Is(err, incident.ErrHypothesisNotFound):
+		status, response.Code, response.Message, response.Retryable = http.StatusNotFound, "HYPOTHESIS_NOT_FOUND", "未找到选中的诊断假设", false
+	case errors.Is(err, incident.ErrInvalidConfirmation):
+		status, response.Code, response.Message, response.Retryable = http.StatusBadRequest, "RESOLUTION_CONFIRMATION_INVALID", "请填写至少 5 个字符的实际解决办法", false
+	case errors.Is(err, incident.ErrIdempotencyConflict):
+		status, response.Code, response.Message, response.Retryable = http.StatusConflict, "IDEMPOTENCY_KEY_REUSED", "同一确认请求标识不能用于不同内容", false
+	case errors.Is(err, incident.ErrAlreadyConfirmed):
+		status, response.Code, response.Message, response.Retryable = http.StatusConflict, "RESOLUTION_ALREADY_CONFIRMED", "该诊断运行已经确认过不同的解决方案", false
+	default:
+		if strings.Contains(err.Error(), "required") || strings.Contains(err.Error(), "bound") || strings.Contains(err.Error(), "timeout") {
+			status, response.Code, response.Message, response.Retryable = http.StatusBadRequest, "INVALID_AGENT_RUN_REQUEST", "诊断请求参数不正确", false
+		}
+	}
+	context.JSON(status, response)
+}
+
+func (handler *Handler) writeStableError(context *gin.Context, status int, code string, message string, retryable bool) {
+	_, traceID := requestid.IDs(context)
+	context.JSON(status, ErrorResponse{SchemaVersion: responseSchemaVersion, Code: code, Message: message, Retryable: retryable, TraceID: traceID})
+}

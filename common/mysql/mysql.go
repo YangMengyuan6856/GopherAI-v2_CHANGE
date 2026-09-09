@@ -60,16 +60,54 @@ func InitMysql() error {
 }
 
 func migration() error {
-	return DB.AutoMigrate(
+	if err := DB.AutoMigrate(
 		new(model.User),
 		new(model.Session),
 		new(model.Message),
-		new(model.Skill),
-		new(model.UserSkill),
-		new(model.SkillInvocation),
 		new(model.ConversationSummary),
 		new(model.MemoryEntry),
-	)
+		new(model.AgentRun),
+		new(model.AgentLifecycleRun),
+		new(model.AgentLifecycleStep),
+		new(model.AgentCheckpoint),
+		new(model.KnowledgeDocument),
+		new(model.KnowledgeDocumentVersion),
+		new(model.KnowledgeChunk),
+		new(model.KnowledgeJob),
+		new(model.OutboxEvent),
+		new(model.ResolutionFeedback),
+		new(model.ResolvedIncident),
+		new(model.EnvironmentMemory),
+		new(model.ToolAudit),
+		new(model.RoutingPolicy),
+		new(model.MetricWindowSnapshot),
+		new(model.ControlIncident),
+		new(model.ControlWebhookDelivery),
+		new(model.ControlWebhookReceipt),
+		new(model.ControlRecommendation),
+		new(model.FaultInjectionCampaign),
+		new(model.OnlineEvaluationSample),
+		new(model.UserFeedbackEvent),
+		new(model.FailureMiningRun),
+		new(model.FailureCluster),
+		new(model.FailureImprovementProposal),
+		new(model.JudgeCalibrationReview),
+		new(model.HarnessArtifact),
+		new(model.HarnessArtifactReview),
+		new(model.HarnessPromotionAttempt),
+		new(model.HarnessActivePointer),
+		new(model.HarnessControlEvent),
+		new(model.G10ResumeFactConfirmation),
+		new(model.EvaluationCatalogReview),
+	); err != nil {
+		return err
+	}
+	// Governance changes intentionally start a new review lineage. The old
+	// catalog-only unique index would make revision 1 collide across lineages.
+	if DB.Migrator().HasIndex(new(model.EvaluationCatalogReview), "uk_catalog_review_revision") {
+		return DB.Migrator().DropIndex(new(model.EvaluationCatalogReview), "uk_catalog_review_revision")
+	}
+	return nil
 }
 
 func InsertUser(user *model.User) (*model.User, error) {

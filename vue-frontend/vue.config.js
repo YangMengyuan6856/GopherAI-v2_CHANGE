@@ -8,6 +8,14 @@ module.exports = {
         pathRewrite: {
           '^/api': '/api/v1'
         }
+      },
+      '/health': {
+        target: 'http://localhost:9090',
+        changeOrigin: true
+      },
+      '/metrics': {
+        target: 'http://localhost:9090',
+        changeOrigin: true
       }
     }
   }

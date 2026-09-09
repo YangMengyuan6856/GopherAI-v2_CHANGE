@@ -4,13 +4,19 @@ import (
 	"GopherAI/common/mysql"
 	"GopherAI/common/rabbitmq"
 	"GopherAI/common/redis"
-	"GopherAI/common/skill"
 	"GopherAI/config"
-	daoskill "GopherAI/dao/skill"
+	"GopherAI/internal/catalogreview"
+	"GopherAI/internal/controlrecommendation"
+	"GopherAI/internal/controlwebhook"
+	"GopherAI/internal/failurepool"
+	"GopherAI/internal/observability"
 	"GopherAI/router"
-	skillsvc "GopherAI/service/skill"
+	"context"
 	"fmt"
 	"log"
+	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 func StartServer(addr string, port int) error {
@@ -20,54 +26,8 @@ func StartServer(addr string, port int) error {
 	return r.Run(fmt.Sprintf("%s:%d", addr, port))
 }
 
-// initSkills 注册所有内置技能并注入调用日志器
-func initSkills(conf *config.Config) {
-	registry := skill.GetRegistry()
-
-	// 注册内置天气技能（复用 MCP 服务）
-	mcpBaseURL := "http://localhost:8081/mcp"
-	registry.Register(skill.NewWeatherSkill(mcpBaseURL))
-	log.Printf("skill [weather] registered, mcp=%s", mcpBaseURL)
-
-	// 注册日期时间技能
-	registry.Register(skill.NewDateTimeSkill())
-	log.Println("skill [datetime] registered")
-
-	// 注册计算器技能
-	registry.Register(skill.NewCalculatorSkill())
-	log.Println("skill [calculator] registered")
-
-	// 注册翻译助手技能
-	registry.Register(skill.NewTranslateSkill())
-	log.Println("skill [translate] registered")
-
-	// 注册文本摘要技能
-	registry.Register(skill.NewSummarizeSkill())
-	log.Println("skill [summarize] registered")
-
-	// 注册 RAG 知识库检索技能
-	registry.Register(skill.NewRAGQuerySkill())
-	log.Println("skill [rag_query] registered")
-
-	// 注册智能 Agent 技能（自主调用 MCP 工具）
-	registry.Register(skill.NewAgentSkill(mcpBaseURL))
-	log.Printf("skill [agent] registered, mcp=%s", mcpBaseURL)
-
-	invoker := skill.GetInvoker()
-
-	// 注入 DB 日志器（异步写，不阻塞执行链路）
-	invoker.SetLogger(&daoskill.DBLogger{})
-	log.Println("skill invocation logger initialized")
-
-	// 注入用户技能启用状态检查器
-	invoker.SetChecker(skillsvc.IsSkillEnabledForUser)
-	log.Println("skill user checker initialized")
-
-	// 同步技能元数据到数据库
-	skillsvc.SyncSkillsToDB()
-}
-
 func main() {
+	gin.SetMode(gin.ReleaseMode)
 	conf := config.GetConfig()
 	host := conf.MainConfig.Host
 	port := conf.MainConfig.Port
@@ -80,17 +40,55 @@ func main() {
 		log.Println("InitMysql error , " + err.Error())
 		return
 	}
-	//初始化 Skill 注册中心
-	initSkills(conf)
-	log.Println("skill registry init success")
-
+	catalogSnapshot, err := catalogreview.NewFileArtifactStore(catalogreview.DefaultManifestPath).Load()
+	if err != nil {
+		log.Println("catalog review migration artifact error, " + err.Error())
+		return
+	}
+	migratedCatalogReviews, err := catalogreview.MigrateLegacyReviews(context.Background(), mysql.DB, catalogSnapshot)
+	if err != nil {
+		log.Println("catalog review migration error, " + err.Error())
+		return
+	}
+	if migratedCatalogReviews > 0 {
+		log.Printf("{\"event\":\"catalog_review_hash_migration\",\"migrated\":%d}", migratedCatalogReviews)
+	}
 	//初始化redis
 	redis.Init()
 	log.Println("redis init success  ")
 	rabbitmq.InitRabbitMQ()
 	log.Println("rabbitmq init success  ")
+	webhookConfig, err := controlwebhook.DefaultConfig()
+	if err != nil {
+		log.Println("control webhook configuration rejected")
+		return
+	}
+	metricWindowService := observability.NewDefaultMetricWindowService()
+	go observability.RunMetricWindowSampler(context.Background(), metricWindowService, 20*time.Second, time.Minute, log.Default())
+	recommendationController, err := controlrecommendation.NewDefaultController()
+	if err != nil {
+		log.Println("recommend-only controller configuration rejected")
+		return
+	}
+	go controlrecommendation.Run(context.Background(), metricWindowService, recommendationController, 45*time.Second, time.Minute, log.Default())
+	webhookRepository := controlwebhook.NewGormRepository(mysql.DB)
+	go controlwebhook.RunReconciler(context.Background(), metricWindowService, controlwebhook.NewReconciler(webhookRepository, observability.DefaultMetrics()), 35*time.Second, time.Minute, log.Default())
+	failurePoolService := failurepool.NewService(failurepool.NewGormRepository(mysql.DB), time.Now)
+	go failurepool.Run(context.Background(), failurePoolService, 55*time.Second, 5*time.Minute, log.Default())
+	if webhookConfig.Enabled {
+		dispatcher, dispatcherErr := controlwebhook.NewDispatcher(webhookConfig, webhookRepository, controlwebhook.NewHTTPClient(), observability.DefaultMetrics(), log.Default())
+		if dispatcherErr != nil {
+			log.Println("control webhook dispatcher configuration rejected")
+			return
+		}
+		go func() {
+			if runErr := dispatcher.Run(context.Background()); runErr != nil {
+				log.Println("control webhook dispatcher stopped")
+			}
+		}()
+	}
 
-	err := StartServer(host, port) // 启动 HTTP 服务
+	err = StartServer(host, port) // 启动 HTTP 服务
 	if err != nil {
 		panic(err)
 	}

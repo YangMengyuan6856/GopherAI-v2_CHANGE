@@ -1,0 +1,95 @@
+{
+  "version": "kb-fixture-v1",
+  "chunks": [
+    {
+      "id": "deploy-health-timeout",
+      "document": "deployment.md",
+      "section": "Release health gate",
+      "line_start": 10,
+      "line_end": 14,
+      "content": "HEALTH_GATE_TIMEOUT：后端 live 与 ready 健康门最多等待 90 秒。只有两个端点都返回 HTTP 200，发布才可以进入下一阶段。"
+    },
+    {
+      "id": "deploy-rollback",
+      "document": "deployment.md",
+      "section": "Automatic rollback",
+      "line_start": 20,
+      "line_end": 25,
+      "content": "RELEASE_ROLLBACK：新版本健康检查失败时，停止失败进程，将上一版本目录原子移回项目路径，并重新启动上一版本。运行数据目录不会被删除。"
+    },
+    {
+      "id": "redis-vector-schema",
+      "document": "knowledge-index.md",
+      "section": "Redis vector schema",
+      "line_start": 8,
+      "line_end": 15,
+      "content": "REDIS_VECTOR_SCHEMA：知识 Chunk 在 Redis Stack 中使用 HASH 与 HNSW COSINE 向量索引，同时保存 tenant_id、user_id、document_id、section_path、line_start、line_end 与 content_hash。"
+    },
+    {
+      "id": "rag-rrf-k",
+      "document": "retrieval.md",
+      "section": "Hybrid fusion",
+      "line_start": 31,
+      "line_end": 35,
+      "content": "RRF_K：Dense 与 BM25 的候选使用 Reciprocal Rank Fusion 融合，常数 k 固定为 60；默认最终 TopK 为 5，候选池大小为 20。"
+    },
+    {
+      "id": "rag-evidence-threshold",
+      "document": "retrieval.md",
+      "section": "Evidence gate",
+      "line_start": 42,
+      "line_end": 48,
+      "content": "EVIDENCE_THRESHOLD：Evidence Gate v1 要求至少有一条同时被 Dense 与 BM25 命中的证据，且归一化最高分不低于 0.80；否则不调用回答模型。"
+    },
+    {
+      "id": "mq-retry-max",
+      "document": "index-worker.md",
+      "section": "Retry policy",
+      "line_start": 17,
+      "line_end": 22,
+      "content": "MQ_RETRY_MAX：文档索引消费者最多处理 3 次。可重试错误会增加 attempt 并进入延迟重试队列，消息使用 manual ack。"
+    },
+    {
+      "id": "mq-dlq-routing",
+      "document": "index-worker.md",
+      "section": "Dead letter routing",
+      "line_start": 24,
+      "line_end": 29,
+      "content": "DLQ_ROUTING：格式错误或重试耗尽的索引事件进入 durable dead-letter exchange 与独立 DLQ，主队列不会无限循环消费同一失败消息。"
+    },
+    {
+      "id": "go-context-cancel",
+      "document": "go-runtime.md",
+      "section": "Cancellation propagation",
+      "line_start": 11,
+      "line_end": 17,
+      "content": "CONTEXT_CANCEL：HTTP 请求的 context 必须逐层传给检索、模型与工具调用。客户端断开或上游取消时，下游应尽快停止，释放连接与计算资源。"
+    },
+    {
+      "id": "security-acl-filter",
+      "document": "security.md",
+      "section": "Knowledge ACL",
+      "line_start": 6,
+      "line_end": 13,
+      "content": "ACL_FILTER：Dense 与 BM25 查询都必须同时过滤 tenant_id 和 user_id。Redis 返回候选后还要使用 MySQL 的 indexed 状态与访问权限做权威复核。"
+    },
+    {
+      "id": "tool-risk-tier",
+      "document": "tool-governance.md",
+      "section": "Risk classification",
+      "line_start": 9,
+      "line_end": 18,
+      "content": "TOOL_RISK_TIER：工具分为只读、受限写入和高风险写入。只读工具可按策略自动执行；受限写入需要显式授权；高风险写入必须人工确认且保留审计记录。"
+    }
+  ],
+  "unauthorized_chunks": [
+    {
+      "id": "cross-tenant-secret",
+      "document": "private-other-tenant.md",
+      "section": "Secret",
+      "line_start": 1,
+      "line_end": 2,
+      "content": "HEALTH_GATE_TIMEOUT RRF_K ACL_FILTER：这是其他租户的诱饵证据，任何评测查询都不应召回它。"
+    }
+  ]
+}

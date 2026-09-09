@@ -1,0 +1,127 @@
+package memory
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestAssemblerPreservesRequiredContextAndKeepsNewestWorkingMessages(t *testing.T) {
+	messages := []WorkingMessage{
+		{Role: RoleUser, Content: strings.Repeat("旧问题", 80)},
+		{Role: RoleAssistant, Content: strings.Repeat("旧回答", 80)},
+		{Role: RoleUser, Content: "当前明确问题"},
+	}
+	result := NewAssembler().Assemble(AssembleInput{
+		SafetyRules: []string{"禁止执行写操作"}, CurrentQuestion: "当前明确问题", CurrentRunState: "WAITING_USER v5",
+		Summary:         StructuredSummary{Constraints: []string{"只能只读验证"}, ConfirmedFacts: map[string]string{"redis": "启用了密码"}},
+		WorkingMessages: messages, BudgetTokens: 80,
+	})
+	for _, expected := range []ContextKind{ContextSafetyRule, ContextQuestion, ContextConstraint, ContextRunState} {
+		if !hasContextKind(result.Included, expected) {
+			t.Fatalf("required context %s was dropped: %+v", expected, result)
+		}
+	}
+	if result.DroppedByBudget == 0 || result.OriginalTokens <= result.EstimatedTokens {
+		t.Fatalf("budget did not compress optional context: %+v", result)
+	}
+	if result.WorkingAvailable != 3 {
+		t.Fatalf("working message count changed: %+v", result)
+	}
+}
+
+func TestAssemblerIsDeterministicAndCapsBudget(t *testing.T) {
+	input := AssembleInput{
+		CurrentQuestion: "why", BudgetTokens: MaxTokenBudget + 100,
+		Summary: StructuredSummary{ConfirmedFacts: map[string]string{"z": "last", "a": "first"}},
+	}
+	first := NewAssembler().Assemble(input)
+	second := NewAssembler().Assemble(input)
+	if first.BudgetTokens != MaxTokenBudget || len(first.Included) != len(second.Included) {
+		t.Fatalf("unexpected assembly: first=%+v second=%+v", first, second)
+	}
+	for index := range first.Included {
+		if first.Included[index] != second.Included[index] {
+			t.Fatalf("assembly is not deterministic: first=%+v second=%+v", first.Included, second.Included)
+		}
+	}
+}
+
+func TestAssemblerIncludesEveryStructuredSummaryFieldInStablePriorityOrder(t *testing.T) {
+	result := NewAssembler().Assemble(AssembleInput{CurrentQuestion: "current", BudgetTokens: 1024, Summary: StructuredSummary{
+		Goal: "diagnose", Constraints: []string{"read-only"}, ConfirmedFacts: map[string]string{"redis": "7.4"},
+		OpenQuestions: []string{"host?"}, CompletedSteps: []string{"parsed logs"}, FailedSteps: []string{"health timeout"},
+		EvidenceRefs: []string{"OBS-1"}, NextAction: "ask user",
+	}})
+	for _, kind := range []ContextKind{ContextGoal, ContextConstraint, ContextFact, ContextOpenQuestion, ContextNextAction, ContextCompleted, ContextFailed, ContextEvidence} {
+		if !hasContextKind(result.Included, kind) {
+			t.Fatalf("structured field %s missing: %+v", kind, result.Included)
+		}
+	}
+	if result.SummaryAvailable != 7 || result.SummaryIncluded != 7 {
+		t.Fatalf("unexpected summary attribution: %+v", result)
+	}
+}
+
+func TestAssemblerAdmitsOnlyBoundedConfirmedProfileFacts(t *testing.T) {
+	result := NewAssembler().Assemble(AssembleInput{
+		CurrentQuestion: "Redis 版本是什么", BudgetTokens: 256,
+		ProfileFacts: []ProfileFact{
+			{Key: "redis_version", Value: "7.4", Confidence: 1},
+			{Key: "mysql_version", Value: "8.0", Confidence: 0.7},
+			{Key: "secret", Value: "must-not-enter", Confidence: 1},
+		},
+	})
+	if result.ProfileAvailable != 3 || result.ProfileIncluded != 1 {
+		t.Fatalf("unexpected profile counts: %+v", result)
+	}
+	for _, item := range result.Included {
+		if strings.Contains(item.Content, "must-not-enter") || strings.Contains(item.Content, "mysql_version") {
+			t.Fatalf("untrusted profile crossed assembler gate: %+v", result.Included)
+		}
+	}
+	if !hasContextKind(result.Included, ContextProfile) {
+		t.Fatalf("confirmed profile was not assembled: %+v", result.Included)
+	}
+}
+
+func TestAssemblerDoesNotDuplicateLatestQuestionAfterAnswerWasPersisted(t *testing.T) {
+	result := NewAssembler().Assemble(AssembleInput{
+		CurrentQuestion: "当前问题", BudgetTokens: 256,
+		WorkingMessages: []WorkingMessage{
+			{Role: RoleUser, Content: "当前问题"},
+			{Role: RoleAssistant, Content: "刚生成的回答"},
+		},
+	})
+	questionCount := 0
+	for _, item := range result.Included {
+		if item.Content == "当前问题" {
+			questionCount++
+		}
+	}
+	if questionCount != 1 {
+		t.Fatalf("current question was duplicated in preview assembly: %+v", result.Included)
+	}
+}
+
+func TestAssemblerAccountsForCumulativeWorkingMessageBudget(t *testing.T) {
+	messages := make([]WorkingMessage, 0, 12)
+	for index := 0; index < 12; index++ {
+		messages = append(messages, WorkingMessage{Role: RoleAssistant, Content: strings.Repeat("message ", 40)})
+	}
+	result := NewAssembler().Assemble(AssembleInput{CurrentQuestion: "current", WorkingMessages: messages, BudgetTokens: 256})
+	if result.OverBudget || result.EstimatedTokens > result.BudgetTokens {
+		t.Fatalf("cumulative working messages exceeded budget: %+v", result)
+	}
+	if result.WorkingIncluded >= result.WorkingAvailable || result.DroppedByBudget == 0 {
+		t.Fatalf("working messages were not budgeted cumulatively: %+v", result)
+	}
+}
+
+func hasContextKind(items []ContextItem, kind ContextKind) bool {
+	for _, item := range items {
+		if item.Kind == kind {
+			return true
+		}
+	}
+	return false
+}

@@ -48,7 +48,6 @@ charset =  "utf8mb4"
 
   [reactConfig]
   maxIterations = 10          # ReAct 最大推理迭代次数
-  mcpBaseURL = "http://localhost:8081/mcp"  # MCP 服务地址
 
   [memoryConfig]
   enableSummary = true              # 是否启用摘要记忆（超出上下文时自动压缩旧消息）

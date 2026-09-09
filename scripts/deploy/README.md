@@ -1,0 +1,115 @@
+# GopherAI Aliyun SSH Deployment
+
+This directory contains the verified Windows-to-Aliyun deployment workflow for
+the existing `gopherai2` container environment.
+
+## Normal deployment
+
+Run from the repository root:
+
+```powershell
+.\scripts\deploy\deploy-aliyun.ps1 `
+  -HostAlias gopherai-aliyun `
+  -SshConfigPath C:\Users\Lenovo\.ssh\config `
+  -RunLocalTests
+```
+
+After the first verified test run for a change, a retry may omit
+`-RunLocalTests`; the script still builds both Linux binaries locally.
+
+## Release flow
+
+Before the build or upload, the script reads the ECS one-minute load and Linux
+full-I/O pressure. It exits without changing remote state when load is above
+four times the CPU count (minimum 4) or full-I/O PSI `avg10` is above 10%.
+Release binaries use `-trimpath` and stripped symbol/debug tables to reduce the
+transfer and extraction footprint while retaining runtime pprof labels.
+
+The default path is:
+
+1. Optionally run root-module and MCP-module tests with `-p 1`.
+2. Build the backend, index worker, MCP, static frontend gateway, bounded
+   evaluation runners, and post-release evidence sealer as `linux/amd64`,
+   `CGO_ENABLED=0` binaries.
+3. Create a release manifest and SHA-256 checksum.
+4. Package source plus the prebuilt binaries, excluding `.git`, `.claude`,
+   runtime uploads, remote configuration, logs, frontend `node_modules`, and
+   the local development tree outside the controlled production `dist` assets.
+5. Upload through the SSH alias and verify the checksum on the host and again
+   inside `gopherai2`.
+6. Extract into a new versioned directory before stopping the current release.
+7. Preserve the remote `config/config.toml`; move `uploads` and frontend
+   `node_modules` without duplicating their disk usage.
+8. Switch `/root/GopherAI-`, start MySQL/backend/index worker/Prometheus/
+   Grafana/MCP/frontend with PID files, and wait for application ports plus the
+   loopback-only observability ports 9092 and 9093.
+9. After every service health gate passes, run the bounded cleanup evidence
+   sealer against the packaged source inventory and the fixed Prometheus
+   24-hour observation. It atomically binds the report to this release and Git
+   SHA; it is not exposed as an unauthenticated deployment API.
+10. Keep the previous directory for rollback. If startup or evidence sealing
+    fails after switching, restore the previous directory and runtime folders
+    automatically. A release is not printed as active before both phases pass.
+
+The script never deletes Docker containers or images.
+
+Prometheus and Grafana are one-time runtime dependencies. Bootstrap them before
+the first release that contains their versioned assets:
+
+```powershell
+.\scripts\deploy\bootstrap-prometheus-aliyun.ps1
+.\scripts\deploy\bootstrap-grafana-aliyun.ps1
+```
+
+Grafana OSS is pinned to `13.2.1` with an exact package SHA-256. Its port is
+available only on the private Docker network and is not published by the host;
+it uses the loopback Prometheus datasource and provisions the immutable
+`gopherai-closed-loop-v1` dashboard. Normal
+deployment validates all dashboard queries before stopping the active release,
+requires provisioning to succeed, rejects a transient startup RSS above 384 MiB,
+and requires Grafana to settle below 300 MiB after a 45-second grace period.
+The same gate also requires at least 256 MiB system memory to remain available
+and rejects every bundled backend data-source process except Prometheus. These
+limits are based on the measured Grafana 13.2.1 footprint on the 1.6 GiB ECS.
+Grafana drops privileges to its package user; only the copied, read-only
+dashboard/provisioning assets and the dedicated `/var/lib/gopherai-grafana`
+data directory are reachable, not the project configuration under `/root`.
+Suggested plugins and their network update checks are disabled because this
+dashboard uses only the bundled Prometheus data source. If Grafana itself fails
+during an atomic release, rollback restores the core application first and
+reports the dashboard as degraded instead of leaving the public frontend down.
+
+## Options
+
+- `-DeployConfig`: intentionally include the local `config/config.toml`. Do not
+  use this during normal deployment; the remote runtime config is preserved.
+- `-SkipFrontend -AllowFrontendDowntime`: deploy backend/MCP without starting
+  Vue. The explicit acknowledgement is required because the atomic switch stops
+  the previous frontend process; this does not preserve the old frontend.
+  server.
+- `-DryRun`: validate local packaging and print remote operations without
+  uploading or switching a release.
+- `-BuildInContainer`: explicit emergency fallback. This is unsafe on the
+  current 1.6 GiB ECS and must not be used during normal deployment.
+
+## Verification
+
+The script treats open ports as its startup gate. A release is accepted only
+after a second read-only check confirms:
+
+```text
+frontend http://127.0.0.1:8080/ -> 200
+backend  http://127.0.0.1:9090/ -> 404 (server reachable; no root route)
+MCP      127.0.0.1:8081         -> TCP ready
+Prometheus 127.0.0.1:9092        -> ready, 2/2 scrape targets
+Grafana  container-private :9093 -> healthy, dashboard provisioned, no host port
+public   :8080/api/...           -> proxied backend JSON
+cleanup  current release/Git SHA -> complete, 0 eligible, 0 blocked
+```
+
+`/mcp` is a streaming endpoint and can keep an HTTP request open, so use TCP
+readiness rather than waiting for its response body.
+
+See `GlobalExperience/2026-09-03-aliyun-ssh-container-deploy.md` for the
+environment facts, failure analysis, cleanup boundaries, and first successful
+release evidence.

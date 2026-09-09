@@ -1,9 +1,10 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import Login from '../views/Login.vue'
 import Register from '../views/Register.vue'
-import Menu from '../views/Menu.vue'
 import AIChat from '../views/AIChat.vue'
-import ImageRecognition from '../views/ImageRecognition.vue'
+import WorkspaceLayout from '../layouts/WorkspaceLayout.vue'
+import Dashboard from '../views/Dashboard.vue'
+import SystemSettings from '../views/SystemSettings.vue'
 
 const routes = [
   {
@@ -22,21 +23,30 @@ const routes = [
   },
   {
     path: '/menu',
-    name: 'Menu',
-    component: Menu,
-    meta: { requiresAuth: true }
+    redirect: '/dashboard'
   },
   {
     path: '/ai-chat',
-    name: 'AIChat',
-    component: AIChat,
-    meta: { requiresAuth: true }
+    redirect: '/dashboard/chat'
   },
   {
-    path: '/image-recognition',
-    name: 'ImageRecognition',
-    component: ImageRecognition,
-    meta: { requiresAuth: true }
+    path: '/dashboard',
+    component: WorkspaceLayout,
+    meta: { requiresAuth: true },
+    children: [
+      { path: '', name: 'Dashboard', component: Dashboard, meta: { title: '工作台主页' } },
+      { path: 'chat', name: 'AIChat', component: AIChat, props: { workspace: 'chat' }, meta: { title: '统一智能对话' } },
+      { path: 'history', name: 'ConversationHistory', component: AIChat, props: { workspace: 'history' }, meta: { title: '历史会话' } },
+      { path: 'knowledge', name: 'KnowledgeWorkspace', component: AIChat, props: { workspace: 'knowledge' }, meta: { title: '证据检索与 RAG' } },
+      { path: 'diagnostics', name: 'DiagnosticWorkspace', component: AIChat, props: { workspace: 'diagnostics' }, meta: { title: '故障诊断 Harness' } },
+      { path: 'memory', name: 'MemoryWorkspace', component: AIChat, props: { workspace: 'memory' }, meta: { title: '三级记忆控制台' } },
+      { path: 'tools', name: 'ToolRuntimeWorkspace', component: AIChat, props: { workspace: 'tools' }, meta: { title: '受治理工具运行时' } },
+      { path: 'policy', name: 'PolicyWorkspace', component: AIChat, props: { workspace: 'policy' }, meta: { title: '策略演算与多 Agent' } },
+      { path: 'evaluation', name: 'EvaluationWorkspace', component: AIChat, props: { workspace: 'evaluation' }, meta: { title: '评测与反馈闭环' } },
+      { path: 'review', name: 'HumanReviewWorkspace', component: AIChat, props: { workspace: 'review' }, meta: { title: '人工验收工作台' } },
+      { path: 'interview', name: 'InterviewWorkspace', component: AIChat, props: { workspace: 'interview' }, meta: { title: '面试导览' } },
+      { path: 'settings', name: 'SystemSettings', component: SystemSettings, meta: { title: '系统设置' } }
+    ]
   }
 ]
 

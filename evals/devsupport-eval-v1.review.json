@@ -1,0 +1,92 @@
+{
+  "schema_version": "evaluation-review-manifest-v1",
+  "manifest_version": "devsupport-eval-review-r2-human-adjudicated-delta",
+  "dataset_version": "devsupport-eval-v1",
+  "catalog_manifest_sha256": "69e5d1d9ea6102e2fdb12f23ebd0303a175e8d8f4e744a2edb3387ad422e7bb7",
+  "created_at": "2026-09-09T00:00:00Z",
+  "slices": [
+    {
+      "name": "intent",
+      "path": "devsupport-intent-v1.jsonl",
+      "dataset_version": "devsupport-intent-v1",
+      "artifact_sha256": "25d1207a4fe33ecf72b7f96959d8dc72a9e627a523447b67c9913599b667adfe",
+      "case_count": 150,
+      "source_category": "curated_synthetic_devsupport",
+      "review_status": "pending_user",
+      "reviewer": "",
+      "reviewed_at": null
+    },
+    {
+      "name": "rag",
+      "path": "devsupport-rag-core-v2.jsonl",
+      "dataset_version": "devsupport-rag-core-v2",
+      "artifact_sha256": "c6f2c4f339aa9c36ed353419e2d1a2a327a255aaf97b02f093a2f937282b87ed",
+      "case_count": 60,
+      "source_category": "curated_synthetic_devsupport",
+      "review_status": "pending_user",
+      "reviewer": "",
+      "reviewed_at": null
+    },
+    {
+      "name": "diagnosis",
+      "path": "devsupport-diagnostic-v1.jsonl",
+      "dataset_version": "devsupport-diagnostic-v1",
+      "artifact_sha256": "218919b3ef3f596eccdcd7528217b11aff3aa0083cd67c6e3295570d90817741",
+      "case_count": 40,
+      "source_category": "curated_synthetic_devsupport",
+      "review_status": "pending_user",
+      "reviewer": "",
+      "reviewed_at": null
+    },
+    {
+      "name": "tool",
+      "path": "devsupport-tool-runtime-v1.jsonl",
+      "dataset_version": "devsupport-tool-runtime-v1",
+      "artifact_sha256": "a161fae816df8f981b45713e267c4ce876262796bf36456e068bbd416973aaae",
+      "case_count": 30,
+      "source_category": "curated_synthetic_devsupport",
+      "review_status": "pending_user",
+      "reviewer": "",
+      "reviewed_at": null
+    },
+    {
+      "name": "memory",
+      "path": "devsupport-memory-v1.jsonl",
+      "dataset_version": "devsupport-memory-v1",
+      "artifact_sha256": "efa3d4b68791612e7daaa822871fef32b08872aad511f93c7e0760de33d6ece5",
+      "case_count": 20,
+      "source_category": "curated_synthetic_devsupport",
+      "review_status": "pending_user",
+      "reviewer": "",
+      "reviewed_at": null
+    },
+    {
+      "name": "insufficient_evidence",
+      "path": "devsupport-insufficient-evidence-v1.jsonl",
+      "dataset_version": "devsupport-insufficient-evidence-v1",
+      "artifact_sha256": "a4fc44ececc44773fea9bb2ce7532821b38f5f1d6646ad9cde1ac19b2fb79d73",
+      "case_count": 20,
+      "source_category": "curated_synthetic_devsupport",
+      "review_status": "pending_user",
+      "reviewer": "",
+      "reviewed_at": null
+    }
+  ],
+  "fixtures": [
+    {
+      "name": "kb-fixture-v1",
+      "path": "fixtures/kb-fixture-v1.json",
+      "sha256": "a01fdc45bfbd0f2cbb64e477ea61dbb01cc5198bae3e41c69bbbbf8a27a72bf0"
+    },
+    {
+      "name": "kb-fixture-v2",
+      "path": "fixtures/kb-fixture-v2.json",
+      "sha256": "14c27846dcaf3f8f962f51de60936302930bd36a81c2a8c0918054889189345e"
+    },
+    {
+      "name": "kb-parent-context-fixture-v1",
+      "path": "fixtures/kb-parent-context-fixture-v1.json",
+      "sha256": "65dc4e5c5c00eace33f463f9e9143939bf8894e0419cd7fb6e40c07d92b7061f"
+    }
+  ]
+}

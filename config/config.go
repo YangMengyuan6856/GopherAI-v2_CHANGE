@@ -63,8 +63,7 @@ type VoiceServiceConfig struct {
 }
 
 type ReactConfig struct {
-	MaxIterations int    `toml:"maxIterations"`
-	McpBaseURL    string `toml:"mcpBaseURL"`
+	MaxIterations int `toml:"maxIterations"`
 }
 
 type MemoryConfig struct {

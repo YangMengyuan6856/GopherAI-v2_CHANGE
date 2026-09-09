@@ -1,0 +1,14 @@
+apiVersion: 1
+
+providers:
+  - name: GopherAI versioned dashboards
+    orgId: 1
+    folder: GopherAI
+    folderUid: gopherai
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/gopherai-grafana/dashboards
+      foldersFromFilesStructure: false

@@ -46,15 +46,6 @@ func (f *AIModelFactory) registerCreators() {
 		return NewAliRAGModel(ctx, username)
 	}
 
-	// MCP 模型（集成MCP服务）
-	f.creators["3"] = func(ctx context.Context, config map[string]interface{}) (AIModel, error) {
-		username, ok := config["username"].(string)
-		if !ok {
-			return nil, fmt.Errorf("MCP model requires username")
-		}
-		return NewMCPModel(ctx, username)
-	}
-
 	//Ollama（目前提供接口实现，暂不提供应用，因为考虑到本地模型会占用很多空间）todo做
 	f.creators["4"] = func(ctx context.Context, config map[string]interface{}) (AIModel, error) {
 		baseURL, _ := config["baseURL"].(string)
@@ -63,12 +54,6 @@ func (f *AIModelFactory) registerCreators() {
 			return nil, fmt.Errorf("Ollama model requires modelName")
 		}
 		return NewOllamaModel(ctx, baseURL, modelName)
-	}
-
-	// ReAct 推理循环模型
-	f.creators["5"] = func(ctx context.Context, config map[string]interface{}) (AIModel, error) {
-		username, _ := config["username"].(string)
-		return NewReActModel(ctx, username)
 	}
 }
 

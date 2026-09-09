@@ -14,11 +14,21 @@ type Claims struct {
 }
 
 func GenerateToken(id int64, username string) (string, error) {
+	return generateToken(id, username, time.Duration(config.GetConfig().ExpireDuration)*time.Hour)
+}
+
+// GenerateEphemeralToken creates a 15-minute token for a bounded local runtime probe.
+// Callers must never persist or return this token in reports.
+func GenerateEphemeralToken(id int64, username string) (string, error) {
+	return generateToken(id, username, 15*time.Minute)
+}
+
+func generateToken(id int64, username string, ttl time.Duration) (string, error) {
 	claims := Claims{
 		ID:       id,
 		Username: username,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(config.GetConfig().ExpireDuration) * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(ttl)),
 			Issuer:    config.GetConfig().Issuer,
 			Subject:   config.GetConfig().Subject,
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
