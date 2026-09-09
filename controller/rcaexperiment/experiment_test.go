@@ -4,6 +4,7 @@ import (
 	"GopherAI/internal/rcaagent"
 	"GopherAI/internal/rcaexperiment"
 	"context"
+	"encoding/json"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 	"github.com/gin-gonic/gin"
@@ -84,5 +85,43 @@ func TestSingleConcurrencyGuard(t *testing.T) {
 	h.Diagnose(c)
 	if w.Code != 429 {
 		t.Fatal(w.Code)
+	}
+}
+
+func TestFrozenAgentReplayAndRecordedTraceAreVersionBound(t *testing.T) {
+	t.Chdir("../..")
+	d, e := rcaexperiment.Load()
+	if e != nil {
+		t.Fatal(e)
+	}
+	h := NewHandler(d, nil, nil) // No model factory: viewing records cannot call a model.
+	for _, tt := range []struct {
+		id   string
+		want int
+	}{{"", 200}, {"rca-34a5398b52", 200}, {"not-in-report", 404}} {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Set("userName", "tester")
+		c.Params = gin.Params{{Key: "id", Value: tt.id}}
+		c.Request = httptest.NewRequest("GET", "/agent-report/"+tt.id, nil)
+		h.AgentReport(c)
+		if w.Code != tt.want {
+			t.Fatalf("report %s: %d %s", tt.id, w.Code, w.Body.String())
+		}
+		if tt.want != 200 {
+			continue
+		}
+		var body map[string]json.RawMessage
+		if json.Unmarshal(w.Body.Bytes(), &body) != nil {
+			t.Fatal("invalid report JSON")
+		}
+		if tt.id == "" {
+			var rows []json.RawMessage
+			if json.Unmarshal(body["cases"], &rows) != nil || len(rows) != 12 {
+				t.Fatal("incomplete replay")
+			}
+		} else if string(body["recorded"]) != "true" || len(body["run"]) == 0 {
+			t.Fatal("record presented as fresh execution")
+		}
 	}
 }

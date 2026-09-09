@@ -41,7 +41,19 @@ go run ./cmd/rca-agent-eval -split holdout -output /path/to/new-agent-replay.jso
 
 旧12例已经公开查看过答案，新增 Agent 的运行叫“已有案例回放”，不是新盲测。`agent-replay.json` 单独保存一次完整12例回放，包含错误、误接纳、模型调用、Token、每轮实际选择和证据。报告绑定数据、Prompt、执行器源码 Hash，版本失配不能展示旧成绩。执行器测试用替身模型只验证控制流，不计入质量分数。
 
-开发运行也保留：`agent-development-first.json`、`agent-development-second.json`、`agent-development-turbo.json`、`agent-development-plus-initial.json`。包含时间顺序上的失败，不删坏结果、不给原有规则增益换名字。后续报告解释见部署经验记录与增量规格。
+开发运行也保留为 `agent-development-*.json`；包含时间顺序上的失败，不删坏结果、不给原有规则增益换名字。
+
+真实模型的三次完整回放（均为已看过的同12例，不能当独立盲测）：
+
+| 工件 | 执行完成 / 12 | 已知服务+类型正确 / 6 | 范围外误接纳 / 6 | 执行失败 / 12 |
+| --- | --- | --- | --- | --- |
+| `agent-replay-initial-v1.json` | 4 | 2 | 1 | 8 |
+| `agent-replay-v2-before-feedback.json` | 6 | 2 | 1 | 6 |
+| `agent-replay.json`（当前实现） | 10 | 4 | 4 | 2 |
+
+当前已知服务 Top-1 为6/6；类型错误2例。范围外4个误接纳、2个运行失败，没有正确拒答。改进的是这次回放中的执行稳定性，不是证明未知故障识别已解决，也不能由以上重复回放推导统计显著性。输入469,456、输出14,551 tokens，共87次模型请求；后续重跑路径和结果可能不同。
+
+完整操作见 [中文快速演示说明](../../docs/RCAEval-AGENT-QUICKSTART.zh-CN.md)。
 
 ### A/B/C：原确定性规则链路
 

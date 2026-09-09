@@ -207,12 +207,17 @@ func (a *Agent) Execute(ctx context.Context, d *rcaexperiment.Dataset, id, user 
 				out.Agent.StopReason = "invalid_model_output"
 				break
 			}
+			if response != nil && len(response.Content) <= 12000 {
+				// A correction needs the rejected attempt as context. It remains
+				// unexecuted and bounded; no unvalidated action reaches tools.
+				messages = append(messages, schema.AssistantMessage(response.Content, nil))
+			}
 			messages = append(messages, schema.UserMessage("上次响应被治理层拒绝："+validation+"。不要重复；只引用已返回的证据，修正JSON或停止。"))
 			continue
 		}
 		step.Decision = &decision
-		encoded, _ := json.Marshal(decision)
-		messages = append(messages, schema.AssistantMessage(string(encoded), nil))
+		// Feed back the validated model wire format, not the expanded UI DTO.
+		messages = append(messages, schema.AssistantMessage(response.Content, nil))
 		if decision.Action == "finish" {
 			validation = validateFinal(*decision.Final, seen)
 			if len(seen) == 0 {
@@ -226,7 +231,7 @@ func (a *Agent) Execute(ctx context.Context, d *rcaexperiment.Dataset, id, user 
 					out.Agent.StopReason = "invalid_final"
 					break
 				}
-				messages = append(messages, schema.UserMessage("最终结论被拒绝："+validation+"。candidate_N 指 candidates 数组的第N项。matched_hypothesis只表示待验证候选，不表示确认根因；如返回insufficient_evidence则candidates必须为空数组。每个候选必须引用当前服务已查询的详细metrics及另一类logs/traces/history证据，并包含reason、uncertainties和checks。已经排除或无证据支持的项不要放入candidates；最多3项并非必须填满，可只留1项。请自行修正，不编造证据。"))
+				messages = append(messages, schema.UserMessage("最终结论被拒绝："+validation+"。请修正final.candidate这一个对象，不能输出candidates数组。matched_hypothesis仅为待验证候选，必须引用本服务已查询的metrics及另一类logs/traces/history证据，并包含reason、uncertainties、checks。证据不足则status=insufficient_evidence且candidate=null；不编造证据。"))
 				continue
 			}
 			out.Agent.Completed = true
@@ -311,16 +316,41 @@ func (a *Agent) Execute(ctx context.Context, d *rcaexperiment.Dataset, id, user 
 
 func parse(response *schema.Message, seen map[string]Evidence) (Decision, string) {
 	var d Decision
+	// The model emits one prioritized candidate; the public trace keeps the
+	// existing candidates list shape. No model decision is manufactured.
+	var wire struct {
+		Action string  `json:"action"`
+		Update string  `json:"update"`
+		Tool   *Choice `json:"tool,omitempty"`
+		Final  *struct {
+			Status    string     `json:"status"`
+			Summary   string     `json:"summary"`
+			Candidate *Candidate `json:"candidate"`
+			Questions []string   `json:"questions"`
+		} `json:"final,omitempty"`
+	}
 	if response == nil || len(response.Content) == 0 || len(response.Content) > 12000 {
 		return d, "output_size_or_empty"
 	}
 	dec := json.NewDecoder(strings.NewReader(response.Content))
 	dec.DisallowUnknownFields()
-	if dec.Decode(&d) != nil {
-		return d, "invalid_json_schema"
+	if err := dec.Decode(&wire); err != nil {
+		// Decoder errors name the rejected field/type, never provider secrets.
+		detail := err.Error()
+		if len(detail) > 180 {
+			detail = detail[:180]
+		}
+		return d, "invalid_json_schema: " + detail
 	}
 	if dec.Decode(&struct{}{}) != io.EOF {
 		return d, "trailing_content"
+	}
+	d = Decision{Action: wire.Action, Update: wire.Update, Tool: wire.Tool, Hypotheses: []Hypothesis{}}
+	if wire.Final != nil {
+		d.Final = &Final{Status: wire.Final.Status, Summary: wire.Final.Summary, Questions: wire.Final.Questions, Candidates: []Candidate{}}
+		if wire.Final.Candidate != nil {
+			d.Final.Candidates = append(d.Final.Candidates, *wire.Final.Candidate)
+		}
 	}
 	// Some providers omit a redundant update on finish. Reuse their own final
 	// summary; never manufacture a hypothesis or relax evidence validation.
@@ -332,25 +362,6 @@ func parse(response *schema.Message, seen map[string]Evidence) (Decision, string
 	}
 	if len([]rune(d.Update)) > 700 {
 		return d, "update_too_long"
-	}
-	if len(d.Hypotheses) > 3 {
-		return d, "too_many_hypotheses"
-	}
-	for _, h := range d.Hypotheses {
-		// Exploration may inspect another service to eliminate a propagation
-		// hypothesis. Final supported scope stays restricted in validateFinal.
-		known := rcaexperiment.KnownService(h.Service)
-		for _, ev := range seen {
-			known = known || ev.Service == h.Service
-		}
-		if !known || rcaexperiment.FaultName(h.Fault) == "" || (h.Status != "investigating" && h.Status != "supported" && h.Status != "weakened") {
-			return d, "invalid_hypothesis"
-		}
-		for _, id := range h.EvidenceIDs {
-			if _, ok := seen[id]; !ok {
-				return d, "unobserved_citation"
-			}
-		}
 	}
 	if d.Action == "tool" && d.Tool != nil && d.Final == nil && len(d.Tool.Name) <= 80 && len(d.Tool.Service) <= 100 {
 		return d, "accepted"

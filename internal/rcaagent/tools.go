@@ -135,7 +135,7 @@ func historicalEvidence(o rcaexperiment.Observation, refs []rcaexperiment.Refere
 		for key, metric := range m.ref.Observation.Metrics {
 			// Historical nested metric IDs are not current evidence handles.
 			// Expose comparable values under one citeable reference ID.
-			metrics[key] = map[string]float64{"ratio": metric.Ratio, "log_change": metric.LogChange}
+			metrics[key] = map[string]any{"ratio": metric.Ratio, "log_change": metric.LogChange, "reference": metric.Reference, "current": metric.Current, "reference_cv": metric.ReferenceCV, "unit": metric.Unit}
 		}
 		data := map[string]any{"historical_fault": m.ref.Fault, "metrics": metrics,
 			"distance": m.distance, "repair_outcome": "unknown", "provenance": "RCAEval public reference run; not current-case truth"}

@@ -20,7 +20,18 @@ func (f modelFunc) Generate(ctx context.Context, m []*schema.Message, _ ...model
 	return f(ctx, m)
 }
 func wire(d Decision) *schema.Message {
-	b, _ := json.Marshal(d)
+	w := map[string]any{"action": d.Action, "update": d.Update}
+	if d.Tool != nil {
+		w["tool"] = d.Tool
+	}
+	if d.Final != nil {
+		var candidate *Candidate
+		if len(d.Final.Candidates) > 0 {
+			candidate = &d.Final.Candidates[0]
+		}
+		w["final"] = map[string]any{"status": d.Final.Status, "summary": d.Final.Summary, "candidate": candidate, "questions": d.Final.Questions}
+	}
+	b, _ := json.Marshal(w)
 	return schema.AssistantMessage(string(b), nil)
 }
 func choose(name, service string) Decision {
@@ -104,17 +115,8 @@ func TestFinalRejectsUnseenCrossServiceAndOverviewOnlyEvidence(t *testing.T) {
 	}
 }
 
-func TestObservedOtherServiceCanBeExploredButNotReplaceCandidateEvidence(t *testing.T) {
+func TestOtherServiceComparisonCannotReplaceCandidateEvidence(t *testing.T) {
 	seen := map[string]Evidence{"p": {ID: "p", Service: "paymentservice", Kind: "overview"}, "m": {ID: "m", Service: "checkoutservice", Kind: "metrics"}, "l": {ID: "l", Service: "checkoutservice", Kind: "logs"}}
-	d := choose("rca_inspect_metrics", "paymentservice")
-	d.Hypotheses = []Hypothesis{{Service: "paymentservice", Fault: "delay", Status: "investigating", EvidenceIDs: []string{"p", "m"}}}
-	if _, reason := parse(wire(d), seen); reason != "accepted" {
-		t.Fatal(reason)
-	}
-	d.Hypotheses[0].Service = "inventedservice"
-	if _, reason := parse(wire(d), seen); reason == "accepted" {
-		t.Fatal("unseen service accepted")
-	}
 	f := Final{Status: "matched_hypothesis", Summary: "candidate with comparison", Candidates: []Candidate{{Service: "checkoutservice", Fault: "cpu", Reason: "r", EvidenceIDs: []string{"m", "l", "p"}, Checks: []string{"c"}, Uncertainties: []string{"u"}}}}
 	if reason := validateFinal(f, seen); reason != "accepted" {
 		t.Fatal(reason)
@@ -282,7 +284,7 @@ func TestAuditFailureStopsAgent(t *testing.T) {
 }
 
 func TestFinishMayUseItsOwnSummaryAsUpdate(t *testing.T) {
-	d, reason := parse(schema.AssistantMessage(`{"action":"finish","final":{"status":"insufficient_evidence","summary":"证据不足，不能区分原因","candidates":[]}}`, nil), map[string]Evidence{})
+	d, reason := parse(schema.AssistantMessage(`{"action":"finish","final":{"status":"insufficient_evidence","summary":"证据不足，不能区分原因","candidate":null}}`, nil), map[string]Evidence{})
 	if reason != "accepted" || d.Update != d.Final.Summary {
 		t.Fatal(reason)
 	}
@@ -290,5 +292,33 @@ func TestFinishMayUseItsOwnSummaryAsUpdate(t *testing.T) {
 	f := Final{Status: "matched_hypothesis", Summary: "test", Candidates: []Candidate{{Service: "checkoutservice", Fault: "cpu", Reason: "r", EvidenceIDs: []string{"invented"}, Checks: []string{"c"}, Uncertainties: []string{"u"}}}}
 	if validateFinal(f, map[string]Evidence{}) == "accepted" {
 		t.Fatal("citation gate relaxed")
+	}
+}
+
+func TestRejectedAttemptAndFieldErrorReachTheCorrectionRound(t *testing.T) {
+	d := fixture(t)
+	calls := 0
+	bad := `{"action":"finish","update":"x","answer":"not-a-supported-field"}`
+	a, _ := New(modelFunc(func(_ context.Context, messages []*schema.Message) (*schema.Message, error) {
+		calls++
+		if calls == 1 {
+			return wire(choose("rca_inspect_logs", "checkoutservice")), nil
+		}
+		if calls == 2 {
+			return schema.AssistantMessage(bad, nil), nil
+		}
+		attempt, fieldError := false, false
+		for _, m := range messages {
+			attempt = attempt || (m.Role == schema.Assistant && m.Content == bad)
+			fieldError = fieldError || strings.Contains(m.Content, `unknown field "answer"`)
+		}
+		if !attempt || !fieldError {
+			t.Fatal("correction lacks failed attempt or field error")
+		}
+		return wire(Decision{Action: "finish", Update: "日志不足", Final: &Final{Status: "insufficient_evidence", Summary: "need metrics", Candidates: []Candidate{}}}), nil
+	}), "correction-test-double")
+	out, e := a.Execute(context.Background(), d, d.Catalog[6].ID, "tester", nil, nil)
+	if e != nil || !out.Agent.Completed || out.Diagnosis.ModelCalls != 3 || len(out.ToolCalls) != 1 {
+		t.Fatal(out.Agent, e)
 	}
 }
