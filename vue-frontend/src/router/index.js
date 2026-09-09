@@ -39,7 +39,7 @@ const routes = [
       { path: 'history', name: 'ConversationHistory', component: AIChat, props: { workspace: 'history' }, meta: { title: '历史会话' } },
       { path: 'knowledge', name: 'KnowledgeWorkspace', component: AIChat, props: { workspace: 'knowledge' }, meta: { title: '证据检索与 RAG' } },
       { path: 'diagnostics', name: 'DiagnosticWorkspace', component: AIChat, props: { workspace: 'diagnostics' }, meta: { title: '故障诊断 Harness' } },
-      { path: 'rca-experiment', name: 'RCAExperiment', component: () => import('../views/RCAExperiment.vue'), meta: { title: '历史案例辅助排查实验' } },
+      { path: 'rca-experiment', name: 'RCAExperiment', component: () => import('../views/RCAExperiment.vue'), meta: { title: '自主排查与历史案例实验' } },
       { path: 'memory', name: 'MemoryWorkspace', component: AIChat, props: { workspace: 'memory' }, meta: { title: '三级记忆控制台' } },
       { path: 'tools', name: 'ToolRuntimeWorkspace', component: AIChat, props: { workspace: 'tools' }, meta: { title: '受治理工具运行时' } },
       { path: 'policy', name: 'PolicyWorkspace', component: AIChat, props: { workspace: 'policy' }, meta: { title: '策略演算与多 Agent' } },

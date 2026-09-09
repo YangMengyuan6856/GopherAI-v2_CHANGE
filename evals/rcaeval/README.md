@@ -13,7 +13,37 @@
 
 原始目录名包含答案，不能作为在线模型/匹配器输入。本地转换器分开写出观测、参考库和评分标签。特征函数只接收匿名 ID 与文件，不接收故障类型、正确服务或注入时间。
 
-## 实际链路
+## 两条互相独立的链路
+
+2026-09-09 新增真正调用云端模型的自主排查入口。原 A/B/C 规则及 `holdout.json` 不变；下文旧成绩属于规则版，不能当作新 Agent 的成绩。
+
+### D：自主排查 Agent
+
+```text
+服务清单 + 只读工具契约 + 预算（不提供当前答案）
+  → LLM 选择下一项工具与服务
+  → Tool Runtime 校验并查询当前观测 / 历史参考
+  → 实际新证据回到模型；保留简短假设变化与引用
+  → 模型决定继续查询、修正假设或结束
+  → Go 校验最终证据归属、候选范围与未验证边界
+  → 独立评分器核对结果；失败不冒充正确拒答
+```
+
+单 Agent，最多8次模型请求、6次工具额度、180秒；不是预先固定工具顺序。每次调用记录 Tool Runtime 审计。可以探索其他服务作为排除项，但最终已知模式仍限定2个服务、3个类型。跨服务对照不能替代候选自身的详细指标及另一类证据。不会执行修复。
+
+既有百炼轻量配置为 qwen-turbo 时，此入口默认使用 qwen-plus，其他聊天/RAG 不变。可在服务端设置 `GOPHERAI_RCA_MODEL`；需要既有 `OPENAI_API_KEY`、模型 BaseURL 配置及网络，不能离线伪造模型结果。
+
+```bash
+# 在配置已就绪的环境运行；输出必须是新路径，不覆盖旧结果。
+go run ./cmd/rca-agent-eval -split development -output /path/to/new-agent-development.json
+go run ./cmd/rca-agent-eval -split holdout -output /path/to/new-agent-replay.json
+```
+
+旧12例已经公开查看过答案，新增 Agent 的运行叫“已有案例回放”，不是新盲测。`agent-replay.json` 单独保存一次完整12例回放，包含错误、误接纳、模型调用、Token、每轮实际选择和证据。报告绑定数据、Prompt、执行器源码 Hash，版本失配不能展示旧成绩。执行器测试用替身模型只验证控制流，不计入质量分数。
+
+开发运行也保留：`agent-development-first.json`、`agent-development-second.json`、`agent-development-turbo.json`、`agent-development-plus-initial.json`。包含时间顺序上的失败，不删坏结果、不给原有规则增益换名字。后续报告解释见部署经验记录与增量规格。
+
+### A/B/C：原确定性规则链路
 
 ```text
 匿名窗口 ID
@@ -70,10 +100,10 @@ go run ./cmd/rca-eval -split holdout -output .codex-tmp/rca-holdout-replay.json
 - `holdout.json`：首次留出运行、逐例候选、引用、工具状态和评分。去除了可按 Hash 找回的重复遥测，保留诊断证据。
 - `sources.json`：27 例的来源、分组和原始文件摘要；不能作为匹配器输入。
 
-## 演示验收
+## 原规则版演示验收
 
-1. 登录后打开 `/dashboard`，点击“历史案例排查”卡片，进入 `/dashboard/rca-experiment`。
-2. 保持“留出实验”，选择 `rca-34a5398b52`，运行案例增强诊断。预期首候选 checkoutservice / CPU 压力，有当前指标引用、参考案例、差异和未执行的确认建议；展开答案核对应正确。
+1. 登录后打开 `/dashboard`，点击 M-10“自主排查实验”卡片（M-09之后），进入 `/dashboard/rca-experiment`。
+2. 保持“原留出集回放”，选择 `rca-34a5398b52`，展开“规则对照”并运行案例增强诊断。预期首候选 checkoutservice / CPU 压力，有当前指标引用、参考案例、差异和未执行的确认建议；展开答案核对应正确。
 3. 选择 `rca-e5abfe8ebd`，分别运行 B 与 C；观察前者未正确定位、后者定位 currencyservice / CPU 压力，不只比较文案。
 4. 查看真实工具轨迹：C 共四次、成功状态、Trace 和 MySQL 审计。此处读取的是 RCAEval 快照，不是现有 ECS 的运行状态。
 5. 运行 `rca-bba0bc25ab` 并核对答案，预期明确显示范围外误接纳；运行 `rca-90376d73d9`，预期证据不足。最后查看页面下方冻结对照表。

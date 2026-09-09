@@ -1,0 +1,3410 @@
+{
+  "version": "rca-autonomous-agent-v1",
+  "dataset_sha256": "1e10d5a275e2942b07dac5483b299cbf4f0e444a051a1373db048c0084281a30",
+  "prompt_sha256": "a3d3b28c4a607c48598425979c9e8ac6acbec490fcf5265b5636bd7b0c772556",
+  "implementation_sha256": "c26e5ddb932eef0a89bbe1cae16eaed5f3478d75f0a377e28507fb4472494e02",
+  "split": "development",
+  "evaluation_kind": "previously_exposed_case_replay_not_new_blind_test",
+  "generated_at": "2026-09-09T14:52:44.698539902Z",
+  "cases": [
+    {
+      "id": "rca-3cc10cccb6",
+      "title": "观测窗口 07",
+      "run": {
+        "diagnosis": {
+          "case_id": "rca-3cc10cccb6",
+          "version": "rca-autonomous-agent-v1",
+          "strategy": "autonomous",
+          "status": "insufficient_evidence",
+          "summary": "自主排查未形成通过证据校验的最终结论，停止原因：invalid_final。保留已执行轨迹，不回退成规则答案冒充模型结果。",
+          "candidates": [],
+          "references": [],
+          "warnings": [
+            "模型自主选择只读工具；仅公开观测回放，不操作真实主机。",
+            "引用通过只证明来源有效，不证明根因正确；候选及后续核查尚未验证。"
+          ],
+          "model_calls": 8,
+          "repair_status": "not_executed"
+        },
+        "observation": {
+          "id": "rca-3cc10cccb6",
+          "start": 1708474641,
+          "end": 1708475570,
+          "reference_end": 1708474950,
+          "current_start": 1708475260,
+          "metric_rows": 930,
+          "log_rows": 110067,
+          "trace_rows": 199960,
+          "sources": [
+            {
+              "name": "metrics.parquet",
+              "sha256": "11f2df96b6b2b60a9600bacd8d3163b2f31a614aa756c19adfc51a41bcbebfc7",
+              "bytes": 127755
+            },
+            {
+              "name": "logs.parquet",
+              "sha256": "36fd5701f2d6e1f2d93131985d6feae5e284bdcbb21828ef9f3e90271a79f6b7",
+              "bytes": 191241
+            },
+            {
+              "name": "traces.parquet",
+              "sha256": "f833e959286b706b60307fc3beca2980f26a0dda62782362dbcb34e7f696b3d1",
+              "bytes": 5426555
+            }
+          ],
+          "services": null,
+          "warnings": [
+            "比较最早/最晚三分之一窗口，参考段健康尚未独立确认。",
+            "保留原始指标单位；分桶摘要不是完整实时遥测。"
+          ]
+        },
+        "tool_calls": [
+          {
+            "call_id": "a1110667-a887-49ef-b476-e20b802d2644-1",
+            "tool_name": "rca_inspect_overview",
+            "tool_version": "rca-autonomous-agent-v1",
+            "args_hash": "a510a14ad38a832240df7a5c06ff3ae4620cb21c2f359926f05477d20dbedfc7",
+            "status": "success",
+            "evidence_refs": [
+              "overview:adservice",
+              "overview:cartservice",
+              "overview:checkoutservice",
+              "overview:currencyservice",
+              "overview:emailservice",
+              "overview:frontend",
+              "overview:frontend-external",
+              "overview:paymentservice",
+              "overview:productcatalogservice",
+              "overview:recommendationservice",
+              "overview:redis",
+              "overview:shippingservice"
+            ],
+            "retryable": false,
+            "latency_ms": 0,
+            "cached": false,
+            "stale": false,
+            "truncated": false
+          },
+          {
+            "call_id": "a1110667-a887-49ef-b476-e20b802d2644-2",
+            "tool_name": "rca_inspect_metrics",
+            "tool_version": "rca-autonomous-agent-v1",
+            "args_hash": "5d69e5f1f3be1ffb54a77593f94785a17cb8331116a8b1df149dfd541fe5f680",
+            "status": "success",
+            "evidence_refs": [
+              "rca-3cc10cccb6:metric:checkoutservice:cpu",
+              "rca-3cc10cccb6:metric:checkoutservice:mem",
+              "rca-3cc10cccb6:metric:checkoutservice:latency-90",
+              "rca-3cc10cccb6:metric:checkoutservice:socket",
+              "rca-3cc10cccb6:metric:checkoutservice:workload"
+            ],
+            "retryable": false,
+            "latency_ms": 0,
+            "cached": false,
+            "stale": false,
+            "truncated": false
+          },
+          {
+            "call_id": "a1110667-a887-49ef-b476-e20b802d2644-3",
+            "tool_name": "rca_inspect_logs",
+            "tool_version": "rca-autonomous-agent-v1",
+            "args_hash": "5d69e5f1f3be1ffb54a77593f94785a17cb8331116a8b1df149dfd541fe5f680",
+            "status": "success",
+            "evidence_refs": [
+              "rca-3cc10cccb6:logs:checkoutservice"
+            ],
+            "retryable": false,
+            "latency_ms": 0,
+            "cached": false,
+            "stale": false,
+            "truncated": false
+          },
+          {
+            "call_id": "a1110667-a887-49ef-b476-e20b802d2644-4",
+            "tool_name": "rca_inspect_metrics",
+            "tool_version": "rca-autonomous-agent-v1",
+            "args_hash": "b10c59f41447fb301ab56ed314024ff8f5dd47e57c71bb93b344bb0f47f730d2",
+            "status": "success",
+            "evidence_refs": [
+              "rca-3cc10cccb6:metric:currencyservice:cpu",
+              "rca-3cc10cccb6:metric:currencyservice:mem",
+              "rca-3cc10cccb6:metric:currencyservice:latency-90",
+              "rca-3cc10cccb6:metric:currencyservice:socket",
+              "rca-3cc10cccb6:metric:currencyservice:workload"
+            ],
+            "retryable": false,
+            "latency_ms": 0,
+            "cached": false,
+            "stale": false,
+            "truncated": false
+          },
+          {
+            "call_id": "a1110667-a887-49ef-b476-e20b802d2644-5",
+            "tool_name": "rca_inspect_traces",
+            "tool_version": "rca-autonomous-agent-v1",
+            "args_hash": "5d69e5f1f3be1ffb54a77593f94785a17cb8331116a8b1df149dfd541fe5f680",
+            "status": "success",
+            "evidence_refs": [
+              "rca-3cc10cccb6:traces:checkoutservice"
+            ],
+            "retryable": false,
+            "latency_ms": 0,
+            "cached": false,
+            "stale": false,
+            "truncated": false
+          },
+          {
+            "call_id": "a1110667-a887-49ef-b476-e20b802d2644-6",
+            "tool_name": "rca_inspect_history",
+            "tool_version": "rca-autonomous-agent-v1",
+            "args_hash": "5d69e5f1f3be1ffb54a77593f94785a17cb8331116a8b1df149dfd541fe5f680",
+            "status": "success",
+            "evidence_refs": [
+              "reference:rca-97bf1c72d2",
+              "reference:rca-e375de9cb8",
+              "reference:rca-e425dee775"
+            ],
+            "retryable": false,
+            "latency_ms": 0,
+            "cached": false,
+            "stale": false,
+            "truncated": false
+          }
+        ],
+        "trace_id": "a1110667-a887-49ef-b476-e20b802d2644",
+        "dataset_sha256": "1e10d5a275e2942b07dac5483b299cbf4f0e444a051a1373db048c0084281a30",
+        "elapsed_ms": 58090,
+        "audit_storage": "local_run_report",
+        "agent": {
+          "version": "rca-autonomous-agent-v1",
+          "model": "qwen-plus",
+          "prompt_sha256": "a3d3b28c4a607c48598425979c9e8ac6acbec490fcf5265b5636bd7b0c772556",
+          "implementation_sha256": "c26e5ddb932eef0a89bbe1cae16eaed5f3478d75f0a377e28507fb4472494e02",
+          "steps": [
+            {
+              "round": 1,
+              "decision": {
+                "action": "tool",
+                "update": "先获取所有服务的粗粒度指标变化概览，识别异常幅度最大的服务及指标类型，为后续聚焦提供依据。",
+                "hypotheses": [],
+                "tool": {
+                  "name": "rca_inspect_overview",
+                  "service": "all"
+                }
+              },
+              "validation": "accepted",
+              "observation": [
+                {
+                  "id": "overview:adservice",
+                  "service": "adservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.963767,
+                    "diskio": 0.916621,
+                    "latency-50": 0.995647,
+                    "latency-90": 1.000516,
+                    "mem": 1.00706,
+                    "socket": 1,
+                    "workload": 0.977757
+                  }
+                },
+                {
+                  "id": "overview:cartservice",
+                  "service": "cartservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.980169,
+                    "latency-50": 0.9789,
+                    "latency-90": 0.822996,
+                    "mem": 0.998781,
+                    "socket": 1,
+                    "workload": 0.946687
+                  }
+                },
+                {
+                  "id": "overview:checkoutservice",
+                  "service": "checkoutservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 27.901583,
+                    "diskio": 1,
+                    "latency-50": 2.128305,
+                    "latency-90": 1.722961,
+                    "mem": 1.34961,
+                    "socket": 1.110011,
+                    "workload": 0.76755
+                  }
+                },
+                {
+                  "id": "overview:currencyservice",
+                  "service": "currencyservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.976731,
+                    "error": 1,
+                    "latency-50": 0.990919,
+                    "latency-90": 0.830016,
+                    "mem": 1.006602,
+                    "socket": 1,
+                    "workload": 0.976528
+                  }
+                },
+                {
+                  "id": "overview:emailservice",
+                  "service": "emailservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.960919,
+                    "diskio": 1,
+                    "latency-50": 1,
+                    "latency-90": 1,
+                    "mem": 1.000744,
+                    "socket": 1,
+                    "workload": 0.752243
+                  }
+                },
+                {
+                  "id": "overview:frontend",
+                  "service": "frontend",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.965154,
+                    "latency-50": 0.977068,
+                    "latency-90": 1.009284,
+                    "mem": 1.004503,
+                    "socket": 1,
+                    "workload": 0.935939
+                  }
+                },
+                {
+                  "id": "overview:frontend-external",
+                  "service": "frontend-external",
+                  "kind": "overview",
+                  "data": {
+                    "error": 1,
+                    "workload": 0.969997
+                  }
+                },
+                {
+                  "id": "overview:paymentservice",
+                  "service": "paymentservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.85008,
+                    "latency-50": 0.936634,
+                    "latency-90": 0.976126,
+                    "mem": 1.005814,
+                    "socket": 1,
+                    "workload": 0.790279
+                  }
+                },
+                {
+                  "id": "overview:productcatalogservice",
+                  "service": "productcatalogservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.923285,
+                    "diskio": 1,
+                    "latency-50": 0.982984,
+                    "latency-90": 0.997006,
+                    "mem": 0.994244,
+                    "socket": 1,
+                    "workload": 0.927979
+                  }
+                },
+                {
+                  "id": "overview:recommendationservice",
+                  "service": "recommendationservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.945175,
+                    "diskio": 1,
+                    "latency-50": 1.006307,
+                    "latency-90": 1.007179,
+                    "mem": 1,
+                    "socket": 1,
+                    "workload": 0.942027
+                  }
+                },
+                {
+                  "id": "overview:redis",
+                  "service": "redis",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.966231,
+                    "diskio": 1,
+                    "mem": 1.00136,
+                    "socket": 1
+                  }
+                },
+                {
+                  "id": "overview:shippingservice",
+                  "service": "shippingservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.938425,
+                    "latency-50": 1.002196,
+                    "latency-90": 1.001124,
+                    "mem": 1.002326,
+                    "socket": 1,
+                    "workload": 0.849578
+                  }
+                }
+              ],
+              "tool_status": "success",
+              "model_ms": 1993
+            },
+            {
+              "round": 2,
+              "decision": {
+                "action": "tool",
+                "update": "checkoutservice 的 CPU 增幅达 27.9×（远超其他服务），内存上升 34.96%，延迟 P50/P90 分别升至 2.13×/1.72×，且 workload 下降（0.768），表明非负载驱动型异常；currencyservice 无显著指标异常。优先深入 checkoutservice 的详细 metrics，确认 CPU 是否持续高位、是否存在 spike 模式或资源饱和信号。",
+                "hypotheses": [
+                  {
+                    "service": "checkoutservice",
+                    "fault": "cpu",
+                    "status": "investigating",
+                    "evidence_ids": [
+                      "overview:checkoutservice"
+                    ]
+                  }
+                ],
+                "tool": {
+                  "name": "rca_inspect_metrics",
+                  "service": "checkoutservice"
+                }
+              },
+              "validation": "accepted",
+              "observation": [
+                {
+                  "id": "rca-3cc10cccb6:metric:checkoutservice:cpu",
+                  "service": "checkoutservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "checkoutservice_cpu",
+                    "current": 11.803142,
+                    "current_count": 307,
+                    "id": "rca-3cc10cccb6:metric:checkoutservice:cpu",
+                    "log_change": 4.802275,
+                    "missing_fraction": 0.003226,
+                    "ratio": 27.901583,
+                    "reference": 0.418988,
+                    "reference_count": 310,
+                    "reference_cv": 0.810013,
+                    "sparkline": [
+                      1.432155,
+                      0.395622,
+                      0.368056,
+                      0.457884,
+                      0.389221,
+                      0.490216,
+                      0.413524,
+                      0.39291,
+                      0.34311,
+                      0.343816,
+                      20.004277,
+                      18.067498
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-3cc10cccb6:metric:checkoutservice:mem",
+                  "service": "checkoutservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "checkoutservice_mem",
+                    "current": 17752064,
+                    "current_count": 310,
+                    "id": "rca-3cc10cccb6:metric:checkoutservice:mem",
+                    "log_change": 0.432543,
+                    "missing_fraction": 0,
+                    "ratio": 1.34961,
+                    "reference": 13119488,
+                    "reference_count": 310,
+                    "reference_cv": 0.036637,
+                    "sparkline": [
+                      13074432,
+                      13139968,
+                      13230080,
+                      13148160,
+                      13221888,
+                      13242368,
+                      13246464,
+                      13373440,
+                      13500416,
+                      13209600,
+                      17833984,
+                      18415616
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-3cc10cccb6:metric:checkoutservice:latency-90",
+                  "service": "checkoutservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "checkoutservice_latency-90",
+                    "current": 0.375,
+                    "current_count": 310,
+                    "id": "rca-3cc10cccb6:metric:checkoutservice:latency-90",
+                    "log_change": 0.78489,
+                    "missing_fraction": 0,
+                    "ratio": 1.722961,
+                    "reference": 0.216739,
+                    "reference_count": 310,
+                    "reference_cv": 0.023825,
+                    "sparkline": [
+                      0.21413,
+                      0.223,
+                      0.213438,
+                      0.217391,
+                      0.21625,
+                      0.204118,
+                      0.211667,
+                      0.211667,
+                      0.21025,
+                      0.2875,
+                      0.405,
+                      0.390353
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-3cc10cccb6:metric:checkoutservice:socket",
+                  "service": "checkoutservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "checkoutservice_socket",
+                    "current": 10,
+                    "current_count": 310,
+                    "id": "rca-3cc10cccb6:metric:checkoutservice:socket",
+                    "log_change": 0.150574,
+                    "missing_fraction": 0,
+                    "ratio": 1.110011,
+                    "reference": 9,
+                    "reference_count": 310,
+                    "reference_cv": 0,
+                    "sparkline": [
+                      9,
+                      9,
+                      9,
+                      9,
+                      9,
+                      9,
+                      9,
+                      9,
+                      9,
+                      9,
+                      11,
+                      10
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-3cc10cccb6:metric:checkoutservice:workload",
+                  "service": "checkoutservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "checkoutservice_workload",
+                    "current": 0.867,
+                    "current_count": 310,
+                    "id": "rca-3cc10cccb6:metric:checkoutservice:workload",
+                    "log_change": -0.381668,
+                    "missing_fraction": 0,
+                    "ratio": 0.76755,
+                    "reference": 1.133,
+                    "reference_count": 310,
+                    "reference_cv": 0.244816,
+                    "sparkline": [
+                      1.133,
+                      1.133,
+                      0.933,
+                      1.333,
+                      1.133,
+                      1.267,
+                      1.067,
+                      1.067,
+                      0.667,
+                      0.867,
+                      1.267,
+                      0.533
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                }
+              ],
+              "tool_status": "success",
+              "model_ms": 3773
+            },
+            {
+              "round": 3,
+              "decision": {
+                "action": "tool",
+                "update": "checkoutservice 的 CPU 当前值 11.8（参考均值 0.42），ratio=27.9，且 sparkline 显示末尾两时刻突增至 ~20/18，符合 spike 模式；内存上升但幅度温和（+35%），延迟 P90 翻倍（0.217→0.375），workload 反降（0.77×），排除负载驱动。需查日志确认是否出现异常行为（如死循环、GC stall、阻塞调用）。优先调取 checkoutservice 日志。",
+                "hypotheses": [
+                  {
+                    "service": "checkoutservice",
+                    "fault": "cpu",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-3cc10cccb6:metric:checkoutservice:cpu"
+                    ]
+                  }
+                ],
+                "tool": {
+                  "name": "rca_inspect_logs",
+                  "service": "checkoutservice"
+                }
+              },
+              "validation": "accepted",
+              "observation": [
+                {
+                  "id": "rca-3cc10cccb6:logs:checkoutservice",
+                  "service": "checkoutservice",
+                  "kind": "logs",
+                  "data": {
+                    "current_count": 368,
+                    "examples": [
+                      {
+                        "message": "[PlaceOrder] user_id=\"eab70f3e-9fb4-449e-9d0b-52cce7cc5bfc\" user_currency=\"CAD",
+                        "timestamp": 1708475261
+                      },
+                      {
+                        "message": "payment went through (transaction_id: 935d87c9-c15a-4987-82cc-661183004e62)",
+                        "timestamp": 1708475262
+                      }
+                    ],
+                    "id": "rca-3cc10cccb6:logs:checkoutservice",
+                    "keyword_matches": 0,
+                    "reference_count": 498
+                  }
+                }
+              ],
+              "tool_status": "success",
+              "model_ms": 4890
+            },
+            {
+              "round": 4,
+              "decision": {
+                "action": "tool",
+                "update": "checkoutservice 日志中无 error/warn 关键词（keyword_matches=0），示例日志显示正常下单与支付流程，未见明显异常行为；但 CPU spike 与 workload 下降矛盾仍需解释——可能为内部阻塞（如锁竞争、GC）、或依赖服务拖慢导致线程堆积。currencyservice 在 overview 中 error=1（虽未标具体指标），且 checkoutservice 依赖其汇率转换，需检查 currencyservice 是否存在隐性故障（如高延迟未被 latency 指标捕获）。下一步查 currencyservice metrics 确认其健康度。",
+                "hypotheses": [
+                  {
+                    "service": "checkoutservice",
+                    "fault": "cpu",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-3cc10cccb6:metric:checkoutservice:cpu",
+                      "rca-3cc10cccb6:logs:checkoutservice"
+                    ]
+                  },
+                  {
+                    "service": "currencyservice",
+                    "fault": "delay",
+                    "status": "investigating",
+                    "evidence_ids": [
+                      "overview:currencyservice"
+                    ]
+                  }
+                ],
+                "tool": {
+                  "name": "rca_inspect_metrics",
+                  "service": "currencyservice"
+                }
+              },
+              "validation": "accepted",
+              "observation": [
+                {
+                  "id": "rca-3cc10cccb6:metric:currencyservice:cpu",
+                  "service": "currencyservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "currencyservice_cpu",
+                    "current": 30.448534,
+                    "current_count": 306,
+                    "id": "rca-3cc10cccb6:metric:currencyservice:cpu",
+                    "log_change": -0.033966,
+                    "missing_fraction": 0.004301,
+                    "ratio": 0.976731,
+                    "reference": 31.181339,
+                    "reference_count": 310,
+                    "reference_cv": 0.130125,
+                    "sparkline": [
+                      31.109975,
+                      31.836466,
+                      31.432192,
+                      31.044077,
+                      31.584739,
+                      33.039903,
+                      31.316593,
+                      30.676963,
+                      30.448534,
+                      31.193738,
+                      31.804587,
+                      25.434121
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-3cc10cccb6:metric:currencyservice:mem",
+                  "service": "currencyservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "currencyservice_mem",
+                    "current": 44523520,
+                    "current_count": 310,
+                    "id": "rca-3cc10cccb6:metric:currencyservice:mem",
+                    "log_change": 0.009493,
+                    "missing_fraction": 0,
+                    "ratio": 1.006602,
+                    "reference": 44228608,
+                    "reference_count": 310,
+                    "reference_cv": 0.008381,
+                    "sparkline": [
+                      44310528,
+                      44572672,
+                      44183552,
+                      44163072,
+                      44806144,
+                      44654592,
+                      44744704,
+                      44445696,
+                      44351488,
+                      44265472,
+                      45846528,
+                      44523520
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-3cc10cccb6:metric:currencyservice:latency-90",
+                  "service": "currencyservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "currencyservice_latency-90",
+                    "current": 0.029075,
+                    "current_count": 310,
+                    "id": "rca-3cc10cccb6:metric:currencyservice:latency-90",
+                    "log_change": -0.268789,
+                    "missing_fraction": 0,
+                    "ratio": 0.830016,
+                    "reference": 0.035102,
+                    "reference_count": 310,
+                    "reference_cv": 0.119964,
+                    "sparkline": [
+                      0.035223,
+                      0.036151,
+                      0.033113,
+                      0.033408,
+                      0.025106,
+                      0.033371,
+                      0.029784,
+                      0.032034,
+                      0.028201,
+                      0.033615,
+                      0.03066,
+                      0.028542
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-3cc10cccb6:metric:currencyservice:socket",
+                  "service": "currencyservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "currencyservice_socket",
+                    "current": 4,
+                    "current_count": 310,
+                    "id": "rca-3cc10cccb6:metric:currencyservice:socket",
+                    "log_change": 0,
+                    "missing_fraction": 0,
+                    "ratio": 1,
+                    "reference": 4,
+                    "reference_count": 310,
+                    "reference_cv": 0,
+                    "sparkline": [
+                      4,
+                      4,
+                      4,
+                      4,
+                      4,
+                      4,
+                      4,
+                      4,
+                      4,
+                      4,
+                      4,
+                      2
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-3cc10cccb6:metric:currencyservice:workload",
+                  "service": "currencyservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "currencyservice_workload",
+                    "current": 76.8665,
+                    "current_count": 310,
+                    "id": "rca-3cc10cccb6:metric:currencyservice:workload",
+                    "log_change": -0.034267,
+                    "missing_fraction": 0,
+                    "ratio": 0.976528,
+                    "reference": 78.733,
+                    "reference_count": 310,
+                    "reference_cv": 0.063707,
+                    "sparkline": [
+                      74.667,
+                      80.267,
+                      78.733,
+                      80.2,
+                      76.467,
+                      78.133,
+                      75.987,
+                      82.267,
+                      77.733,
+                      82.6,
+                      77.2,
+                      56.467
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                }
+              ],
+              "tool_status": "success",
+              "model_ms": 6033
+            },
+            {
+              "round": 5,
+              "decision": {
+                "action": "tool",
+                "update": "currencyservice 所有指标均正常（CPU 0.98×、内存+0.66%、P90延迟下降17%、workload 0.98×），排除其为根因或传播源；checkoutservice 的 CPU spike（27.9×）与 workload 下降（0.77×）强矛盾，且日志无错误，需检查 traces 确认是否因内部调用阻塞（如同步等待、锁竞争）导致线程堆积、CPU 空转或 GC 压力。下一步查 checkoutservice traces。",
+                "hypotheses": [
+                  {
+                    "service": "checkoutservice",
+                    "fault": "cpu",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-3cc10cccb6:metric:checkoutservice:cpu",
+                      "rca-3cc10cccb6:logs:checkoutservice"
+                    ]
+                  },
+                  {
+                    "service": "currencyservice",
+                    "fault": "delay",
+                    "status": "weakened",
+                    "evidence_ids": [
+                      "overview:currencyservice",
+                      "rca-3cc10cccb6:metric:currencyservice:latency-90"
+                    ]
+                  }
+                ],
+                "tool": {
+                  "name": "rca_inspect_traces",
+                  "service": "checkoutservice"
+                }
+              },
+              "validation": "accepted",
+              "observation": [
+                {
+                  "id": "rca-3cc10cccb6:traces:checkoutservice",
+                  "service": "checkoutservice",
+                  "kind": "traces",
+                  "data": {
+                    "current_p95": 95666.6,
+                    "current_spans": 435,
+                    "id": "rca-3cc10cccb6:traces:checkoutservice",
+                    "nonzero_status_count": 0,
+                    "reference_p95": 74387.3,
+                    "reference_spans": 2234,
+                    "sample_operation": "opentelemetry.proto.collector.trace.v1.TraceService/Export",
+                    "sample_span": "333bf344c02b0cfa",
+                    "sample_start_ms": 1708475261288,
+                    "sample_trace": "357ea3e31ebec47b4d41b0db840b70f9",
+                    "unit": "source_native_unverified"
+                  }
+                }
+              ],
+              "tool_status": "success",
+              "model_ms": 6511
+            },
+            {
+              "round": 6,
+              "decision": {
+                "action": "tool",
+                "update": "checkoutservice traces 显示 span 数量锐减（2234→435），P95 延迟微升（74.4ms→95.7ms），nonzero_status_count=0 表明无显式错误；结合 workload 下降（0.77×）与 CPU 突增（27.9×），高度提示内部阻塞型故障（如线程池耗尽、死锁、GC 频繁导致 STW）。需查历史案例是否出现过同类模式（CPU spike + low workload + low spans + normal logs），以确认典型根因。调取 checkoutservice 历史参考。",
+                "hypotheses": [
+                  {
+                    "service": "checkoutservice",
+                    "fault": "cpu",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-3cc10cccb6:metric:checkoutservice:cpu",
+                      "rca-3cc10cccb6:logs:checkoutservice",
+                      "rca-3cc10cccb6:traces:checkoutservice"
+                    ]
+                  }
+                ],
+                "tool": {
+                  "name": "rca_inspect_history",
+                  "service": "checkoutservice"
+                }
+              },
+              "validation": "accepted",
+              "observation": [
+                {
+                  "id": "reference:rca-97bf1c72d2",
+                  "service": "checkoutservice",
+                  "kind": "history",
+                  "data": {
+                    "distance": 0.41047720000000015,
+                    "historical_fault": "cpu",
+                    "metrics": {
+                      "cpu": {
+                        "log_change": 5.565337,
+                        "ratio": 47.351468
+                      },
+                      "latency-50": {
+                        "log_change": 0.069709,
+                        "ratio": 1.049505
+                      },
+                      "latency-90": {
+                        "log_change": 0.071359,
+                        "ratio": 1.050706
+                      },
+                      "mem": {
+                        "log_change": 0.490335,
+                        "ratio": 1.404771
+                      },
+                      "socket": {
+                        "log_change": 0.286907,
+                        "ratio": 1.220022
+                      },
+                      "workload": {
+                        "log_change": 0,
+                        "ratio": 1
+                      }
+                    },
+                    "provenance": "RCAEval public reference run; not current-case truth",
+                    "repair_outcome": "unknown"
+                  }
+                },
+                {
+                  "id": "reference:rca-e375de9cb8",
+                  "service": "checkoutservice",
+                  "kind": "history",
+                  "data": {
+                    "distance": 1.6273136000000001,
+                    "historical_fault": "mem",
+                    "metrics": {
+                      "cpu": {
+                        "log_change": 5.65271,
+                        "ratio": 50.307798
+                      },
+                      "latency-50": {
+                        "log_change": 2.498548,
+                        "ratio": 5.651163
+                      },
+                      "latency-90": {
+                        "log_change": 3.21338,
+                        "ratio": 9.275207
+                      },
+                      "mem": {
+                        "log_change": 4.542796,
+                        "ratio": 23.30869
+                      },
+                      "socket": {
+                        "log_change": 0.411462,
+                        "ratio": 1.330033
+                      },
+                      "workload": {
+                        "log_change": 0.104834,
+                        "ratio": 1.075371
+                      }
+                    },
+                    "provenance": "RCAEval public reference run; not current-case truth",
+                    "repair_outcome": "unknown"
+                  }
+                },
+                {
+                  "id": "reference:rca-e425dee775",
+                  "service": "checkoutservice",
+                  "kind": "history",
+                  "data": {
+                    "distance": 1.7919848000000003,
+                    "historical_fault": "delay",
+                    "metrics": {
+                      "cpu": {
+                        "log_change": 0.090545,
+                        "ratio": 1.064773
+                      },
+                      "latency-50": {
+                        "log_change": 4.3337,
+                        "ratio": 20.163866
+                      },
+                      "latency-90": {
+                        "log_change": 4.273259,
+                        "ratio": 19.33655
+                      },
+                      "mem": {
+                        "log_change": 0.013399,
+                        "ratio": 1.009331
+                      },
+                      "socket": {
+                        "log_change": 0,
+                        "ratio": 1
+                      },
+                      "workload": {
+                        "log_change": -0.191561,
+                        "ratio": 0.875658
+                      }
+                    },
+                    "provenance": "RCAEval public reference run; not current-case truth",
+                    "repair_outcome": "unknown"
+                  }
+                }
+              ],
+              "tool_status": "success",
+              "model_ms": 6261
+            },
+            {
+              "round": 7,
+              "decision": {
+                "action": "finish",
+                "update": "checkoutservice 的 CPU 比率 27.9×（当前 11.8 vs 参考 0.42），sparkline 显示末尾 spike 至 ~20/18；workload 下降（0.77×）排除负载驱动；日志无 error/warn；traces span 数锐减（2234→435）、P95 微升、无非零状态码；历史最匹配案例 reference:rca-97bf1c72d2 同样为 cpu 故障，特征高度一致（CPU ratio 47.4×、workload 不变、latency 微升、mem +40%）。综合支持 checkoutservice cpu 故障为当前最可能候选。但缺乏 GC 日志或线程 dump 等直接证据，无法区分死锁、GC stall 或无限循环等子因。",
+                "hypotheses": [
+                  {
+                    "service": "checkoutservice",
+                    "fault": "cpu",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-3cc10cccb6:metric:checkoutservice:cpu",
+                      "rca-3cc10cccb6:logs:checkoutservice",
+                      "rca-3cc10cccb6:traces:checkoutservice",
+                      "reference:rca-97bf1c72d2"
+                    ]
+                  }
+                ],
+                "final": {
+                  "status": "matched_hypothesis",
+                  "summary": "checkoutservice 出现显著 CPU 异常（27.9倍升高），伴随 workload 下降、日志无错误、trace span 数锐减，与历史 cpu 故障模式高度匹配，是最优先排查目标。",
+                  "candidates": [
+                    {
+                      "service": "checkoutservice",
+                      "fault": "cpu",
+                      "evidence_ids": [
+                        "overview:checkoutservice",
+                        "rca-3cc10cccb6:metric:checkoutservice:cpu",
+                        "rca-3cc10cccb6:logs:checkoutservice",
+                        "rca-3cc10cccb6:traces:checkoutservice",
+                        "reference:rca-97bf1c72d2"
+                      ],
+                      "reason": "CPU 比率突增27.9×且非负载驱动（workload下降），日志/traces无显式错误，历史最邻近案例同为cpu故障",
+                      "uncertainties": [
+                        "具体根因（如死锁/GC stall/无限循环）未确认；缺少JVM线程或GC日志验证"
+                      ],
+                      "checks": [
+                        "获取 checkoutservice JVM thread dump 或 GC 日志以定位阻塞点"
+                      ]
+                    },
+                    {
+                      "service": "currencyservice",
+                      "fault": "delay",
+                      "evidence_ids": [],
+                      "reason": "所有指标（CPU/latency/mem/workload）均在正常波动范围内，已排除",
+                      "uncertainties": [],
+                      "checks": []
+                    },
+                    {
+                      "service": "checkoutservice",
+                      "fault": "mem",
+                      "evidence_ids": [],
+                      "reason": "内存仅上升35%，远低于历史 mem 故障案例（23×），且无 GC 压力迹象，不支持",
+                      "uncertainties": [],
+                      "checks": []
+                    }
+                  ],
+                  "questions": [
+                    "是否可提供 checkoutservice 的 JVM 线程快照或 GC 日志？"
+                  ]
+                }
+              },
+              "validation": "invalid_candidate",
+              "model_ms": 15409
+            },
+            {
+              "round": 8,
+              "decision": {
+                "action": "finish",
+                "update": "checkoutservice 的 CPU 异常（27.9×）有 metrics 支持；日志无错误（logs）、trace span 数锐减且无非零状态（traces）、历史最邻近案例为 cpu 故障（history），三类证据齐全，满足 matched_hypothesis 要求。currencyservice 所有指标正常，排除。其他服务无显著异常。",
+                "hypotheses": [
+                  {
+                    "service": "checkoutservice",
+                    "fault": "cpu",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-3cc10cccb6:metric:checkoutservice:cpu",
+                      "rca-3cc10cccb6:logs:checkoutservice",
+                      "rca-3cc10cccb6:traces:checkoutservice",
+                      "reference:rca-97bf1c72d2"
+                    ]
+                  }
+                ],
+                "final": {
+                  "status": "matched_hypothesis",
+                  "summary": "checkoutservice 存在高置信度 CPU 相关故障：CPU 使用率突增至 27.9 倍（metrics），workload 反降排除负载驱动；日志无错误（logs），trace span 数大幅减少且无失败状态（traces），历史最匹配案例同为 CPU 故障（history）。当前最需验证其内部阻塞原因。",
+                  "candidates": [
+                    {
+                      "service": "checkoutservice",
+                      "fault": "cpu",
+                      "evidence_ids": [
+                        "rca-3cc10cccb6:metric:checkoutservice:cpu",
+                        "rca-3cc10cccb6:logs:checkoutservice",
+                        "rca-3cc10cccb6:traces:checkoutservice",
+                        "reference:rca-97bf1c72d2"
+                      ],
+                      "reason": "CPU 比率 27.9×，workload 下降（0.77×），日志无 error/warn，trace span 数锐减 80% 且 nonzero_status_count=0，历史最近参考（distance=0.41）明确标注 historical_fault=cpu",
+                      "uncertainties": [
+                        "无法区分具体机制（如死锁、GC STW、自旋等待）；缺少线程堆栈或 GC 日志直接佐证"
+                      ],
+                      "checks": [
+                        "获取 checkoutservice 的 JVM thread dump 或 GC log 以定位阻塞源"
+                      ]
+                    },
+                    {
+                      "service": "currencyservice",
+                      "fault": "delay",
+                      "evidence_ids": [],
+                      "reason": "所有指标（CPU ratio=0.98, latency-90 ratio=0.83, mem ratio=1.007, workload ratio=0.977）均在正常波动范围内，无异常信号",
+                      "uncertainties": [],
+                      "checks": []
+                    }
+                  ],
+                  "questions": [
+                    "是否可提供 checkoutservice 的 JVM thread dump 或 GC 日志？"
+                  ]
+                }
+              },
+              "validation": "invalid_candidate",
+              "model_ms": 13213
+            }
+          ],
+          "stop_reason": "invalid_final",
+          "completed": false,
+          "input_tokens": 50869,
+          "output_tokens": 2417,
+          "input_bytes": 159543,
+          "questions": []
+        }
+      },
+      "score": {
+        "answer": {
+          "id": "rca-3cc10cccb6",
+          "service": "checkoutservice",
+          "fault": "cpu",
+          "supported": true,
+          "split": "development"
+        },
+        "service_top1": false,
+        "service_top3": false,
+        "joint_correct": false,
+        "rejected": true,
+        "false_acceptance": false
+      },
+      "evaluation_valid": false
+    },
+    {
+      "id": "rca-1d28b06708",
+      "title": "观测窗口 08",
+      "run": {
+        "diagnosis": {
+          "case_id": "rca-1d28b06708",
+          "version": "rca-autonomous-agent-v1",
+          "strategy": "autonomous",
+          "status": "matched_hypothesis",
+          "summary": "最可能的候选故障是 checkoutservice 的内存异常（mem），表现为内存使用量激增至16.37倍，同步伴随CPU和延迟大幅上升，日志与trace未见错误，历史相似案例（distance=0.177）亦归因为内存问题。",
+          "candidates": [
+            {
+              "service": "checkoutservice",
+              "fault": "mem",
+              "cause": "内存压力",
+              "score": 0,
+              "similarity": 0,
+              "evidence": [
+                {
+                  "id": "rca-1d28b06708:metric:checkoutservice:mem",
+                  "kind": "metrics",
+                  "statement": "内存使用量激增16.37倍，且历史最相似案例（rca-e375de9cb8）同样由内存问题导致，指标变化模式高度一致；CPU与延迟同步上升但无错误日志或trace失败，符合内存压力引发GC或swap的典型症状。"
+                },
+                {
+                  "id": "rca-1d28b06708:logs:checkoutservice",
+                  "kind": "logs",
+                  "statement": "内存使用量激增16.37倍，且历史最相似案例（rca-e375de9cb8）同样由内存问题导致，指标变化模式高度一致；CPU与延迟同步上升但无错误日志或trace失败，符合内存压力引发GC或swap的典型症状。"
+                },
+                {
+                  "id": "rca-1d28b06708:traces:checkoutservice",
+                  "kind": "traces",
+                  "statement": "内存使用量激增16.37倍，且历史最相似案例（rca-e375de9cb8）同样由内存问题导致，指标变化模式高度一致；CPU与延迟同步上升但无错误日志或trace失败，符合内存压力引发GC或swap的典型症状。"
+                },
+                {
+                  "id": "reference:rca-e375de9cb8",
+                  "kind": "history",
+                  "statement": "内存使用量激增16.37倍，且历史最相似案例（rca-e375de9cb8）同样由内存问题导致，指标变化模式高度一致；CPU与延迟同步上升但无错误日志或trace失败，符合内存压力引发GC或swap的典型症状。"
+                }
+              ],
+              "differences": [
+                "是否发生频繁GC或OOMKilled；堆内/堆外内存哪部分异常；是否存在内存泄漏"
+              ],
+              "follow_ups": [
+                {
+                  "check": "检查 checkoutservice JVM GC 日志（若可用）、容器 memory.limit_in_bytes 与 usage 对比、是否有 OOMKilled 事件",
+                  "supports": "需要实际核查",
+                  "weakens": "与假设不符时应修正或排除",
+                  "executed": false
+                }
+              ]
+            },
+            {
+              "service": "checkoutservice",
+              "fault": "cpu",
+              "cause": "CPU 压力",
+              "score": 0,
+              "similarity": 0,
+              "evidence": [
+                {
+                  "id": "rca-1d28b06708:metric:checkoutservice:cpu",
+                  "kind": "metrics",
+                  "statement": "CPU 使用量激增39.66倍，历史第二近似案例（rca-97bf1c72d2）归因为CPU问题，但该案例中内存仅微增（1.4×），与本次16.37×不符，故CPU更可能是内存压力的继发表现而非根因。"
+                },
+                {
+                  "id": "rca-1d28b06708:logs:checkoutservice",
+                  "kind": "logs",
+                  "statement": "CPU 使用量激增39.66倍，历史第二近似案例（rca-97bf1c72d2）归因为CPU问题，但该案例中内存仅微增（1.4×），与本次16.37×不符，故CPU更可能是内存压力的继发表现而非根因。"
+                },
+                {
+                  "id": "rca-1d28b06708:traces:checkoutservice",
+                  "kind": "traces",
+                  "statement": "CPU 使用量激增39.66倍，历史第二近似案例（rca-97bf1c72d2）归因为CPU问题，但该案例中内存仅微增（1.4×），与本次16.37×不符，故CPU更可能是内存压力的继发表现而非根因。"
+                },
+                {
+                  "id": "reference:rca-97bf1c72d2",
+                  "kind": "history",
+                  "statement": "CPU 使用量激增39.66倍，历史第二近似案例（rca-97bf1c72d2）归因为CPU问题，但该案例中内存仅微增（1.4×），与本次16.37×不符，故CPU更可能是内存压力的继发表现而非根因。"
+                }
+              ],
+              "differences": [
+                "CPU高是否由内存GC线程占用或锁竞争导致"
+              ],
+              "follow_ups": [
+                {
+                  "check": "对比 CPU 使用率与 GC 时间占比",
+                  "supports": "需要实际核查",
+                  "weakens": "与假设不符时应修正或排除",
+                  "executed": false
+                }
+              ]
+            },
+            {
+              "service": "checkoutservice",
+              "fault": "delay",
+              "cause": "网络延迟",
+              "score": 0,
+              "similarity": 0,
+              "evidence": [
+                {
+                  "id": "rca-1d28b06708:metric:checkoutservice:latency-90",
+                  "kind": "metrics",
+                  "statement": "延迟90分位上升9.44倍，但历史最匹配的延迟案例（rca-e425dee775）中 workload 下降（0.876×）且内存基本不变，与本次 workload 微增、内存剧增矛盾，故延迟更可能是内存/CPU异常的结果而非独立根因。"
+                },
+                {
+                  "id": "rca-1d28b06708:logs:checkoutservice",
+                  "kind": "logs",
+                  "statement": "延迟90分位上升9.44倍，但历史最匹配的延迟案例（rca-e425dee775）中 workload 下降（0.876×）且内存基本不变，与本次 workload 微增、内存剧增矛盾，故延迟更可能是内存/CPU异常的结果而非独立根因。"
+                },
+                {
+                  "id": "rca-1d28b06708:traces:checkoutservice",
+                  "kind": "traces",
+                  "statement": "延迟90分位上升9.44倍，但历史最匹配的延迟案例（rca-e425dee775）中 workload 下降（0.876×）且内存基本不变，与本次 workload 微增、内存剧增矛盾，故延迟更可能是内存/CPU异常的结果而非独立根因。"
+                },
+                {
+                  "id": "reference:rca-e425dee775",
+                  "kind": "history",
+                  "statement": "延迟90分位上升9.44倍，但历史最匹配的延迟案例（rca-e425dee775）中 workload 下降（0.876×）且内存基本不变，与本次 workload 微增、内存剧增矛盾，故延迟更可能是内存/CPU异常的结果而非独立根因。"
+                }
+              ],
+              "differences": [
+                "延迟分布是否右偏、是否存在长尾请求"
+              ],
+              "follow_ups": [
+                {
+                  "check": "分析 checkoutservice trace duration 分布直方图",
+                  "supports": "需要实际核查",
+                  "weakens": "与假设不符时应修正或排除",
+                  "executed": false
+                }
+              ]
+            }
+          ],
+          "references": [],
+          "warnings": [
+            "模型自主选择只读工具；仅公开观测回放，不操作真实主机。",
+            "引用通过只证明来源有效，不证明根因正确；候选及后续核查尚未验证。"
+          ],
+          "model_calls": 6,
+          "repair_status": "not_executed"
+        },
+        "observation": {
+          "id": "rca-1d28b06708",
+          "start": 1705625357,
+          "end": 1705626360,
+          "reference_end": 1705625691,
+          "current_start": 1705626025,
+          "metric_rows": 1004,
+          "log_rows": 122905,
+          "trace_rows": 327148,
+          "sources": [
+            {
+              "name": "metrics.parquet",
+              "sha256": "056254dfdea1f1ec385e513331db82cb99fa8ce2a28a808d37776fc5d4bb951d",
+              "bytes": 130707
+            },
+            {
+              "name": "logs.parquet",
+              "sha256": "3d9d0173cc3e10e00bfe6d3c28953a585b4b9848540ad4aaa5e9d1c5b3aaa850",
+              "bytes": 215831
+            },
+            {
+              "name": "traces.parquet",
+              "sha256": "e126fdd6b5d0bb5d8cb83aa0658234bdf047eabcc3c045ff0fc99078f2b1f408",
+              "bytes": 8358689
+            }
+          ],
+          "services": null,
+          "warnings": [
+            "比较最早/最晚三分之一窗口，参考段健康尚未独立确认。",
+            "保留原始指标单位；分桶摘要不是完整实时遥测。"
+          ]
+        },
+        "tool_calls": [
+          {
+            "call_id": "01c472dd-13bc-4da1-8b78-6d99a0b4686a-1",
+            "tool_name": "rca_inspect_overview",
+            "tool_version": "rca-autonomous-agent-v1",
+            "args_hash": "a510a14ad38a832240df7a5c06ff3ae4620cb21c2f359926f05477d20dbedfc7",
+            "status": "success",
+            "evidence_refs": [
+              "overview:adservice",
+              "overview:cartservice",
+              "overview:checkoutservice",
+              "overview:currencyservice",
+              "overview:emailservice",
+              "overview:frontend",
+              "overview:frontend-external",
+              "overview:paymentservice",
+              "overview:productcatalogservice",
+              "overview:recommendationservice",
+              "overview:redis",
+              "overview:shippingservice"
+            ],
+            "retryable": false,
+            "latency_ms": 0,
+            "cached": false,
+            "stale": false,
+            "truncated": false
+          },
+          {
+            "call_id": "01c472dd-13bc-4da1-8b78-6d99a0b4686a-2",
+            "tool_name": "rca_inspect_metrics",
+            "tool_version": "rca-autonomous-agent-v1",
+            "args_hash": "5d69e5f1f3be1ffb54a77593f94785a17cb8331116a8b1df149dfd541fe5f680",
+            "status": "success",
+            "evidence_refs": [
+              "rca-1d28b06708:metric:checkoutservice:cpu",
+              "rca-1d28b06708:metric:checkoutservice:mem",
+              "rca-1d28b06708:metric:checkoutservice:latency-90",
+              "rca-1d28b06708:metric:checkoutservice:socket",
+              "rca-1d28b06708:metric:checkoutservice:workload"
+            ],
+            "retryable": false,
+            "latency_ms": 0,
+            "cached": false,
+            "stale": false,
+            "truncated": false
+          },
+          {
+            "call_id": "01c472dd-13bc-4da1-8b78-6d99a0b4686a-3",
+            "tool_name": "rca_inspect_logs",
+            "tool_version": "rca-autonomous-agent-v1",
+            "args_hash": "5d69e5f1f3be1ffb54a77593f94785a17cb8331116a8b1df149dfd541fe5f680",
+            "status": "success",
+            "evidence_refs": [
+              "rca-1d28b06708:logs:checkoutservice"
+            ],
+            "retryable": false,
+            "latency_ms": 0,
+            "cached": false,
+            "stale": false,
+            "truncated": false
+          },
+          {
+            "call_id": "01c472dd-13bc-4da1-8b78-6d99a0b4686a-4",
+            "tool_name": "rca_inspect_traces",
+            "tool_version": "rca-autonomous-agent-v1",
+            "args_hash": "5d69e5f1f3be1ffb54a77593f94785a17cb8331116a8b1df149dfd541fe5f680",
+            "status": "success",
+            "evidence_refs": [
+              "rca-1d28b06708:traces:checkoutservice"
+            ],
+            "retryable": false,
+            "latency_ms": 0,
+            "cached": false,
+            "stale": false,
+            "truncated": false
+          },
+          {
+            "call_id": "01c472dd-13bc-4da1-8b78-6d99a0b4686a-5",
+            "tool_name": "rca_inspect_history",
+            "tool_version": "rca-autonomous-agent-v1",
+            "args_hash": "5d69e5f1f3be1ffb54a77593f94785a17cb8331116a8b1df149dfd541fe5f680",
+            "status": "success",
+            "evidence_refs": [
+              "reference:rca-e375de9cb8",
+              "reference:rca-97bf1c72d2",
+              "reference:rca-e425dee775"
+            ],
+            "retryable": false,
+            "latency_ms": 0,
+            "cached": false,
+            "stale": false,
+            "truncated": false
+          }
+        ],
+        "trace_id": "01c472dd-13bc-4da1-8b78-6d99a0b4686a",
+        "dataset_sha256": "1e10d5a275e2942b07dac5483b299cbf4f0e444a051a1373db048c0084281a30",
+        "elapsed_ms": 57489,
+        "audit_storage": "local_run_report",
+        "agent": {
+          "version": "rca-autonomous-agent-v1",
+          "model": "qwen-plus",
+          "prompt_sha256": "a3d3b28c4a607c48598425979c9e8ac6acbec490fcf5265b5636bd7b0c772556",
+          "implementation_sha256": "c26e5ddb932eef0a89bbe1cae16eaed5f3478d75f0a377e28507fb4472494e02",
+          "steps": [
+            {
+              "round": 1,
+              "decision": {
+                "action": "tool",
+                "update": "先获取所有服务的粗粒度指标变化概览，识别异常幅度最大的服务及指标类型（cpu/mem/delay），为后续聚焦检查提供依据。",
+                "hypotheses": [],
+                "tool": {
+                  "name": "rca_inspect_overview",
+                  "service": "all"
+                }
+              },
+              "validation": "accepted",
+              "observation": [
+                {
+                  "id": "overview:adservice",
+                  "service": "adservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 1.024515,
+                    "diskio": 1.054715,
+                    "latency-50": 1.000897,
+                    "latency-90": 0.997846,
+                    "mem": 0.999141,
+                    "socket": 1,
+                    "workload": 0.991182
+                  }
+                },
+                {
+                  "id": "overview:cartservice",
+                  "service": "cartservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.786033,
+                    "latency-50": 1.018052,
+                    "latency-90": 1.020047,
+                    "mem": 0.997117,
+                    "socket": 1,
+                    "workload": 1.002653
+                  }
+                },
+                {
+                  "id": "overview:checkoutservice",
+                  "service": "checkoutservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 39.65674,
+                    "diskio": 1,
+                    "latency-50": 6.926034,
+                    "latency-90": 9.444867,
+                    "mem": 16.365218,
+                    "socket": 1.330033,
+                    "workload": 1.0711
+                  }
+                },
+                {
+                  "id": "overview:currencyservice",
+                  "service": "currencyservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 1.035837,
+                    "diskio": 1,
+                    "latency-50": 1.036627,
+                    "latency-90": 1.030215,
+                    "mem": 1.006071,
+                    "socket": 1,
+                    "workload": 0.985581
+                  }
+                },
+                {
+                  "id": "overview:emailservice",
+                  "service": "emailservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 1.006396,
+                    "diskio": 1,
+                    "latency-50": 1.025702,
+                    "latency-90": 1.030079,
+                    "mem": 1.000373,
+                    "socket": 1,
+                    "workload": 1
+                  }
+                },
+                {
+                  "id": "overview:frontend",
+                  "service": "frontend",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 1.066361,
+                    "error": 1,
+                    "latency-50": 1.049578,
+                    "latency-90": 1.134682,
+                    "mem": 1.015502,
+                    "socket": 0.960396,
+                    "workload": 1.020468
+                  }
+                },
+                {
+                  "id": "overview:frontend-external",
+                  "service": "frontend-external",
+                  "kind": "overview",
+                  "data": {
+                    "error": 1,
+                    "workload": 1.036313
+                  }
+                },
+                {
+                  "id": "overview:paymentservice",
+                  "service": "paymentservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.927982,
+                    "latency-50": 1.522088,
+                    "latency-90": 1.220651,
+                    "mem": 1.009723,
+                    "socket": 1,
+                    "workload": 1
+                  }
+                },
+                {
+                  "id": "overview:productcatalogservice",
+                  "service": "productcatalogservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 1.036894,
+                    "diskio": 1,
+                    "error": 1,
+                    "latency-50": 1.008067,
+                    "latency-90": 0.999383,
+                    "mem": 1.004752,
+                    "socket": 1,
+                    "workload": 0.993041
+                  }
+                },
+                {
+                  "id": "overview:recommendationservice",
+                  "service": "recommendationservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 1.051448,
+                    "diskio": 1,
+                    "latency-50": 1.001014,
+                    "latency-90": 0.99654,
+                    "mem": 1.000088,
+                    "socket": 1,
+                    "workload": 1
+                  }
+                },
+                {
+                  "id": "overview:redis",
+                  "service": "redis",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.999573,
+                    "diskio": 1,
+                    "mem": 1,
+                    "socket": 1
+                  }
+                },
+                {
+                  "id": "overview:shippingservice",
+                  "service": "shippingservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 1.030978,
+                    "latency-50": 1.011761,
+                    "latency-90": 1.002517,
+                    "mem": 0.994249,
+                    "socket": 1,
+                    "workload": 1.017635
+                  }
+                }
+              ],
+              "tool_status": "success",
+              "model_ms": 1841
+            },
+            {
+              "round": 2,
+              "decision": {
+                "action": "tool",
+                "update": "checkoutservice 在 cpu（39.66×）、latency-50（6.93×）、latency-90（9.44×）、mem（16.37×）均出现显著异常，远超其他服务；currencyservice 各指标接近正常（ratio≈1）。优先深入 checkoutservice 的详细 metrics，确认其 CPU、内存、延迟是否同步激增，并检查样本量与缺失性以排除数据噪声。",
+                "hypotheses": [
+                  {
+                    "service": "checkoutservice",
+                    "fault": "cpu",
+                    "status": "investigating",
+                    "evidence_ids": [
+                      "overview:checkoutservice"
+                    ]
+                  },
+                  {
+                    "service": "checkoutservice",
+                    "fault": "mem",
+                    "status": "investigating",
+                    "evidence_ids": [
+                      "overview:checkoutservice"
+                    ]
+                  },
+                  {
+                    "service": "checkoutservice",
+                    "fault": "delay",
+                    "status": "investigating",
+                    "evidence_ids": [
+                      "overview:checkoutservice"
+                    ]
+                  }
+                ],
+                "tool": {
+                  "name": "rca_inspect_metrics",
+                  "service": "checkoutservice"
+                }
+              },
+              "validation": "accepted",
+              "observation": [
+                {
+                  "id": "rca-1d28b06708:metric:checkoutservice:cpu",
+                  "service": "checkoutservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "checkoutservice_cpu",
+                    "current": 15.769953,
+                    "current_count": 330,
+                    "id": "rca-1d28b06708:metric:checkoutservice:cpu",
+                    "log_change": 5.309494,
+                    "missing_fraction": 0.00498,
+                    "ratio": 39.65674,
+                    "reference": 0.393822,
+                    "reference_count": 335,
+                    "reference_cv": 0.154323,
+                    "sparkline": [
+                      0.44055,
+                      0.351964,
+                      0.411771,
+                      0.395022,
+                      0.484258,
+                      0.414921,
+                      0.414921,
+                      0.376878,
+                      0.454564,
+                      19.956654,
+                      19.76266,
+                      8.358507
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-1d28b06708:metric:checkoutservice:mem",
+                  "service": "checkoutservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "checkoutservice_mem",
+                    "current": 234852352,
+                    "current_count": 335,
+                    "id": "rca-1d28b06708:metric:checkoutservice:mem",
+                    "log_change": 4.032561,
+                    "missing_fraction": 0,
+                    "ratio": 16.365218,
+                    "reference": 14217216,
+                    "reference_count": 335,
+                    "reference_cv": 0.012659,
+                    "sparkline": [
+                      14209024,
+                      14102528,
+                      14462976,
+                      14475264,
+                      14381056,
+                      14118912,
+                      14118912,
+                      14315520,
+                      14483456,
+                      155504640,
+                      146886656,
+                      243179520
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-1d28b06708:metric:checkoutservice:latency-90",
+                  "service": "checkoutservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "checkoutservice_latency-90",
+                    "current": 2.060714,
+                    "current_count": 335,
+                    "id": "rca-1d28b06708:metric:checkoutservice:latency-90",
+                    "log_change": 3.23953,
+                    "missing_fraction": 0,
+                    "ratio": 9.444867,
+                    "reference": 0.21625,
+                    "reference_count": 335,
+                    "reference_cv": 0.072995,
+                    "sparkline": [
+                      0.21625,
+                      0.214462,
+                      0.2275,
+                      0.195769,
+                      0.21,
+                      0.221364,
+                      0.22,
+                      0.196667,
+                      0.21475,
+                      2.05,
+                      2.25,
+                      2.085294
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-1d28b06708:metric:checkoutservice:socket",
+                  "service": "checkoutservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "checkoutservice_socket",
+                    "current": 12,
+                    "current_count": 335,
+                    "id": "rca-1d28b06708:metric:checkoutservice:socket",
+                    "log_change": 0.411462,
+                    "missing_fraction": 0,
+                    "ratio": 1.330033,
+                    "reference": 9,
+                    "reference_count": 335,
+                    "reference_cv": 0,
+                    "sparkline": [
+                      9,
+                      9,
+                      9,
+                      9,
+                      9,
+                      9,
+                      9,
+                      9,
+                      9,
+                      12,
+                      12,
+                      21
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-1d28b06708:metric:checkoutservice:workload",
+                  "service": "checkoutservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "checkoutservice_workload",
+                    "current": 1,
+                    "current_count": 335,
+                    "id": "rca-1d28b06708:metric:checkoutservice:workload",
+                    "log_change": 0.099094,
+                    "missing_fraction": 0,
+                    "ratio": 1.0711,
+                    "reference": 0.933,
+                    "reference_count": 335,
+                    "reference_cv": 0.299733,
+                    "sparkline": [
+                      1.067,
+                      0.8,
+                      0.867,
+                      1.133,
+                      1.067,
+                      0.933,
+                      1,
+                      0.867,
+                      1,
+                      0.933,
+                      0.867,
+                      1
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                }
+              ],
+              "tool_status": "success",
+              "model_ms": 4831
+            },
+            {
+              "round": 3,
+              "decision": {
+                "action": "tool",
+                "update": "checkoutservice 的 CPU（39.66×）、内存（16.37×）、延迟-90（9.44×）均显著升高，且样本量充足（current_count=335）、缺失率极低（\u003c0.5%），排除数据噪声；workload 仅微增（1.07×），说明异常非由负载增长驱动。需检查日志确认是否存在错误、重试、GC 或资源争用线索；同时检查 traces 确认延迟是否真实发生在本服务内（而非传播）。优先查 logs，因日志可揭示异常模式（如 OOM、线程阻塞、频繁异常抛出）。",
+                "hypotheses": [
+                  {
+                    "service": "checkoutservice",
+                    "fault": "cpu",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-1d28b06708:metric:checkoutservice:cpu"
+                    ]
+                  },
+                  {
+                    "service": "checkoutservice",
+                    "fault": "mem",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-1d28b06708:metric:checkoutservice:mem"
+                    ]
+                  },
+                  {
+                    "service": "checkoutservice",
+                    "fault": "delay",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-1d28b06708:metric:checkoutservice:latency-90"
+                    ]
+                  }
+                ],
+                "tool": {
+                  "name": "rca_inspect_logs",
+                  "service": "checkoutservice"
+                }
+              },
+              "validation": "accepted",
+              "observation": [
+                {
+                  "id": "rca-1d28b06708:logs:checkoutservice",
+                  "service": "checkoutservice",
+                  "kind": "logs",
+                  "data": {
+                    "current_count": 475,
+                    "examples": [
+                      {
+                        "message": "[PlaceOrder] user_id=\"c9b1b234-54d9-482d-92e2-19492d42fa5a\" user_currency=\"EUR",
+                        "timestamp": 1705626027
+                      },
+                      {
+                        "message": "payment went through (transaction_id: 8366a746-1c0b-4838-b513-3d924dd758b5)",
+                        "timestamp": 1705626027
+                      }
+                    ],
+                    "id": "rca-1d28b06708:logs:checkoutservice",
+                    "keyword_matches": 0,
+                    "reference_count": 480
+                  }
+                }
+              ],
+              "tool_status": "success",
+              "model_ms": 7322
+            },
+            {
+              "round": 4,
+              "decision": {
+                "action": "tool",
+                "update": "checkoutservice 日志中无错误关键词（keyword_matches:0），示例日志显示正常订单处理（PlaceOrder、payment went through），未见OOM、GC、线程死锁或异常堆栈；但日志量略降（current_count 475 vs ref 480），可能反映请求被阻塞或超时丢弃。需检查 traces 确认延迟是否真实发生在 checkoutservice 内部（如 span duration 高、error status 非零），以区分本服务故障 vs 上游传播。同时，currencyservice 在 overview 中指标正常，但作为 checkoutservice 的强依赖，其轻微异常（latency-90:1.03×）仍需排除——故同步检查其 metrics 作对照。",
+                "hypotheses": [
+                  {
+                    "service": "checkoutservice",
+                    "fault": "cpu",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-1d28b06708:metric:checkoutservice:cpu",
+                      "rca-1d28b06708:logs:checkoutservice"
+                    ]
+                  },
+                  {
+                    "service": "checkoutservice",
+                    "fault": "mem",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-1d28b06708:metric:checkoutservice:mem",
+                      "rca-1d28b06708:logs:checkoutservice"
+                    ]
+                  },
+                  {
+                    "service": "checkoutservice",
+                    "fault": "delay",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-1d28b06708:metric:checkoutservice:latency-90",
+                      "rca-1d28b06708:logs:checkoutservice"
+                    ]
+                  }
+                ],
+                "tool": {
+                  "name": "rca_inspect_traces",
+                  "service": "checkoutservice"
+                }
+              },
+              "validation": "accepted",
+              "observation": [
+                {
+                  "id": "rca-1d28b06708:traces:checkoutservice",
+                  "service": "checkoutservice",
+                  "kind": "traces",
+                  "data": {
+                    "current_p95": 126184.5,
+                    "current_spans": 3312,
+                    "id": "rca-1d28b06708:traces:checkoutservice",
+                    "nonzero_status_count": 0,
+                    "reference_p95": 70771,
+                    "reference_spans": 2151,
+                    "sample_operation": "opentelemetry.proto.collector.trace.v1.TraceService/Export",
+                    "sample_span": "87a56a57972a46d5",
+                    "sample_start_ms": 1705626026004,
+                    "sample_trace": "e0c4183506d551ce8f2eb177e184b20f",
+                    "unit": "source_native_unverified"
+                  }
+                }
+              ],
+              "tool_status": "success",
+              "model_ms": 9041
+            },
+            {
+              "round": 5,
+              "decision": {
+                "action": "tool",
+                "update": "checkoutservice traces 显示 p95 延迟从 70.8ms 升至 126.2ms（+78%），与 overview 的 latency-90（+844%）趋势一致，且 nonzero_status_count=0，说明延迟升高非因本服务内错误导致；span 数量增加（3312 vs 2151），结合 workload 仅微增（1.07×），暗示请求在 checkoutservice 内部处理变慢或阻塞。日志无错误、traces 无失败状态，指向资源瓶颈（如 CPU 争用、内存压力引发 GC 或 swap）。为确认是否由内存压力驱动，需检查其历史模式：若过去类似内存激增常伴随 GC 日志或延迟上升，则支持 mem 为根因；否则更倾向 cpu 或传播。调用 history 获取 checkoutservice 历史参考。",
+                "hypotheses": [
+                  {
+                    "service": "checkoutservice",
+                    "fault": "cpu",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-1d28b06708:metric:checkoutservice:cpu",
+                      "rca-1d28b06708:logs:checkoutservice",
+                      "rca-1d28b06708:traces:checkoutservice"
+                    ]
+                  },
+                  {
+                    "service": "checkoutservice",
+                    "fault": "mem",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-1d28b06708:metric:checkoutservice:mem",
+                      "rca-1d28b06708:logs:checkoutservice",
+                      "rca-1d28b06708:traces:checkoutservice"
+                    ]
+                  },
+                  {
+                    "service": "checkoutservice",
+                    "fault": "delay",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-1d28b06708:metric:checkoutservice:latency-90",
+                      "rca-1d28b06708:logs:checkoutservice",
+                      "rca-1d28b06708:traces:checkoutservice"
+                    ]
+                  }
+                ],
+                "tool": {
+                  "name": "rca_inspect_history",
+                  "service": "checkoutservice"
+                }
+              },
+              "validation": "accepted",
+              "observation": [
+                {
+                  "id": "reference:rca-e375de9cb8",
+                  "service": "checkoutservice",
+                  "kind": "history",
+                  "data": {
+                    "distance": 0.17706819999999993,
+                    "historical_fault": "mem",
+                    "metrics": {
+                      "cpu": {
+                        "log_change": 5.65271,
+                        "ratio": 50.307798
+                      },
+                      "latency-50": {
+                        "log_change": 2.498548,
+                        "ratio": 5.651163
+                      },
+                      "latency-90": {
+                        "log_change": 3.21338,
+                        "ratio": 9.275207
+                      },
+                      "mem": {
+                        "log_change": 4.542796,
+                        "ratio": 23.30869
+                      },
+                      "socket": {
+                        "log_change": 0.411462,
+                        "ratio": 1.330033
+                      },
+                      "workload": {
+                        "log_change": 0.104834,
+                        "ratio": 1.075371
+                      }
+                    },
+                    "provenance": "RCAEval public reference run; not current-case truth",
+                    "repair_outcome": "unknown"
+                  }
+                },
+                {
+                  "id": "reference:rca-97bf1c72d2",
+                  "service": "checkoutservice",
+                  "kind": "history",
+                  "data": {
+                    "distance": 1.4379778,
+                    "historical_fault": "cpu",
+                    "metrics": {
+                      "cpu": {
+                        "log_change": 5.565337,
+                        "ratio": 47.351468
+                      },
+                      "latency-50": {
+                        "log_change": 0.069709,
+                        "ratio": 1.049505
+                      },
+                      "latency-90": {
+                        "log_change": 0.071359,
+                        "ratio": 1.050706
+                      },
+                      "mem": {
+                        "log_change": 0.490335,
+                        "ratio": 1.404771
+                      },
+                      "socket": {
+                        "log_change": 0.286907,
+                        "ratio": 1.220022
+                      },
+                      "workload": {
+                        "log_change": 0,
+                        "ratio": 1
+                      }
+                    },
+                    "provenance": "RCAEval public reference run; not current-case truth",
+                    "repair_outcome": "unknown"
+                  }
+                },
+                {
+                  "id": "reference:rca-e425dee775",
+                  "service": "checkoutservice",
+                  "kind": "history",
+                  "data": {
+                    "distance": 2.1947914,
+                    "historical_fault": "delay",
+                    "metrics": {
+                      "cpu": {
+                        "log_change": 0.090545,
+                        "ratio": 1.064773
+                      },
+                      "latency-50": {
+                        "log_change": 4.3337,
+                        "ratio": 20.163866
+                      },
+                      "latency-90": {
+                        "log_change": 4.273259,
+                        "ratio": 19.33655
+                      },
+                      "mem": {
+                        "log_change": 0.013399,
+                        "ratio": 1.009331
+                      },
+                      "socket": {
+                        "log_change": 0,
+                        "ratio": 1
+                      },
+                      "workload": {
+                        "log_change": -0.191561,
+                        "ratio": 0.875658
+                      }
+                    },
+                    "provenance": "RCAEval public reference run; not current-case truth",
+                    "repair_outcome": "unknown"
+                  }
+                }
+              ],
+              "tool_status": "success",
+              "model_ms": 11240
+            },
+            {
+              "round": 6,
+              "decision": {
+                "action": "finish",
+                "update": "checkoutservice 的 CPU（39.66×）、内存（16.37×）、延迟-90（9.44×）均显著升高，日志无错误、traces 无失败状态，workload 仅微增（1.07×），排除负载驱动；历史参考中，距离最近的案例（rca-e375de9cb8，distance=0.177）明确标记 historical_fault=mem，且其指标模式高度匹配（cpu↑50.3×, mem↑23.3×, latency-90↑9.28×），支持内存压力引发 GC 或 swap 导致全栈性能退化。currencyservice 指标正常（ratio≈1），可排除其为根因。当前证据链完整：metrics + logs + traces + history 四类证据均指向 checkoutservice 内存异常，但尚未确认具体机制（如 GC 频次、堆外内存、OOMKilled）。",
+                "hypotheses": [
+                  {
+                    "service": "checkoutservice",
+                    "fault": "mem",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-1d28b06708:metric:checkoutservice:mem",
+                      "rca-1d28b06708:logs:checkoutservice",
+                      "rca-1d28b06708:traces:checkoutservice",
+                      "reference:rca-e375de9cb8"
+                    ]
+                  }
+                ],
+                "final": {
+                  "status": "matched_hypothesis",
+                  "summary": "最可能的候选故障是 checkoutservice 的内存异常（mem），表现为内存使用量激增至16.37倍，同步伴随CPU和延迟大幅上升，日志与trace未见错误，历史相似案例（distance=0.177）亦归因为内存问题。",
+                  "candidates": [
+                    {
+                      "service": "checkoutservice",
+                      "fault": "mem",
+                      "evidence_ids": [
+                        "rca-1d28b06708:metric:checkoutservice:mem",
+                        "rca-1d28b06708:logs:checkoutservice",
+                        "rca-1d28b06708:traces:checkoutservice",
+                        "reference:rca-e375de9cb8"
+                      ],
+                      "reason": "内存使用量激增16.37倍，且历史最相似案例（rca-e375de9cb8）同样由内存问题导致，指标变化模式高度一致；CPU与延迟同步上升但无错误日志或trace失败，符合内存压力引发GC或swap的典型症状。",
+                      "uncertainties": [
+                        "是否发生频繁GC或OOMKilled；堆内/堆外内存哪部分异常；是否存在内存泄漏"
+                      ],
+                      "checks": [
+                        "检查 checkoutservice JVM GC 日志（若可用）、容器 memory.limit_in_bytes 与 usage 对比、是否有 OOMKilled 事件"
+                      ]
+                    },
+                    {
+                      "service": "checkoutservice",
+                      "fault": "cpu",
+                      "evidence_ids": [
+                        "rca-1d28b06708:metric:checkoutservice:cpu",
+                        "rca-1d28b06708:logs:checkoutservice",
+                        "rca-1d28b06708:traces:checkoutservice",
+                        "reference:rca-97bf1c72d2"
+                      ],
+                      "reason": "CPU 使用量激增39.66倍，历史第二近似案例（rca-97bf1c72d2）归因为CPU问题，但该案例中内存仅微增（1.4×），与本次16.37×不符，故CPU更可能是内存压力的继发表现而非根因。",
+                      "uncertainties": [
+                        "CPU高是否由内存GC线程占用或锁竞争导致"
+                      ],
+                      "checks": [
+                        "对比 CPU 使用率与 GC 时间占比"
+                      ]
+                    },
+                    {
+                      "service": "checkoutservice",
+                      "fault": "delay",
+                      "evidence_ids": [
+                        "rca-1d28b06708:metric:checkoutservice:latency-90",
+                        "rca-1d28b06708:logs:checkoutservice",
+                        "rca-1d28b06708:traces:checkoutservice",
+                        "reference:rca-e425dee775"
+                      ],
+                      "reason": "延迟90分位上升9.44倍，但历史最匹配的延迟案例（rca-e425dee775）中 workload 下降（0.876×）且内存基本不变，与本次 workload 微增、内存剧增矛盾，故延迟更可能是内存/CPU异常的结果而非独立根因。",
+                      "uncertainties": [
+                        "延迟分布是否右偏、是否存在长尾请求"
+                      ],
+                      "checks": [
+                        "分析 checkoutservice trace duration 分布直方图"
+                      ]
+                    }
+                  ],
+                  "questions": [
+                    "是否可获取 checkoutservice 的 JVM GC 日志或 cgroup memory.stat？"
+                  ]
+                }
+              },
+              "validation": "accepted",
+              "model_ms": 23210
+            }
+          ],
+          "stop_reason": "model_finished",
+          "completed": true,
+          "input_tokens": 31242,
+          "output_tokens": 2461,
+          "input_bytes": 102896,
+          "questions": [
+            "是否可获取 checkoutservice 的 JVM GC 日志或 cgroup memory.stat？"
+          ],
+          "final": {
+            "status": "matched_hypothesis",
+            "summary": "最可能的候选故障是 checkoutservice 的内存异常（mem），表现为内存使用量激增至16.37倍，同步伴随CPU和延迟大幅上升，日志与trace未见错误，历史相似案例（distance=0.177）亦归因为内存问题。",
+            "candidates": [
+              {
+                "service": "checkoutservice",
+                "fault": "mem",
+                "evidence_ids": [
+                  "rca-1d28b06708:metric:checkoutservice:mem",
+                  "rca-1d28b06708:logs:checkoutservice",
+                  "rca-1d28b06708:traces:checkoutservice",
+                  "reference:rca-e375de9cb8"
+                ],
+                "reason": "内存使用量激增16.37倍，且历史最相似案例（rca-e375de9cb8）同样由内存问题导致，指标变化模式高度一致；CPU与延迟同步上升但无错误日志或trace失败，符合内存压力引发GC或swap的典型症状。",
+                "uncertainties": [
+                  "是否发生频繁GC或OOMKilled；堆内/堆外内存哪部分异常；是否存在内存泄漏"
+                ],
+                "checks": [
+                  "检查 checkoutservice JVM GC 日志（若可用）、容器 memory.limit_in_bytes 与 usage 对比、是否有 OOMKilled 事件"
+                ]
+              },
+              {
+                "service": "checkoutservice",
+                "fault": "cpu",
+                "evidence_ids": [
+                  "rca-1d28b06708:metric:checkoutservice:cpu",
+                  "rca-1d28b06708:logs:checkoutservice",
+                  "rca-1d28b06708:traces:checkoutservice",
+                  "reference:rca-97bf1c72d2"
+                ],
+                "reason": "CPU 使用量激增39.66倍，历史第二近似案例（rca-97bf1c72d2）归因为CPU问题，但该案例中内存仅微增（1.4×），与本次16.37×不符，故CPU更可能是内存压力的继发表现而非根因。",
+                "uncertainties": [
+                  "CPU高是否由内存GC线程占用或锁竞争导致"
+                ],
+                "checks": [
+                  "对比 CPU 使用率与 GC 时间占比"
+                ]
+              },
+              {
+                "service": "checkoutservice",
+                "fault": "delay",
+                "evidence_ids": [
+                  "rca-1d28b06708:metric:checkoutservice:latency-90",
+                  "rca-1d28b06708:logs:checkoutservice",
+                  "rca-1d28b06708:traces:checkoutservice",
+                  "reference:rca-e425dee775"
+                ],
+                "reason": "延迟90分位上升9.44倍，但历史最匹配的延迟案例（rca-e425dee775）中 workload 下降（0.876×）且内存基本不变，与本次 workload 微增、内存剧增矛盾，故延迟更可能是内存/CPU异常的结果而非独立根因。",
+                "uncertainties": [
+                  "延迟分布是否右偏、是否存在长尾请求"
+                ],
+                "checks": [
+                  "分析 checkoutservice trace duration 分布直方图"
+                ]
+              }
+            ],
+            "questions": [
+              "是否可获取 checkoutservice 的 JVM GC 日志或 cgroup memory.stat？"
+            ]
+          }
+        }
+      },
+      "score": {
+        "answer": {
+          "id": "rca-1d28b06708",
+          "service": "checkoutservice",
+          "fault": "mem",
+          "supported": true,
+          "split": "development"
+        },
+        "service_top1": true,
+        "service_top3": true,
+        "joint_correct": true,
+        "rejected": false,
+        "false_acceptance": false
+      },
+      "evaluation_valid": true
+    },
+    {
+      "id": "rca-b0f876b48e",
+      "title": "观测窗口 09",
+      "run": {
+        "diagnosis": {
+          "case_id": "rca-b0f876b48e",
+          "version": "rca-autonomous-agent-v1",
+          "strategy": "autonomous",
+          "status": "insufficient_evidence",
+          "summary": "自主排查未形成通过证据校验的最终结论，停止原因：round_budget。保留已执行轨迹，不回退成规则答案冒充模型结果。",
+          "candidates": [],
+          "references": [],
+          "warnings": [
+            "模型自主选择只读工具；仅公开观测回放，不操作真实主机。",
+            "引用通过只证明来源有效，不证明根因正确；候选及后续核查尚未验证。"
+          ],
+          "model_calls": 8,
+          "repair_status": "not_executed"
+        },
+        "observation": {
+          "id": "rca-b0f876b48e",
+          "start": 1705668201,
+          "end": 1705669641,
+          "reference_end": 1705668681,
+          "current_start": 1705669161,
+          "metric_rows": 1441,
+          "log_rows": 175563,
+          "trace_rows": 402454,
+          "sources": [
+            {
+              "name": "metrics.parquet",
+              "sha256": "6c7d7e5038844fc6e3e66ae2561d57ba1bbb8c9950b8017433bfa5791daa269a",
+              "bytes": 159560
+            },
+            {
+              "name": "logs.parquet",
+              "sha256": "d7ad77c5bd782c7a2793a9526727fda2135535cea371ef4290dcbe1860824ca1",
+              "bytes": 334150
+            },
+            {
+              "name": "traces.parquet",
+              "sha256": "7280e269cfc28daa5bc6e44b184ec430996295dd203f55fc2d8fabfff289c02c",
+              "bytes": 10149026
+            }
+          ],
+          "services": null,
+          "warnings": [
+            "比较最早/最晚三分之一窗口，参考段健康尚未独立确认。",
+            "保留原始指标单位；分桶摘要不是完整实时遥测。"
+          ]
+        },
+        "tool_calls": [
+          {
+            "call_id": "9767a9e8-8791-4256-b61a-1bb550987876-1",
+            "tool_name": "rca_inspect_overview",
+            "tool_version": "rca-autonomous-agent-v1",
+            "args_hash": "a510a14ad38a832240df7a5c06ff3ae4620cb21c2f359926f05477d20dbedfc7",
+            "status": "success",
+            "evidence_refs": [
+              "overview:adservice",
+              "overview:cartservice",
+              "overview:checkoutservice",
+              "overview:currencyservice",
+              "overview:emailservice",
+              "overview:frontend",
+              "overview:frontend-external",
+              "overview:paymentservice",
+              "overview:productcatalogservice",
+              "overview:recommendationservice",
+              "overview:redis",
+              "overview:shippingservice"
+            ],
+            "retryable": false,
+            "latency_ms": 0,
+            "cached": false,
+            "stale": false,
+            "truncated": false
+          },
+          {
+            "call_id": "9767a9e8-8791-4256-b61a-1bb550987876-2",
+            "tool_name": "rca_inspect_metrics",
+            "tool_version": "rca-autonomous-agent-v1",
+            "args_hash": "5d69e5f1f3be1ffb54a77593f94785a17cb8331116a8b1df149dfd541fe5f680",
+            "status": "success",
+            "evidence_refs": [
+              "rca-b0f876b48e:metric:checkoutservice:cpu",
+              "rca-b0f876b48e:metric:checkoutservice:mem",
+              "rca-b0f876b48e:metric:checkoutservice:latency-90",
+              "rca-b0f876b48e:metric:checkoutservice:socket",
+              "rca-b0f876b48e:metric:checkoutservice:workload"
+            ],
+            "retryable": false,
+            "latency_ms": 0,
+            "cached": false,
+            "stale": false,
+            "truncated": false
+          },
+          {
+            "call_id": "9767a9e8-8791-4256-b61a-1bb550987876-3",
+            "tool_name": "rca_inspect_logs",
+            "tool_version": "rca-autonomous-agent-v1",
+            "args_hash": "5d69e5f1f3be1ffb54a77593f94785a17cb8331116a8b1df149dfd541fe5f680",
+            "status": "success",
+            "evidence_refs": [
+              "rca-b0f876b48e:logs:checkoutservice"
+            ],
+            "retryable": false,
+            "latency_ms": 0,
+            "cached": false,
+            "stale": false,
+            "truncated": false
+          },
+          {
+            "call_id": "9767a9e8-8791-4256-b61a-1bb550987876-4",
+            "tool_name": "rca_inspect_metrics",
+            "tool_version": "rca-autonomous-agent-v1",
+            "args_hash": "b10c59f41447fb301ab56ed314024ff8f5dd47e57c71bb93b344bb0f47f730d2",
+            "status": "success",
+            "evidence_refs": [
+              "rca-b0f876b48e:metric:currencyservice:cpu",
+              "rca-b0f876b48e:metric:currencyservice:mem",
+              "rca-b0f876b48e:metric:currencyservice:latency-90",
+              "rca-b0f876b48e:metric:currencyservice:socket",
+              "rca-b0f876b48e:metric:currencyservice:workload"
+            ],
+            "retryable": false,
+            "latency_ms": 0,
+            "cached": false,
+            "stale": false,
+            "truncated": false
+          },
+          {
+            "call_id": "9767a9e8-8791-4256-b61a-1bb550987876-5",
+            "tool_name": "rca_inspect_traces",
+            "tool_version": "rca-autonomous-agent-v1",
+            "args_hash": "5d69e5f1f3be1ffb54a77593f94785a17cb8331116a8b1df149dfd541fe5f680",
+            "status": "success",
+            "evidence_refs": [
+              "rca-b0f876b48e:traces:checkoutservice"
+            ],
+            "retryable": false,
+            "latency_ms": 0,
+            "cached": false,
+            "stale": false,
+            "truncated": false
+          },
+          {
+            "call_id": "9767a9e8-8791-4256-b61a-1bb550987876-7",
+            "tool_name": "rca_inspect_history",
+            "tool_version": "rca-autonomous-agent-v1",
+            "args_hash": "5d69e5f1f3be1ffb54a77593f94785a17cb8331116a8b1df149dfd541fe5f680",
+            "status": "success",
+            "evidence_refs": [
+              "reference:rca-e425dee775",
+              "reference:rca-97bf1c72d2",
+              "reference:rca-e375de9cb8"
+            ],
+            "retryable": false,
+            "latency_ms": 0,
+            "cached": false,
+            "stale": false,
+            "truncated": false
+          }
+        ],
+        "trace_id": "9767a9e8-8791-4256-b61a-1bb550987876",
+        "dataset_sha256": "1e10d5a275e2942b07dac5483b299cbf4f0e444a051a1373db048c0084281a30",
+        "elapsed_ms": 66558,
+        "audit_storage": "local_run_report",
+        "agent": {
+          "version": "rca-autonomous-agent-v1",
+          "model": "qwen-plus",
+          "prompt_sha256": "a3d3b28c4a607c48598425979c9e8ac6acbec490fcf5265b5636bd7b0c772556",
+          "implementation_sha256": "c26e5ddb932eef0a89bbe1cae16eaed5f3478d75f0a377e28507fb4472494e02",
+          "steps": [
+            {
+              "round": 1,
+              "decision": {
+                "action": "tool",
+                "update": "初始阶段，需先获取所有服务的粗粒度指标变化概览，识别异常幅度最大的服务及指标类型（cpu/memory/delay），为后续聚焦排查提供依据。",
+                "hypotheses": [],
+                "tool": {
+                  "name": "rca_inspect_overview",
+                  "service": "all"
+                }
+              },
+              "validation": "accepted",
+              "observation": [
+                {
+                  "id": "overview:adservice",
+                  "service": "adservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.913082,
+                    "diskio": 0.930286,
+                    "latency-50": 0.999021,
+                    "latency-90": 0.999986,
+                    "mem": 1.00446,
+                    "socket": 1,
+                    "workload": 0.977723
+                  }
+                },
+                {
+                  "id": "overview:cartservice",
+                  "service": "cartservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.89839,
+                    "diskio": 1,
+                    "latency-50": 1.019092,
+                    "latency-90": 1.022294,
+                    "mem": 0.999727,
+                    "socket": 1,
+                    "workload": 0.955564
+                  }
+                },
+                {
+                  "id": "overview:checkoutservice",
+                  "service": "checkoutservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 1.002633,
+                    "latency-50": 22.960342,
+                    "latency-90": 20.06352,
+                    "mem": 1.004409,
+                    "socket": 1,
+                    "workload": 0.846974
+                  }
+                },
+                {
+                  "id": "overview:currencyservice",
+                  "service": "currencyservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.995035,
+                    "diskio": 1,
+                    "latency-50": 0.994142,
+                    "latency-90": 1.09061,
+                    "mem": 0.989693,
+                    "socket": 1,
+                    "workload": 1.004184
+                  }
+                },
+                {
+                  "id": "overview:emailservice",
+                  "service": "emailservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.97582,
+                    "diskio": 1,
+                    "latency-50": 3.310231,
+                    "latency-90": 47.362462,
+                    "mem": 0.999907,
+                    "socket": 1,
+                    "workload": 1
+                  }
+                },
+                {
+                  "id": "overview:frontend",
+                  "service": "frontend",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.97653,
+                    "diskio": 1,
+                    "error": 1,
+                    "latency-50": 0.94881,
+                    "latency-90": 1.074652,
+                    "mem": 1.010829,
+                    "socket": 1,
+                    "workload": 0.974638
+                  }
+                },
+                {
+                  "id": "overview:frontend-external",
+                  "service": "frontend-external",
+                  "kind": "overview",
+                  "data": {
+                    "error": 1,
+                    "workload": 0.974638
+                  }
+                },
+                {
+                  "id": "overview:paymentservice",
+                  "service": "paymentservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.904261,
+                    "diskio": 1,
+                    "latency-50": 1.536692,
+                    "latency-90": 40.535638,
+                    "mem": 0.979929,
+                    "socket": 1,
+                    "workload": 1
+                  }
+                },
+                {
+                  "id": "overview:productcatalogservice",
+                  "service": "productcatalogservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.99758,
+                    "diskio": 1,
+                    "latency-50": 1.07136,
+                    "latency-90": 1.013788,
+                    "mem": 0.993407,
+                    "socket": 1,
+                    "workload": 0.952153
+                  }
+                },
+                {
+                  "id": "overview:recommendationservice",
+                  "service": "recommendationservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.955466,
+                    "diskio": 1,
+                    "latency-50": 1.000701,
+                    "latency-90": 1.00019,
+                    "mem": 1.000898,
+                    "socket": 1,
+                    "workload": 0.950461
+                  }
+                },
+                {
+                  "id": "overview:redis",
+                  "service": "redis",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.989863,
+                    "diskio": 1,
+                    "mem": 0.998621,
+                    "socket": 1
+                  }
+                },
+                {
+                  "id": "overview:shippingservice",
+                  "service": "shippingservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.937352,
+                    "latency-50": 1.073892,
+                    "latency-90": 24.21415,
+                    "mem": 0.997728,
+                    "socket": 1,
+                    "workload": 0.982071
+                  }
+                }
+              ],
+              "tool_status": "success",
+              "model_ms": 1706
+            },
+            {
+              "round": 2,
+              "decision": {
+                "action": "tool",
+                "update": "overview显示checkoutservice的latency-50（22.96x）和latency-90（20.06x）异常飙升，远超其他服务（次高为emailservice latency-90=47.36x但其latency-50仅3.31x，且workload=1未显著增加；paymentservice latency-90=40.54x但latency-50仅1.54x；shippingservice latency-90=24.21x但latency-50仅1.07x）。checkoutservice自身workload=0.847（下降15%），排除负载驱动延迟；cpu和mem仅微增（~1.003x），排除资源瓶颈。该模式高度提示内部处理阻塞或依赖故障传播，需优先深入其metrics验证延迟分布与错误率，并检查日志/trace确认失败模式。",
+                "hypotheses": [
+                  {
+                    "service": "checkoutservice",
+                    "fault": "delay",
+                    "status": "investigating",
+                    "evidence_ids": [
+                      "overview:checkoutservice"
+                    ]
+                  }
+                ],
+                "tool": {
+                  "name": "rca_inspect_metrics",
+                  "service": "checkoutservice"
+                }
+              },
+              "validation": "accepted",
+              "observation": [
+                {
+                  "id": "rca-b0f876b48e:metric:checkoutservice:cpu",
+                  "service": "checkoutservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "checkoutservice_cpu",
+                    "current": 0.378193,
+                    "current_count": 481,
+                    "id": "rca-b0f876b48e:metric:checkoutservice:cpu",
+                    "log_change": 0.003793,
+                    "missing_fraction": 0,
+                    "ratio": 1.002633,
+                    "reference": 0.37719,
+                    "reference_count": 481,
+                    "reference_cv": 0.197958,
+                    "sparkline": [
+                      0.39107,
+                      0.43807,
+                      0.326475,
+                      0.379104,
+                      0.327463,
+                      0.378726,
+                      0.390749,
+                      0.436799,
+                      0.350716,
+                      0.415975,
+                      0.357842,
+                      0.527476
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-b0f876b48e:metric:checkoutservice:mem",
+                  "service": "checkoutservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "checkoutservice_mem",
+                    "current": 12009472,
+                    "current_count": 481,
+                    "id": "rca-b0f876b48e:metric:checkoutservice:mem",
+                    "log_change": 0.006348,
+                    "missing_fraction": 0,
+                    "ratio": 1.004409,
+                    "reference": 11956224,
+                    "reference_count": 481,
+                    "reference_cv": 0.013464,
+                    "sparkline": [
+                      12050432,
+                      12058624,
+                      11948032,
+                      11862016,
+                      12095488,
+                      12009472,
+                      11849728,
+                      11993088,
+                      11845632,
+                      12013568,
+                      12128256,
+                      11812864
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-b0f876b48e:metric:checkoutservice:latency-90",
+                  "service": "checkoutservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "checkoutservice_latency-90",
+                    "current": 4.544118,
+                    "current_count": 481,
+                    "id": "rca-b0f876b48e:metric:checkoutservice:latency-90",
+                    "log_change": 4.326503,
+                    "missing_fraction": 0,
+                    "ratio": 20.06352,
+                    "reference": 0.224355,
+                    "reference_count": 481,
+                    "reference_cv": 0.037525,
+                    "sparkline": [
+                      0.2224,
+                      0.218929,
+                      0.232643,
+                      0.228389,
+                      0.22,
+                      0.2245,
+                      4.125,
+                      4.428513,
+                      4.569444,
+                      4.544118,
+                      4.5,
+                      4.554688
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-b0f876b48e:metric:checkoutservice:socket",
+                  "service": "checkoutservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "checkoutservice_socket",
+                    "current": 9,
+                    "current_count": 481,
+                    "id": "rca-b0f876b48e:metric:checkoutservice:socket",
+                    "log_change": 0,
+                    "missing_fraction": 0,
+                    "ratio": 1,
+                    "reference": 9,
+                    "reference_count": 481,
+                    "reference_cv": 0,
+                    "sparkline": [
+                      9,
+                      9,
+                      9,
+                      9,
+                      9,
+                      9,
+                      9,
+                      9,
+                      9,
+                      9,
+                      9,
+                      9
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-b0f876b48e:metric:checkoutservice:workload",
+                  "service": "checkoutservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "checkoutservice_workload",
+                    "current": 0.733,
+                    "current_count": 481,
+                    "id": "rca-b0f876b48e:metric:checkoutservice:workload",
+                    "log_change": -0.23961,
+                    "missing_fraction": 0,
+                    "ratio": 0.846974,
+                    "reference": 0.867,
+                    "reference_count": 481,
+                    "reference_cv": 0.360475,
+                    "sparkline": [
+                      0.867,
+                      0.867,
+                      0.8,
+                      0.8,
+                      0.933,
+                      0.933,
+                      0.8,
+                      0.867,
+                      0.733,
+                      0.8,
+                      0.667,
+                      1.067
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                }
+              ],
+              "tool_status": "success",
+              "model_ms": 6032
+            },
+            {
+              "round": 3,
+              "decision": {
+                "action": "tool",
+                "update": "checkoutservice metrics确认latency-90飙升20x（4.54ms→0.22ms），workload下降15%（0.733→0.867），cpu/mem微增，socket稳定。排除负载增加与资源瓶颈，高度指向内部阻塞或下游依赖故障。下一步需检查其日志，确认是否存在错误堆栈、超时告警或重试激增等线索；同时对比currencyservice（checkoutservice关键依赖）指标是否同步异常，以区分是本服务逻辑缺陷还是传播性故障。",
+                "hypotheses": [
+                  {
+                    "service": "checkoutservice",
+                    "fault": "delay",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-b0f876b48e:metric:checkoutservice:latency-90",
+                      "rca-b0f876b48e:metric:checkoutservice:workload"
+                    ]
+                  }
+                ],
+                "tool": {
+                  "name": "rca_inspect_logs",
+                  "service": "checkoutservice"
+                }
+              },
+              "validation": "accepted",
+              "observation": [
+                {
+                  "id": "rca-b0f876b48e:logs:checkoutservice",
+                  "service": "checkoutservice",
+                  "kind": "logs",
+                  "data": {
+                    "current_count": 612,
+                    "examples": [
+                      {
+                        "message": "payment went through (transaction_id: c0c35350-2ed9-4399-ab83-f54cb5032557)",
+                        "timestamp": 1705669161
+                      },
+                      {
+                        "message": "order confirmation email sent to \"someone@example.com",
+                        "timestamp": 1705669162
+                      }
+                    ],
+                    "id": "rca-b0f876b48e:logs:checkoutservice",
+                    "keyword_matches": 0,
+                    "reference_count": 645
+                  }
+                }
+              ],
+              "tool_status": "success",
+              "model_ms": 5270
+            },
+            {
+              "round": 4,
+              "decision": {
+                "action": "tool",
+                "update": "checkoutservice日志无错误关键词（keyword_matches=0），示例均为成功消息（payment went through, email sent），但metrics显示延迟飙升且负载下降——矛盾提示问题可能不在checkoutservice自身业务逻辑，而在其同步依赖调用（如currencyservice）阻塞。需立即检查currencyservice的metrics和trace，验证其是否出现延迟或错误，从而确认故障传播路径。",
+                "hypotheses": [
+                  {
+                    "service": "checkoutservice",
+                    "fault": "delay",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-b0f876b48e:metric:checkoutservice:latency-90",
+                      "rca-b0f876b48e:metric:checkoutservice:workload",
+                      "rca-b0f876b48e:logs:checkoutservice"
+                    ]
+                  },
+                  {
+                    "service": "currencyservice",
+                    "fault": "delay",
+                    "status": "investigating",
+                    "evidence_ids": [
+                      "overview:currencyservice"
+                    ]
+                  }
+                ],
+                "tool": {
+                  "name": "rca_inspect_metrics",
+                  "service": "currencyservice"
+                }
+              },
+              "validation": "accepted",
+              "observation": [
+                {
+                  "id": "rca-b0f876b48e:metric:currencyservice:cpu",
+                  "service": "currencyservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "currencyservice_cpu",
+                    "current": 33.166387,
+                    "current_count": 481,
+                    "id": "rca-b0f876b48e:metric:currencyservice:cpu",
+                    "log_change": -0.007181,
+                    "missing_fraction": 0,
+                    "ratio": 0.995035,
+                    "reference": 33.333541,
+                    "reference_count": 481,
+                    "reference_cv": 0.086349,
+                    "sparkline": [
+                      33.36639,
+                      33.823633,
+                      32.685243,
+                      33.304452,
+                      33.082781,
+                      33.050747,
+                      33.183735,
+                      32.447076,
+                      33.068547,
+                      33.508528,
+                      33.512916,
+                      33.194942
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-b0f876b48e:metric:currencyservice:mem",
+                  "service": "currencyservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "currencyservice_mem",
+                    "current": 44777472,
+                    "current_count": 481,
+                    "id": "rca-b0f876b48e:metric:currencyservice:mem",
+                    "log_change": -0.014947,
+                    "missing_fraction": 0,
+                    "ratio": 0.989693,
+                    "reference": 45248512,
+                    "reference_count": 481,
+                    "reference_cv": 0.0112,
+                    "sparkline": [
+                      44580864,
+                      45477888,
+                      45395968,
+                      45273088,
+                      45117440,
+                      45527040,
+                      44773376,
+                      44683264,
+                      44666880,
+                      44607488,
+                      45142016,
+                      44769280
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-b0f876b48e:metric:currencyservice:latency-90",
+                  "service": "currencyservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "currencyservice_latency-90",
+                    "current": 0.05277,
+                    "current_count": 481,
+                    "id": "rca-b0f876b48e:metric:currencyservice:latency-90",
+                    "log_change": 0.125135,
+                    "missing_fraction": 0,
+                    "ratio": 1.09061,
+                    "reference": 0.048345,
+                    "reference_count": 481,
+                    "reference_cv": 0.126604,
+                    "sparkline": [
+                      0.047941,
+                      0.04976,
+                      0.048345,
+                      0.047416,
+                      0.045105,
+                      0.047123,
+                      0.046214,
+                      0.058117,
+                      0.054384,
+                      0.056303,
+                      0.047879,
+                      0.054458
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-b0f876b48e:metric:currencyservice:socket",
+                  "service": "currencyservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "currencyservice_socket",
+                    "current": 3,
+                    "current_count": 481,
+                    "id": "rca-b0f876b48e:metric:currencyservice:socket",
+                    "log_change": 0,
+                    "missing_fraction": 0,
+                    "ratio": 1,
+                    "reference": 3,
+                    "reference_count": 481,
+                    "reference_cv": 0.106305,
+                    "sparkline": [
+                      3,
+                      3,
+                      3,
+                      3,
+                      3,
+                      3,
+                      3,
+                      3,
+                      3,
+                      3,
+                      3,
+                      3
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-b0f876b48e:metric:currencyservice:workload",
+                  "service": "currencyservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "currencyservice_workload",
+                    "current": 79.133,
+                    "current_count": 481,
+                    "id": "rca-b0f876b48e:metric:currencyservice:workload",
+                    "log_change": 0.006024,
+                    "missing_fraction": 0,
+                    "ratio": 1.004184,
+                    "reference": 78.8,
+                    "reference_count": 481,
+                    "reference_cv": 0.083476,
+                    "sparkline": [
+                      82.933,
+                      80.067,
+                      77.5,
+                      77.667,
+                      79.533,
+                      78.4665,
+                      75.067,
+                      80.6,
+                      79.867,
+                      77.8,
+                      78.467,
+                      79.6
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                }
+              ],
+              "tool_status": "success",
+              "model_ms": 5727
+            },
+            {
+              "round": 5,
+              "decision": {
+                "action": "tool",
+                "update": "currencyservice metrics显示latency-90仅微升9%（0.0528ms→0.0483ms），cpu/mem下降，workload稳定，排除其自身严重故障。但checkoutservice延迟飙升20x且无日志错误，提示可能为currencyservice的**偶发性高延迟毛刺**（如单次超时）被checkoutservice同步调用放大，或checkoutservice对currencyservice响应处理存在缺陷（如未设超时、重试风暴）。需检查checkoutservice的trace，确认其调用currencyservice的延迟分布、错误率及span状态，以验证传播假设。",
+                "hypotheses": [
+                  {
+                    "service": "checkoutservice",
+                    "fault": "delay",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-b0f876b48e:metric:checkoutservice:latency-90",
+                      "rca-b0f876b48e:metric:checkoutservice:workload",
+                      "rca-b0f876b48e:logs:checkoutservice"
+                    ]
+                  },
+                  {
+                    "service": "currencyservice",
+                    "fault": "delay",
+                    "status": "weakened",
+                    "evidence_ids": [
+                      "overview:currencyservice",
+                      "rca-b0f876b48e:metric:currencyservice:latency-90"
+                    ]
+                  }
+                ],
+                "tool": {
+                  "name": "rca_inspect_traces",
+                  "service": "checkoutservice"
+                }
+              },
+              "validation": "accepted",
+              "observation": [
+                {
+                  "id": "rca-b0f876b48e:traces:checkoutservice",
+                  "service": "checkoutservice",
+                  "kind": "traces",
+                  "data": {
+                    "current_p95": 1904344.1,
+                    "current_spans": 2928,
+                    "id": "rca-b0f876b48e:traces:checkoutservice",
+                    "nonzero_status_count": 0,
+                    "reference_p95": 78659.25,
+                    "reference_spans": 3036,
+                    "sample_operation": "hipstershop.PaymentService/Charge",
+                    "sample_span": "b79c886f7c971e84",
+                    "sample_start_ms": 1705669161102,
+                    "sample_trace": "8d6bf4be2fd2b43a91fd2905dce039ba",
+                    "unit": "source_native_unverified"
+                  }
+                }
+              ],
+              "tool_status": "success",
+              "model_ms": 7798
+            },
+            {
+              "round": 6,
+              "decision": {
+                "action": "finish",
+                "update": "checkoutservice traces显示p95延迟从78.7ms飙升至1904ms（24x），与metrics的latency-90（20x）一致，且nonzero_status_count=0（无错误span），说明请求未失败但严重超时。结合其workload下降、日志无错误、currencyservice自身指标正常，最可能原因是checkoutservice在调用下游（如currencyservice）时**缺乏超时控制或重试策略缺陷**，导致偶发性依赖延迟被放大。历史案例中checkoutservice曾因类似同步阻塞被标记（需history确认，但预算已尽）。",
+                "hypotheses": [
+                  {
+                    "service": "checkoutservice",
+                    "fault": "delay",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-b0f876b48e:metric:checkoutservice:latency-90",
+                      "rca-b0f876b48e:metric:checkoutservice:workload",
+                      "rca-b0f876b48e:logs:checkoutservice",
+                      "rca-b0f876b48e:traces:checkoutservice"
+                    ]
+                  }
+                ],
+                "final": {
+                  "status": "matched_hypothesis",
+                  "summary": "checkoutservice存在显著延迟故障（p95延迟24倍、latency-90 20倍），非由自身负载或资源瓶颈引起，也无错误日志；其依赖currencyservice指标正常，提示问题源于checkoutservice对下游调用的超时/重试机制缺陷。",
+                  "candidates": [
+                    {
+                      "service": "checkoutservice",
+                      "fault": "delay",
+                      "evidence_ids": [
+                        "overview:checkoutservice",
+                        "rca-b0f876b48e:metric:checkoutservice:latency-90",
+                        "rca-b0f876b48e:logs:checkoutservice",
+                        "rca-b0f876b48e:traces:checkoutservice"
+                      ],
+                      "reason": "延迟飙升与负载下降共存，日志无错误，trace显示高延迟但无失败span，currencyservice自身指标仅微幅波动，指向checkoutservice调用链治理缺陷",
+                      "uncertainties": [
+                        "是否因特定currencyservice毛刺触发？checkoutservice代码中是否存在未设超时的HTTP/gRPC调用？"
+                      ],
+                      "checks": [
+                        "检查checkoutservice调用currencyservice的客户端配置（超时、重试）",
+                        "抓取checkoutservice到currencyservice的原始trace span详情，确认延迟归属"
+                      ]
+                    },
+                    {
+                      "service": "currencyservice",
+                      "fault": "delay",
+                      "evidence_ids": [
+                        "overview:currencyservice",
+                        "rca-b0f876b48e:metric:currencyservice:latency-90"
+                      ],
+                      "reason": "latency-90仅上升9%，远低于checkoutservice的20倍，且cpu/mem/workload均稳定，不支持其为根因",
+                      "uncertainties": [],
+                      "checks": []
+                    },
+                    {
+                      "service": "checkoutservice",
+                      "fault": "cpu",
+                      "evidence_ids": [
+                        "overview:checkoutservice",
+                        "rca-b0f876b48e:metric:checkoutservice:cpu"
+                      ],
+                      "reason": "cpu ratio=1.003，变化微弱，排除CPU瓶颈",
+                      "uncertainties": [],
+                      "checks": []
+                    }
+                  ],
+                  "questions": [
+                    "是否可提供checkoutservice服务端代码中调用currencyservice的客户端配置片段？",
+                    "是否有checkoutservice到currencyservice的单条trace详细span数据（含start_time、duration、status）？"
+                  ]
+                }
+              },
+              "validation": "invalid_candidate",
+              "model_ms": 17393
+            },
+            {
+              "round": 7,
+              "decision": {
+                "action": "tool",
+                "update": "当前已确认checkoutservice延迟异常（metrics+traces），日志无错误，currencyservice自身指标正常。但为验证是否为历史复现模式（如过往checkoutservice因依赖超时未设导致的传播延迟），需调用history检查checkoutservice历史案例，确认是否存在相同多指标模式（高延迟+低负载+无错误日志）。这是区分偶发毛刺与配置缺陷的关键证据。",
+                "hypotheses": [
+                  {
+                    "service": "checkoutservice",
+                    "fault": "delay",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-b0f876b48e:metric:checkoutservice:latency-90",
+                      "rca-b0f876b48e:logs:checkoutservice",
+                      "rca-b0f876b48e:traces:checkoutservice"
+                    ]
+                  }
+                ],
+                "tool": {
+                  "name": "rca_inspect_history",
+                  "service": "checkoutservice"
+                }
+              },
+              "validation": "accepted",
+              "observation": [
+                {
+                  "id": "reference:rca-e425dee775",
+                  "service": "checkoutservice",
+                  "kind": "history",
+                  "data": {
+                    "distance": 0.03901919999999988,
+                    "historical_fault": "delay",
+                    "metrics": {
+                      "cpu": {
+                        "log_change": 0.090545,
+                        "ratio": 1.064773
+                      },
+                      "latency-50": {
+                        "log_change": 4.3337,
+                        "ratio": 20.163866
+                      },
+                      "latency-90": {
+                        "log_change": 4.273259,
+                        "ratio": 19.33655
+                      },
+                      "mem": {
+                        "log_change": 0.013399,
+                        "ratio": 1.009331
+                      },
+                      "socket": {
+                        "log_change": 0,
+                        "ratio": 1
+                      },
+                      "workload": {
+                        "log_change": -0.191561,
+                        "ratio": 0.875658
+                      }
+                    },
+                    "provenance": "RCAEval public reference run; not current-case truth",
+                    "repair_outcome": "unknown"
+                  }
+                },
+                {
+                  "id": "reference:rca-97bf1c72d2",
+                  "service": "checkoutservice",
+                  "kind": "history",
+                  "data": {
+                    "distance": 2.1654384,
+                    "historical_fault": "cpu",
+                    "metrics": {
+                      "cpu": {
+                        "log_change": 5.565337,
+                        "ratio": 47.351468
+                      },
+                      "latency-50": {
+                        "log_change": 0.069709,
+                        "ratio": 1.049505
+                      },
+                      "latency-90": {
+                        "log_change": 0.071359,
+                        "ratio": 1.050706
+                      },
+                      "mem": {
+                        "log_change": 0.490335,
+                        "ratio": 1.404771
+                      },
+                      "socket": {
+                        "log_change": 0.286907,
+                        "ratio": 1.220022
+                      },
+                      "workload": {
+                        "log_change": 0,
+                        "ratio": 1
+                      }
+                    },
+                    "provenance": "RCAEval public reference run; not current-case truth",
+                    "repair_outcome": "unknown"
+                  }
+                },
+                {
+                  "id": "reference:rca-e375de9cb8",
+                  "service": "checkoutservice",
+                  "kind": "history",
+                  "data": {
+                    "distance": 2.4108788,
+                    "historical_fault": "mem",
+                    "metrics": {
+                      "cpu": {
+                        "log_change": 5.65271,
+                        "ratio": 50.307798
+                      },
+                      "latency-50": {
+                        "log_change": 2.498548,
+                        "ratio": 5.651163
+                      },
+                      "latency-90": {
+                        "log_change": 3.21338,
+                        "ratio": 9.275207
+                      },
+                      "mem": {
+                        "log_change": 4.542796,
+                        "ratio": 23.30869
+                      },
+                      "socket": {
+                        "log_change": 0.411462,
+                        "ratio": 1.330033
+                      },
+                      "workload": {
+                        "log_change": 0.104834,
+                        "ratio": 1.075371
+                      }
+                    },
+                    "provenance": "RCAEval public reference run; not current-case truth",
+                    "repair_outcome": "unknown"
+                  }
+                }
+              ],
+              "tool_status": "success",
+              "model_ms": 5177
+            },
+            {
+              "round": 8,
+              "decision": {
+                "action": "finish",
+                "update": "history返回checkoutservice历史案例reference:rca-e425dee775：historical_fault=delay，metrics模式高度匹配——latency-50（20.16x）、latency-90（19.34x）飙升，workload下降（0.876x），cpu/mem微增（~1.003–1.065x），与当前case完全一致。该历史案例距离最近（0.039），是强支持证据。结合已有的metrics、logs、traces四类证据，checkoutservice delay为当前最可信候选。",
+                "hypotheses": [
+                  {
+                    "service": "checkoutservice",
+                    "fault": "delay",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-b0f876b48e:metric:checkoutservice:latency-90",
+                      "rca-b0f876b48e:logs:checkoutservice",
+                      "rca-b0f876b48e:traces:checkoutservice",
+                      "reference:rca-e425dee775"
+                    ]
+                  }
+                ],
+                "final": {
+                  "status": "matched_hypothesis",
+                  "summary": "checkoutservice存在延迟故障，证据链完整：概览显示latency-50/90飙升20倍以上，详细metrics确认该异常且workload下降，日志无错误，trace证实高延迟但无失败span，历史案例reference:rca-e425dee775显示完全相同的多指标模式，指向其调用依赖时缺乏超时控制或重试策略缺陷。",
+                  "candidates": [
+                    {
+                      "service": "checkoutservice",
+                      "fault": "delay",
+                      "evidence_ids": [
+                        "rca-b0f876b48e:metric:checkoutservice:latency-90",
+                        "rca-b0f876b48e:logs:checkoutservice",
+                        "rca-b0f876b48e:traces:checkoutservice",
+                        "reference:rca-e425dee775"
+                      ],
+                      "reason": "延迟飙升与负载下降共存，日志无错误，trace显示高延迟但无失败span，历史案例reference:rca-e425dee775复现相同模式（latency-50 20.16x, workload 0.876x），排除偶发毛刺，指向配置或代码缺陷",
+                      "uncertainties": [
+                        "具体是哪个下游调用（currencyservice？paymentservice？）未设超时？是否因TLS握手阻塞？"
+                      ],
+                      "checks": [
+                        "检查checkoutservice对所有下游服务（尤其currencyservice、paymentservice）的gRPC/HTTP客户端超时配置",
+                        "抓取checkoutservice中高延迟trace的完整span链，定位耗时最长的子调用"
+                      ]
+                    },
+                    {
+                      "service": "currencyservice",
+                      "fault": "delay",
+                      "evidence_ids": [],
+                      "reason": "其latency-90仅上升9%，且无其他异常指标，不构成独立候选；若为根因，checkoutservice历史案例不应复现相同模式",
+                      "uncertainties": [],
+                      "checks": []
+                    },
+                    {
+                      "service": "checkoutservice",
+                      "fault": "cpu",
+                      "evidence_ids": [
+                        "rca-b0f876b48e:metric:checkoutservice:cpu"
+                      ],
+                      "reason": "cpu ratio=1.003，变化微弱，排除CPU瓶颈",
+                      "uncertainties": [],
+                      "checks": []
+                    }
+                  ],
+                  "questions": [
+                    "能否提供checkoutservice服务中gRPC客户端初始化代码（特别是timeout设置）？",
+                    "是否有checkoutservice高延迟trace的完整span详情（含子span耗时）？"
+                  ]
+                }
+              },
+              "validation": "invalid_candidate",
+              "model_ms": 17450
+            }
+          ],
+          "stop_reason": "round_budget",
+          "completed": false,
+          "input_tokens": 51425,
+          "output_tokens": 2790,
+          "input_bytes": 162318,
+          "questions": []
+        }
+      },
+      "score": {
+        "answer": {
+          "id": "rca-b0f876b48e",
+          "service": "checkoutservice",
+          "fault": "delay",
+          "supported": true,
+          "split": "development"
+        },
+        "service_top1": false,
+        "service_top3": false,
+        "joint_correct": false,
+        "rejected": true,
+        "false_acceptance": false
+      },
+      "evaluation_valid": false
+    }
+  ],
+  "metrics": {
+    "attempted": 3,
+    "completed": 1,
+    "execution_failed": 2,
+    "input_tokens": 133536,
+    "joint_correct": 1,
+    "model_calls": 22,
+    "output_tokens": 7668,
+    "service_top1": 1,
+    "supported": 3
+  },
+  "limitations": [
+    "这是此前已查看案例的模型回放，不是新盲测或生产准确率。",
+    "有限指标/日志/调用链摘要；只支持2个服务和3类已知模式；不执行修复。",
+    "模型调用错误、预算停止不计为正确拒答；保留全部尝试，不能挑最好一次。",
+    "模型自主选工具不意味着诊断必定正确；引用存在也不证明因果。"
+  ]
+}
