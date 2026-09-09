@@ -35,3 +35,5 @@
 从全新 Windows worktree 发布时，Git `core.autocrlf=true` 把 PowerShell 脚本转换为 CRLF，其中 Bash here-string 也携带 CR。首个只读容量检查报 `set: pipefail\r: invalid option name`，在上传/切换前停止，因此线上服务未受影响。
 
 修复：在 `Invoke-RemoteScript` 写入 SSH stdin 前统一 CRLF→LF。这样发布不依赖某个开发目录偶然是 LF；不改变远程命令含义、不关闭容量门禁。该修复与匹配算法无关，不重新调参或覆盖首轮留出报告。
+
+首次页面验收发现新页面请求错误地重复携带 `/v1`：Axios `baseURL=/api`，现有静态网关会将 `/api/...` 改写为 `/api/v1/...`。组件请求应为 `/experiments/rca`，不是 `/v1/experiments/rca`。404 来自 `/api/v1/v1/...`，不是鉴权或数据加载失败。已统一组件 endpoint，并添加网关路径回归；保留完整发布流程而不是手动覆盖线上 JS。这说明控制器单测和构建不能代替经过网关的浏览器业务验收。

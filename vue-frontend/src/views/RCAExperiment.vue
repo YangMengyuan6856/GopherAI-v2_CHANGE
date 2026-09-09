@@ -64,6 +64,8 @@ export default {
     const observation = ref(null), result = ref(null), reveal = ref(false), busy = ref(false)
     const controller = new AbortController()
     const options = { timeout: 65000, signal: controller.signal }
+    // Axios adds /api; the existing gateway adds /v1 before forwarding to Gin.
+    const endpoint = '/experiments/rca'
     const strategies = ['legacy', 'feature_only', 'case_based']
     const visibleCases = computed(() => (catalog.value?.cases || []).filter(c => c.split === split.value))
     const service = computed(() => observation.value?.services.find(s => s.name === evidenceService.value))
@@ -85,7 +87,7 @@ export default {
       const id = selected.value
       if (!id) return
       result.value = null; reveal.value = false; observation.value = null; error.value = ''
-      try { const response = await api.get(`/v1/experiments/rca/observations/${id}`, options); if (selected.value === id) observation.value = response.data } catch (e) { if (!controller.signal.aborted) error.value = e.response?.data?.message || '当前观测读取失败，请重试' }
+      try { const response = await api.get(`${endpoint}/observations/${id}`, options); if (selected.value === id) observation.value = response.data } catch (e) { if (!controller.signal.aborted) error.value = e.response?.data?.message || '当前观测读取失败，请重试' }
     }
     const changeSplit = async () => { selected.value = visibleCases.value[0]?.id || ''; await loadObservation() }
     const openCase = async id => { split.value = 'holdout'; selected.value = id; await loadObservation(); window.requestAnimationFrame(() => document.querySelector('.rca-page')?.scrollTo({ top: 0, behavior: 'smooth' })) }
@@ -93,15 +95,15 @@ export default {
       if (busy.value || !selected.value) return
       busy.value = true; error.value = ''; result.value = null; reveal.value = false
       try {
-        const response = await api.post('/v1/experiments/rca/diagnose', { case_id: selected.value, strategy }, options)
+        const response = await api.post(`${endpoint}/diagnose`, { case_id: selected.value, strategy }, options)
         if (!response.data.run) throw new Error('登录状态或诊断响应无效')
         result.value = response.data
         if (result.value.run.diagnosis.candidates.length) evidenceService.value = result.value.run.diagnosis.candidates[0].service
       } catch (e) { if (!controller.signal.aborted) error.value = e.response?.data?.message || e.message || '诊断失败' } finally { busy.value = false }
     }
     onMounted(async () => {
-      api.get('/v1/experiments/rca/report', options).then(r => { if (!r.data.metrics || !r.data.cases) throw new Error('登录状态或报告响应无效'); report.value = r.data }).catch(e => { reportError.value = e.response?.data?.message || '离线报告暂不可用' })
-      try { const response = await api.get('/v1/experiments/rca', options); if (!response.data.cases) throw new Error('请重新登录后进入实验页'); catalog.value = response.data; await changeSplit() } catch (e) { if (!controller.signal.aborted) error.value = e.response?.data?.message || e.message }
+      api.get(`${endpoint}/report`, options).then(r => { if (!r.data.metrics || !r.data.cases) throw new Error('登录状态或报告响应无效'); report.value = r.data }).catch(e => { reportError.value = e.response?.data?.message || '离线报告暂不可用' })
+      try { const response = await api.get(endpoint, options); if (!response.data.cases) throw new Error('请重新登录后进入实验页'); catalog.value = response.data; await changeSplit() } catch (e) { if (!controller.signal.aborted) error.value = e.response?.data?.message || e.message }
     })
     onBeforeUnmount(() => controller.abort())
     return { catalog, report, reportError, error, split, selected, evidenceService, observation, result, reveal, busy, visibleCases, service, metricRows, diagnosis, caseReportRows, strategies, time, count, value, faultName, modeName, reportOutcome, spark, loadObservation, changeSplit, openCase, run }
