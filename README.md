@@ -28,6 +28,7 @@ GopherAI 将这类请求处理为一条受约束的工作流：
 | RAG 证据问答 | 混合检索、父子块补充、证据融合、引用校验和权限过滤 | 回答附引用；单路或不足证据触发拒答，不让模型补猜 |
 | 有限多 Agent | KnowledgeAgent 与 DiagnosticAgent 按复杂度规划，可并行但限制 Agent 数、迭代、工具和超时 | 计划、子任务结果、降级原因与最终合并过程可审计 |
 | 故障诊断 Harness | 历史案例只用于候选增强，当前证据与验证动作保持独立 | 输出根因候选、验证步骤、置信边界和安全回退 |
+| RCAEval 已知故障实验 | 结构化观测、历史轮廓匹配、受治理只读工具与独立评分 | 候选服务/原因、当前引用、历史差异、待确认项，以及保留失败的三组对照 |
 | 受治理工具 | 工具注册表、JSON Schema、RBAC、风险等级、预算、审计与熔断 | 未注册、越权或高风险调用在执行前被阻断 |
 | 三级对话记忆 | Working、Episodic、Profile 三层装配，带所有权、TTL、删除语义和 Token 预算 | 可查看召回、注入、排除及跨用户隔离指标 |
 | 可观测性闭环 | Prometheus 指标、固定阈值、滑动窗口 Z-score、告警事件与控制 Webhook | 异常形成 recommend-only 建议，不直接修改在线策略 |
@@ -107,6 +108,7 @@ flowchart LR
 | `/dashboard/history` | 历史会话管理 |
 | `/dashboard/knowledge` | 文档上传、索引状态、证据检索和多种 RAG 回答模式 |
 | `/dashboard/diagnostics` | 故障诊断、案例 Shadow 与协作 Agent |
+| `/dashboard/rca-experiment` | RCAEval 观测窗口、历史案例辅助诊断和留出对照实验 |
 | `/dashboard/memory` | Working / Episodic / Profile 记忆状态与隔离指标 |
 | `/dashboard/tools` | 工具目录、治理规则、调用记录和审计结果 |
 | `/dashboard/policy` | 权威策略、稳定分桶、Shadow 演算与反馈建议 |
@@ -155,6 +157,14 @@ Rerun Report SHA  6b46cbdd815db0f46b36e42d1b4243df29ae448cc64ce7cc716613402f8ee3
 ```
 
 评测集的组成、Hash/Schema 规则及运行方式见 [evals/README.md](evals/README.md)。
+
+### 外部公开数据：已知故障案例辅助排查
+
+另设独立的 [RCAEval 实验](evals/rcaeval/README.md)，不混入上述 320 条契约评测。选取公开 Online Boutique 故障注入数据的 27 次运行：6 条参考、9 条开发、12 条留出；限定两个服务的 CPU、内存和网络延迟三类模式。
+
+首次留出结果：6 个范围内案例，历史增强方案服务与类型同时正确 **6/6**，观测特征对照为 **5/6**。但 6 个范围外案例中仍有 **4/6 误接纳**。这证明的是小范围、同配方不同运行的已知模式复现，不是生产准确率或未知故障泛化。
+
+该链路使用确定性匹配而非 LLM 猜测，经现有 Tool Runtime 读取快照和参考库，输出引用及待确认项；不执行修复。原始约 278 MB 数据本地处理，ECS 仅运行小型摘要与 Go 匹配器；页面支持重放成功、拒答与误匹配案例。评测记录绑定数据与匹配器版本，标准答案在诊断结束后由独立评分器核对。
 
 ## 本地启动
 

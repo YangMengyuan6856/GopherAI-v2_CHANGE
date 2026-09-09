@@ -1,0 +1,15 @@
+{
+  "status": "frozen_before_first_holdout_run",
+  "matcher_version": "known-pattern-matcher-v2",
+  "matcher_go_sha256": "dd602b07b958dbcdfc01cbf6b6c0b0770f423c8b0f352360a09056efa403a336",
+  "dataset_sha256": "1e10d5a275e2942b07dac5483b299cbf4f0e444a051a1373db048c0084281a30",
+  "reference_count": 6,
+  "development_count": 9,
+  "holdout_count": 12,
+  "development_case_based_joint_correct": "6/6",
+  "development_case_based_false_acceptance": "2/3",
+  "minimum_similarity": 0.64,
+  "scope": "Two known services; cpu/mem/delay; separate repetitions of the same fault recipes, not unseen-fault generalization.",
+  "known_limit": "Out-of-scope faults can resemble supported patterns. False acceptance is reported and no repair is executed.",
+  "notes": "One initial development run exposed fixed-amplitude and propagated-latency issues. V2 derives minimum amplitude from the reference, applies the same resource-priority rule in B/C, and ranks by current intensity with case similarity. No holdout result had been inspected when this artifact was created."
+}
