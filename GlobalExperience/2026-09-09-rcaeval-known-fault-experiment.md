@@ -29,3 +29,9 @@
 5. 浏览器正常缩放下页面可滚动，首页卡片和独立路由可访问。
 
 实际发布标识与线上检查结果完成后追加在本文件末尾。复现和中文演示步骤见 `evals/rcaeval/README.md`。
+
+## 本轮发现的发布兼容问题
+
+从全新 Windows worktree 发布时，Git `core.autocrlf=true` 把 PowerShell 脚本转换为 CRLF，其中 Bash here-string 也携带 CR。首个只读容量检查报 `set: pipefail\r: invalid option name`，在上传/切换前停止，因此线上服务未受影响。
+
+修复：在 `Invoke-RemoteScript` 写入 SSH stdin 前统一 CRLF→LF。这样发布不依赖某个开发目录偶然是 LF；不改变远程命令含义、不关闭容量门禁。该修复与匹配算法无关，不重新调参或覆盖首轮留出报告。
