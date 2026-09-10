@@ -239,9 +239,15 @@
           </section>
           <section class="collaboration-plan-console">
             <div class="strategy-result-heading">
+              <div><strong>动态多 Agent 协作已迁移到独立工作区</strong><p>Supervisor 生成具体子任务，根据证据继续委派或停止；查看真实逐轮调度与证据交接。</p></div>
+              <button @click="$router.push('/dashboard/collaboration')">进入动态协作 →</button>
+            </div>
+            <details>
+            <summary>历史固定规则规划与 A/B 报告（不是新编排的成绩）</summary>
+            <div class="strategy-result-heading">
               <div>
-                <strong>有限多 Agent 规划门</strong>
-                <p>先判断是否值得拆分；可只看计划，也可显式运行隔离的协作 Shadow，均不改变下方聊天结果。</p>
+                <strong>旧版有限多 Agent 规划门 · 仅规则预览</strong>
+                <p>保留固定规则计划和历史评测作对照；实际协作请进入上方动态工作区。</p>
               </div>
               <span class="shadow-only-badge">SHADOW ONLY · MAX 2</span>
             </div>
@@ -255,9 +261,6 @@
               <div class="collaboration-actions">
                 <button :disabled="planningCollaboration || runningCollaboration || !collaborationPlanMessage.trim()" @click="runCollaborationPlan">
                   {{ planningCollaboration ? '规划中...' : '只运行规划门' }}
-                </button>
-                <button class="collaboration-run-button" :disabled="planningCollaboration || runningCollaboration || !collaborationPlanMessage.trim()" @click="runCollaborationShadow">
-                  {{ runningCollaboration ? '并行执行中...' : '执行协作 Shadow' }}
                 </button>
                 <button :disabled="loadingCollaborationEvaluation" @click="toggleCollaborationEvaluation">
                   {{ collaborationEvaluationOpen ? '收起 A/B 报告' : (loadingCollaborationEvaluation ? '读取报告中...' : '查看 A/B 净收益') }}
@@ -345,7 +348,7 @@
               <div v-if="collaborationEvaluation">
                 <div class="diagnostic-evaluation-title">
                   <div>
-                    <strong>standard vs collaborative 成对 A/B</strong>
+                    <strong>旧固定流程 standard vs collaborative 成对 A/B（不代表动态版效果）</strong>
                     <span>{{ collaborationEvaluation.metrics.case_count }} 条 · {{ collaborationEvaluation.dataset_version }}</span>
                   </div>
                   <span :class="['evaluation-gate', collaborationEvaluation.technical_gates_passed ? 'passed' : 'failed']">
@@ -375,6 +378,7 @@
               </div>
               <div v-else class="diagnostic-evaluation-loading">正在读取不含逐例问题的评测汇总...</div>
             </article>
+            </details>
           </section>
           <details class="strategy-registry-details">
             <summary>查看 7 个策略的元数据与治理边界</summary>
@@ -2625,13 +2629,13 @@ export default {
         workspace: 'knowledge', workspaceLabel: '打开证据检索'
       },
       {
-        id: 'bounded-agents', shortTitle: '有限多 Agent', timebox: '01:35–02:30', title: '只在复杂度收益足够时拆 Agent', badge: 'MAX 2 + Budget',
-        thesis: 'Planner 先判断独立故障域和知识核对需求；只有复杂任务才并行 KnowledgeAgent 与 DiagnosticAgent，并在统一预算、超时与引用合并器内收束。',
-        action: '打开策略演算，输入同时包含配置核对、HTTP 502 与 Redis NOAUTH 的复合问题，先规划再运行协作 Shadow。',
-        proof: '两个 Agent 并行、独立状态与预算可见；合并器只保留有引用 Claim，失败时显式降级。',
-        boundary: '最多 2 个 Agent，禁止递归创建；协作结果仍不替换正式聊天。',
-        question: '为什么不做完全自由的多 Agent 自主协作？',
-        answer: '自由拓扑难以预算、取消、重放和归因。这里把拆分条件、Agent 上限、输出 Schema、总超时和降级策略都写进契约，先证明目标复杂样本的成对收益，再讨论是否晋级。',
+        id: 'bounded-agents', shortTitle: '动态多 Agent', timebox: '01:35–02:30', title: '根据返回证据动态委派下一项任务', badge: 'SUPERVISOR + MAX 2',
+        thesis: 'Supervisor 模型生成不同子任务，选择单 Agent 或两路并行；通过显式证据 ID 把前轮依据交给下一 Agent，再决定继续或停止。',
+        action: '从策略演算进入动态协作工作区，输入先核对 Redis 文档配置、再分析 HTTP 502 和 NOAUTH 的问题，启动动态协作。',
+        proof: '逐轮调度、具体任务、交接证据、子任务状态和停止原因可见；可下载本次记录。',
+        boundary: '两个固定角色、最多四次委派和五轮调度；只读、不连接主机、不切流。旧 A/B 分数不代表新编排效果。',
+        question: '固定职责为什么仍然属于动态编排？',
+        answer: '角色职责是权限边界；子任务内容、先后顺序、并行与再次委派由模型依据新证据决定。程序负责验证 Schema、证据归属、预算和重复动作，而不是预写每次执行顺序。',
         workspace: 'policy', workspaceLabel: '打开策略演算'
       },
       {

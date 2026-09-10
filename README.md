@@ -26,7 +26,7 @@ GopherAI 将这类请求处理为一条受约束的工作流：
 | --- | --- | --- |
 | 多策略意图识别 | 规则、高置信命中、安全降级与 Shadow 判定并存 | 页面同时展示实际路由和影子判断，Shadow 默认不切流 |
 | RAG 证据问答 | 混合检索、父子块补充、证据融合、引用校验和权限过滤 | 回答附引用；单路或不足证据触发拒答，不让模型补猜 |
-| 有限多 Agent | KnowledgeAgent 与 DiagnosticAgent 按复杂度规划，可并行但限制 Agent 数、迭代、工具和超时 | 计划、子任务结果、降级原因与最终合并过程可审计 |
+| 动态多 Agent 协作 | Supervisor 模型生成子任务，在 KnowledgeAgent 与 DiagnosticAgent 之间选择串行/并行，按返回证据再次委派 | 具体任务、跨轮证据交接、引用合并、预算停止与审计可见；旧固定流程保留作对照 |
 | 故障诊断 Harness | 历史案例只用于候选增强，当前证据与验证动作保持独立 | 输出根因候选、验证步骤、置信边界和安全回退 |
 | RCAEval 自主排查实验 | 单 Agent 多轮决策、按需查询指标/日志/调用链/历史案例、证据引用校验 | 实际工具顺序、假设更新、候选原因、停止边界与独立评分；旧规则保留作对照 |
 | 受治理工具 | 工具注册表、JSON Schema、RBAC、风险等级、预算、审计与熔断 | 未注册、越权或高风险调用在执行前被阻断 |
@@ -46,14 +46,16 @@ flowchart LR
     I --> C[通用对话]
     I --> R[RAG 证据链]
     I --> D[DiagnosticAgent]
-    I --> M[有限多 Agent 协作]
+    A -->|显式 Shadow 入口| M[动态 Supervisor 协作]
     I --> T[Tool Runtime]
     A --> X[三级记忆装配器]
 
     R --> MY[(MySQL 权威数据)]
     D --> MY
     M --> R
-    M --> D
+    M --> DD[委派诊断：规则候选 + 模型分析]
+    DD -->|证据反馈| M
+    R -->|证据反馈| M
     T --> AU[权限 / Schema / 审计]
     X --> MY
     R --> RV[(Redis 向量与缓存)]
@@ -107,7 +109,8 @@ flowchart LR
 | `/dashboard/chat` | 智能路由、知识库回答与对话 Trace |
 | `/dashboard/history` | 历史会话管理 |
 | `/dashboard/knowledge` | 文档上传、索引状态、证据检索和多种 RAG 回答模式 |
-| `/dashboard/diagnostics` | 故障诊断、案例 Shadow 与协作 Agent |
+| `/dashboard/diagnostics` | 原故障诊断 Harness 与状态管理 |
+| `/dashboard/collaboration` | 动态双 Agent 委派、证据反馈、逐轮轨迹与只读结果 |
 | `/dashboard/rca-experiment` | 自主排查 Agent、逐轮证据与假设更新、历史案例和规则对照 |
 | `/dashboard/memory` | Working / Episodic / Profile 记忆状态与隔离指标 |
 | `/dashboard/tools` | 工具目录、治理规则、调用记录和审计结果 |
@@ -117,6 +120,8 @@ flowchart LR
 | `/dashboard/settings` | 系统配置与运行信息 |
 
 旧入口 `/menu` 和 `/ai-chat` 会重定向到新工作台，已有鉴权守卫继续生效。
+
+动态协作仅升级原双 Agent：最多 5 次 Supervisor 调用、4 次委派、同轮 2 个固定角色、180 秒总超时。KnowledgeAgent 查询授权文档；DiagnosticAgent 结合用户报告、规则候选与交接证据进行模型分析，不访问现场主机或执行修复。控制审计写 MySQL，完整本次轨迹可下载。接口采用显式 Shadow，不改变正式聊天或自动批准策略。详见[动态协作规格与验收](docs/DYNAMIC-COLLABORATION-SPEC.zh-CN.md)。下述历史评测数字不代表这一新版本的诊断准确率或质量收益。
 
 ## 已验证的评测结果
 

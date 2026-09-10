@@ -740,12 +740,12 @@ func (metrics *Metrics) RecordCollaborationPlan(decision string, reason string, 
 		return
 	}
 	switch decision {
-	case "single_agent", "collaborative_candidate", "error", "cancelled":
+	case "single_agent", "collaborative_candidate", "dynamic", "error", "cancelled":
 	default:
 		decision = "error"
 	}
 	switch reason {
-	case "single_task_preferred", "independent_diagnostic_branches", "knowledge_diagnostic_split", "conflict_requires_evidence_verification":
+	case "single_task_preferred", "independent_diagnostic_branches", "knowledge_diagnostic_split", "conflict_requires_evidence_verification", "model_directed":
 	default:
 		reason = "error"
 	}
@@ -761,7 +761,7 @@ func (metrics *Metrics) RecordCollaborationRun(decision string, status string, d
 		return
 	}
 	switch decision {
-	case "single_agent", "collaborative_candidate":
+	case "single_agent", "collaborative_candidate", "dynamic":
 	default:
 		decision = "error"
 	}

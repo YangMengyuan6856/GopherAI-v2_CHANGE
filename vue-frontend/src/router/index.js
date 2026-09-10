@@ -43,6 +43,7 @@ const routes = [
       { path: 'memory', name: 'MemoryWorkspace', component: AIChat, props: { workspace: 'memory' }, meta: { title: '三级记忆控制台' } },
       { path: 'tools', name: 'ToolRuntimeWorkspace', component: AIChat, props: { workspace: 'tools' }, meta: { title: '受治理工具运行时' } },
       { path: 'policy', name: 'PolicyWorkspace', component: AIChat, props: { workspace: 'policy' }, meta: { title: '策略演算与多 Agent' } },
+      { path: 'collaboration', name: 'CollaborationWorkspace', component: () => import('../views/CollaborationWorkspace.vue'), meta: { title: '动态多 Agent 协作' } },
       { path: 'evaluation', name: 'EvaluationWorkspace', component: AIChat, props: { workspace: 'evaluation' }, meta: { title: '评测与反馈闭环' } },
       { path: 'review', name: 'HumanReviewWorkspace', component: AIChat, props: { workspace: 'review' }, meta: { title: '人工验收工作台' } },
       { path: 'interview', name: 'InterviewWorkspace', component: AIChat, props: { workspace: 'interview' }, meta: { title: '面试导览' } },

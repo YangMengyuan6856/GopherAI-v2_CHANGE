@@ -106,7 +106,16 @@ func (*EvidenceAwareSynthesizer) Synthesize(ctx context.Context, execution Execu
 	if tenantID == "" {
 		return result, errors.New("tenant is required")
 	}
-	if execution.SchemaVersion != ExecutionSchemaVersion || execution.Mode != "shadow_only" || execution.AffectsLiveTraffic || len(execution.TaskResults) > maximumPlannedAgents {
+	maximumTasks := maximumPlannedAgents
+	if execution.ExecutorVersion == DynamicVersion {
+		maximumTasks = DynamicMaxDelegations // repeated tasks, still only two roles
+		for _, task := range execution.TaskResults {
+			if task.Agent != KnowledgeAgentRole && task.Agent != DiagnosticAgentRole {
+				return result, errors.New("unregistered dynamic agent")
+			}
+		}
+	}
+	if execution.SchemaVersion != ExecutionSchemaVersion || execution.Mode != "shadow_only" || execution.AffectsLiveTraffic || len(execution.TaskResults) > maximumTasks {
 		return result, errors.New("execution boundary is invalid")
 	}
 	if err := ctx.Err(); err != nil {

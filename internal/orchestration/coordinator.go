@@ -32,6 +32,7 @@ type CollaborationRun struct {
 	Plan               CollaborationPlan `json:"plan"`
 	Execution          *ExecutionResult  `json:"execution,omitempty"`
 	Synthesis          *SynthesisResult  `json:"synthesis,omitempty"`
+	Orchestration      *DynamicTrace     `json:"orchestration,omitempty"`
 }
 
 type ShadowCoordinator struct {
