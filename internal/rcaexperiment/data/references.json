@@ -1,0 +1,44 @@
+[
+  {
+    "id": "rca-97bf1c72d2",
+    "service": "checkoutservice",
+    "fault": "cpu",
+    "resolution": "unknown",
+    "provenance": "RCAEval controlled fault injection"
+  },
+  {
+    "id": "rca-e375de9cb8",
+    "service": "checkoutservice",
+    "fault": "mem",
+    "resolution": "unknown",
+    "provenance": "RCAEval controlled fault injection"
+  },
+  {
+    "id": "rca-e425dee775",
+    "service": "checkoutservice",
+    "fault": "delay",
+    "resolution": "unknown",
+    "provenance": "RCAEval controlled fault injection"
+  },
+  {
+    "id": "rca-f9278c4f7b",
+    "service": "currencyservice",
+    "fault": "cpu",
+    "resolution": "unknown",
+    "provenance": "RCAEval controlled fault injection"
+  },
+  {
+    "id": "rca-e26fc30ca6",
+    "service": "currencyservice",
+    "fault": "mem",
+    "resolution": "unknown",
+    "provenance": "RCAEval controlled fault injection"
+  },
+  {
+    "id": "rca-d20ce82152",
+    "service": "currencyservice",
+    "fault": "delay",
+    "resolution": "unknown",
+    "provenance": "RCAEval controlled fault injection"
+  }
+]

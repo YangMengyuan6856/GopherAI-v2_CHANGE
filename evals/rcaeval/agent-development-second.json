@@ -1,0 +1,2656 @@
+{
+  "version": "rca-autonomous-agent-v1",
+  "dataset_sha256": "1e10d5a275e2942b07dac5483b299cbf4f0e444a051a1373db048c0084281a30",
+  "prompt_sha256": "cdc7945e0af2b22362e77312751393ed2c29c4f5559eeefb0779029ace07050b",
+  "implementation_sha256": "7e3f55c0dc18996260b4507bd56d7607299b579fb0a0467a76877ffd97a80106",
+  "split": "development",
+  "evaluation_kind": "previously_exposed_case_replay_not_new_blind_test",
+  "generated_at": "2026-09-09T14:36:35.776435967Z",
+  "cases": [
+    {
+      "id": "rca-3cc10cccb6",
+      "title": "观测窗口 07",
+      "run": {
+        "diagnosis": {
+          "case_id": "rca-3cc10cccb6",
+          "version": "rca-autonomous-agent-v1",
+          "strategy": "autonomous",
+          "status": "insufficient_evidence",
+          "summary": "自主排查未形成通过证据校验的最终结论，停止原因：invalid_final。保留已执行轨迹，不回退成规则答案冒充模型结果。",
+          "candidates": [],
+          "references": [],
+          "warnings": [
+            "模型自主选择只读工具；仅公开观测回放，不操作真实主机。",
+            "引用通过只证明来源有效，不证明根因正确；候选及后续核查尚未验证。"
+          ],
+          "model_calls": 8,
+          "repair_status": "not_executed"
+        },
+        "observation": {
+          "id": "rca-3cc10cccb6",
+          "start": 1708474641,
+          "end": 1708475570,
+          "reference_end": 1708474950,
+          "current_start": 1708475260,
+          "metric_rows": 930,
+          "log_rows": 110067,
+          "trace_rows": 199960,
+          "sources": [
+            {
+              "name": "metrics.parquet",
+              "sha256": "11f2df96b6b2b60a9600bacd8d3163b2f31a614aa756c19adfc51a41bcbebfc7",
+              "bytes": 127755
+            },
+            {
+              "name": "logs.parquet",
+              "sha256": "36fd5701f2d6e1f2d93131985d6feae5e284bdcbb21828ef9f3e90271a79f6b7",
+              "bytes": 191241
+            },
+            {
+              "name": "traces.parquet",
+              "sha256": "f833e959286b706b60307fc3beca2980f26a0dda62782362dbcb34e7f696b3d1",
+              "bytes": 5426555
+            }
+          ],
+          "services": null,
+          "warnings": [
+            "比较最早/最晚三分之一窗口，参考段健康尚未独立确认。",
+            "保留原始指标单位；分桶摘要不是完整实时遥测。"
+          ]
+        },
+        "tool_calls": [
+          {
+            "call_id": "15ea70e1-d6b5-49d5-9224-2dd29cc26738-1",
+            "tool_name": "rca_inspect_overview",
+            "tool_version": "rca-autonomous-agent-v1",
+            "args_hash": "a510a14ad38a832240df7a5c06ff3ae4620cb21c2f359926f05477d20dbedfc7",
+            "status": "success",
+            "evidence_refs": [
+              "overview:adservice",
+              "overview:cartservice",
+              "overview:checkoutservice",
+              "overview:currencyservice",
+              "overview:emailservice",
+              "overview:frontend",
+              "overview:frontend-external",
+              "overview:paymentservice",
+              "overview:productcatalogservice",
+              "overview:recommendationservice",
+              "overview:redis",
+              "overview:shippingservice"
+            ],
+            "retryable": false,
+            "latency_ms": 0,
+            "cached": false,
+            "stale": false,
+            "truncated": false
+          },
+          {
+            "call_id": "15ea70e1-d6b5-49d5-9224-2dd29cc26738-2",
+            "tool_name": "rca_inspect_metrics",
+            "tool_version": "rca-autonomous-agent-v1",
+            "args_hash": "5d69e5f1f3be1ffb54a77593f94785a17cb8331116a8b1df149dfd541fe5f680",
+            "status": "success",
+            "evidence_refs": [
+              "rca-3cc10cccb6:metric:checkoutservice:cpu",
+              "rca-3cc10cccb6:metric:checkoutservice:mem",
+              "rca-3cc10cccb6:metric:checkoutservice:latency-90",
+              "rca-3cc10cccb6:metric:checkoutservice:socket",
+              "rca-3cc10cccb6:metric:checkoutservice:workload"
+            ],
+            "retryable": false,
+            "latency_ms": 0,
+            "cached": false,
+            "stale": false,
+            "truncated": false
+          },
+          {
+            "call_id": "15ea70e1-d6b5-49d5-9224-2dd29cc26738-3",
+            "tool_name": "rca_inspect_logs",
+            "tool_version": "rca-autonomous-agent-v1",
+            "args_hash": "5d69e5f1f3be1ffb54a77593f94785a17cb8331116a8b1df149dfd541fe5f680",
+            "status": "success",
+            "evidence_refs": [
+              "rca-3cc10cccb6:logs:checkoutservice"
+            ],
+            "retryable": false,
+            "latency_ms": 0,
+            "cached": false,
+            "stale": false,
+            "truncated": false
+          },
+          {
+            "call_id": "15ea70e1-d6b5-49d5-9224-2dd29cc26738-4",
+            "tool_name": "rca_inspect_traces",
+            "tool_version": "rca-autonomous-agent-v1",
+            "args_hash": "5d69e5f1f3be1ffb54a77593f94785a17cb8331116a8b1df149dfd541fe5f680",
+            "status": "success",
+            "evidence_refs": [
+              "rca-3cc10cccb6:traces:checkoutservice"
+            ],
+            "retryable": false,
+            "latency_ms": 0,
+            "cached": false,
+            "stale": false,
+            "truncated": false
+          },
+          {
+            "call_id": "15ea70e1-d6b5-49d5-9224-2dd29cc26738-5",
+            "tool_name": "rca_inspect_history",
+            "tool_version": "rca-autonomous-agent-v1",
+            "args_hash": "5d69e5f1f3be1ffb54a77593f94785a17cb8331116a8b1df149dfd541fe5f680",
+            "status": "success",
+            "evidence_refs": [
+              "reference:rca-97bf1c72d2",
+              "reference:rca-e375de9cb8",
+              "reference:rca-e425dee775"
+            ],
+            "retryable": false,
+            "latency_ms": 0,
+            "cached": false,
+            "stale": false,
+            "truncated": false
+          },
+          {
+            "call_id": "15ea70e1-d6b5-49d5-9224-2dd29cc26738-6",
+            "tool_name": "rca_inspect_metrics",
+            "tool_version": "rca-autonomous-agent-v1",
+            "args_hash": "b10c59f41447fb301ab56ed314024ff8f5dd47e57c71bb93b344bb0f47f730d2",
+            "status": "success",
+            "evidence_refs": [
+              "rca-3cc10cccb6:metric:currencyservice:cpu",
+              "rca-3cc10cccb6:metric:currencyservice:mem",
+              "rca-3cc10cccb6:metric:currencyservice:latency-90",
+              "rca-3cc10cccb6:metric:currencyservice:socket",
+              "rca-3cc10cccb6:metric:currencyservice:workload"
+            ],
+            "retryable": false,
+            "latency_ms": 0,
+            "cached": false,
+            "stale": false,
+            "truncated": false
+          }
+        ],
+        "trace_id": "15ea70e1-d6b5-49d5-9224-2dd29cc26738",
+        "dataset_sha256": "1e10d5a275e2942b07dac5483b299cbf4f0e444a051a1373db048c0084281a30",
+        "elapsed_ms": 18820,
+        "audit_storage": "local_run_report",
+        "agent": {
+          "version": "rca-autonomous-agent-v1",
+          "model": "qwen-turbo",
+          "prompt_sha256": "cdc7945e0af2b22362e77312751393ed2c29c4f5559eeefb0779029ace07050b",
+          "implementation_sha256": "7e3f55c0dc18996260b4507bd56d7607299b579fb0a0467a76877ffd97a80106",
+          "steps": [
+            {
+              "round": 1,
+              "decision": {
+                "action": "tool",
+                "update": "开始分析，首先检查整体服务状态以获取初步线索",
+                "hypotheses": [],
+                "tool": {
+                  "name": "rca_inspect_overview",
+                  "service": "all"
+                }
+              },
+              "validation": "accepted",
+              "observation": [
+                {
+                  "id": "overview:adservice",
+                  "service": "adservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.963767,
+                    "diskio": 0.916621,
+                    "latency-50": 0.995647,
+                    "latency-90": 1.000516,
+                    "mem": 1.00706,
+                    "socket": 1,
+                    "workload": 0.977757
+                  }
+                },
+                {
+                  "id": "overview:cartservice",
+                  "service": "cartservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.980169,
+                    "latency-50": 0.9789,
+                    "latency-90": 0.822996,
+                    "mem": 0.998781,
+                    "socket": 1,
+                    "workload": 0.946687
+                  }
+                },
+                {
+                  "id": "overview:checkoutservice",
+                  "service": "checkoutservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 27.901583,
+                    "diskio": 1,
+                    "latency-50": 2.128305,
+                    "latency-90": 1.722961,
+                    "mem": 1.34961,
+                    "socket": 1.110011,
+                    "workload": 0.76755
+                  }
+                },
+                {
+                  "id": "overview:currencyservice",
+                  "service": "currencyservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.976731,
+                    "error": 1,
+                    "latency-50": 0.990919,
+                    "latency-90": 0.830016,
+                    "mem": 1.006602,
+                    "socket": 1,
+                    "workload": 0.976528
+                  }
+                },
+                {
+                  "id": "overview:emailservice",
+                  "service": "emailservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.960919,
+                    "diskio": 1,
+                    "latency-50": 1,
+                    "latency-90": 1,
+                    "mem": 1.000744,
+                    "socket": 1,
+                    "workload": 0.752243
+                  }
+                },
+                {
+                  "id": "overview:frontend",
+                  "service": "frontend",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.965154,
+                    "latency-50": 0.977068,
+                    "latency-90": 1.009284,
+                    "mem": 1.004503,
+                    "socket": 1,
+                    "workload": 0.935939
+                  }
+                },
+                {
+                  "id": "overview:frontend-external",
+                  "service": "frontend-external",
+                  "kind": "overview",
+                  "data": {
+                    "error": 1,
+                    "workload": 0.969997
+                  }
+                },
+                {
+                  "id": "overview:paymentservice",
+                  "service": "paymentservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.85008,
+                    "latency-50": 0.936634,
+                    "latency-90": 0.976126,
+                    "mem": 1.005814,
+                    "socket": 1,
+                    "workload": 0.790279
+                  }
+                },
+                {
+                  "id": "overview:productcatalogservice",
+                  "service": "productcatalogservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.923285,
+                    "diskio": 1,
+                    "latency-50": 0.982984,
+                    "latency-90": 0.997006,
+                    "mem": 0.994244,
+                    "socket": 1,
+                    "workload": 0.927979
+                  }
+                },
+                {
+                  "id": "overview:recommendationservice",
+                  "service": "recommendationservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.945175,
+                    "diskio": 1,
+                    "latency-50": 1.006307,
+                    "latency-90": 1.007179,
+                    "mem": 1,
+                    "socket": 1,
+                    "workload": 0.942027
+                  }
+                },
+                {
+                  "id": "overview:redis",
+                  "service": "redis",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.966231,
+                    "diskio": 1,
+                    "mem": 1.00136,
+                    "socket": 1
+                  }
+                },
+                {
+                  "id": "overview:shippingservice",
+                  "service": "shippingservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.938425,
+                    "latency-50": 1.002196,
+                    "latency-90": 1.001124,
+                    "mem": 1.002326,
+                    "socket": 1,
+                    "workload": 0.849578
+                  }
+                }
+              ],
+              "tool_status": "success",
+              "model_ms": 675
+            },
+            {
+              "round": 2,
+              "decision": {
+                "action": "tool",
+                "update": "根据整体状态观测，发现checkoutservice的CPU和内存指标显著异常，需进一步检查其详细指标和日志以确认是否存在资源压力或延迟问题",
+                "hypotheses": [
+                  {
+                    "service": "checkoutservice",
+                    "fault": "cpu",
+                    "status": "investigating",
+                    "evidence_ids": [
+                      "overview:checkoutservice"
+                    ]
+                  },
+                  {
+                    "service": "checkoutservice",
+                    "fault": "mem",
+                    "status": "investigating",
+                    "evidence_ids": [
+                      "overview:checkoutservice"
+                    ]
+                  },
+                  {
+                    "service": "checkoutservice",
+                    "fault": "delay",
+                    "status": "investigating",
+                    "evidence_ids": [
+                      "overview:checkoutservice"
+                    ]
+                  }
+                ],
+                "tool": {
+                  "name": "rca_inspect_metrics",
+                  "service": "checkoutservice"
+                }
+              },
+              "validation": "accepted",
+              "observation": [
+                {
+                  "id": "rca-3cc10cccb6:metric:checkoutservice:cpu",
+                  "service": "checkoutservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "checkoutservice_cpu",
+                    "current": 11.803142,
+                    "current_count": 307,
+                    "id": "rca-3cc10cccb6:metric:checkoutservice:cpu",
+                    "log_change": 4.802275,
+                    "missing_fraction": 0.003226,
+                    "ratio": 27.901583,
+                    "reference": 0.418988,
+                    "reference_count": 310,
+                    "reference_cv": 0.810013,
+                    "sparkline": [
+                      1.432155,
+                      0.395622,
+                      0.368056,
+                      0.457884,
+                      0.389221,
+                      0.490216,
+                      0.413524,
+                      0.39291,
+                      0.34311,
+                      0.343816,
+                      20.004277,
+                      18.067498
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-3cc10cccb6:metric:checkoutservice:mem",
+                  "service": "checkoutservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "checkoutservice_mem",
+                    "current": 17752064,
+                    "current_count": 310,
+                    "id": "rca-3cc10cccb6:metric:checkoutservice:mem",
+                    "log_change": 0.432543,
+                    "missing_fraction": 0,
+                    "ratio": 1.34961,
+                    "reference": 13119488,
+                    "reference_count": 310,
+                    "reference_cv": 0.036637,
+                    "sparkline": [
+                      13074432,
+                      13139968,
+                      13230080,
+                      13148160,
+                      13221888,
+                      13242368,
+                      13246464,
+                      13373440,
+                      13500416,
+                      13209600,
+                      17833984,
+                      18415616
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-3cc10cccb6:metric:checkoutservice:latency-90",
+                  "service": "checkoutservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "checkoutservice_latency-90",
+                    "current": 0.375,
+                    "current_count": 310,
+                    "id": "rca-3cc10cccb6:metric:checkoutservice:latency-90",
+                    "log_change": 0.78489,
+                    "missing_fraction": 0,
+                    "ratio": 1.722961,
+                    "reference": 0.216739,
+                    "reference_count": 310,
+                    "reference_cv": 0.023825,
+                    "sparkline": [
+                      0.21413,
+                      0.223,
+                      0.213438,
+                      0.217391,
+                      0.21625,
+                      0.204118,
+                      0.211667,
+                      0.211667,
+                      0.21025,
+                      0.2875,
+                      0.405,
+                      0.390353
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-3cc10cccb6:metric:checkoutservice:socket",
+                  "service": "checkoutservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "checkoutservice_socket",
+                    "current": 10,
+                    "current_count": 310,
+                    "id": "rca-3cc10cccb6:metric:checkoutservice:socket",
+                    "log_change": 0.150574,
+                    "missing_fraction": 0,
+                    "ratio": 1.110011,
+                    "reference": 9,
+                    "reference_count": 310,
+                    "reference_cv": 0,
+                    "sparkline": [
+                      9,
+                      9,
+                      9,
+                      9,
+                      9,
+                      9,
+                      9,
+                      9,
+                      9,
+                      9,
+                      11,
+                      10
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-3cc10cccb6:metric:checkoutservice:workload",
+                  "service": "checkoutservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "checkoutservice_workload",
+                    "current": 0.867,
+                    "current_count": 310,
+                    "id": "rca-3cc10cccb6:metric:checkoutservice:workload",
+                    "log_change": -0.381668,
+                    "missing_fraction": 0,
+                    "ratio": 0.76755,
+                    "reference": 1.133,
+                    "reference_count": 310,
+                    "reference_cv": 0.244816,
+                    "sparkline": [
+                      1.133,
+                      1.133,
+                      0.933,
+                      1.333,
+                      1.133,
+                      1.267,
+                      1.067,
+                      1.067,
+                      0.667,
+                      0.867,
+                      1.267,
+                      0.533
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                }
+              ],
+              "tool_status": "success",
+              "model_ms": 1469
+            },
+            {
+              "round": 3,
+              "decision": {
+                "action": "tool",
+                "update": "checkoutservice的CPU和内存指标显著高于正常范围，同时延迟指标也有所上升，需进一步检查其日志以确认是否存在资源压力或异常行为",
+                "hypotheses": [
+                  {
+                    "service": "checkoutservice",
+                    "fault": "cpu",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-3cc10cccb6:metric:checkoutservice:cpu"
+                    ]
+                  },
+                  {
+                    "service": "checkoutservice",
+                    "fault": "mem",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-3cc10cccb6:metric:checkoutservice:mem"
+                    ]
+                  },
+                  {
+                    "service": "checkoutservice",
+                    "fault": "delay",
+                    "status": "investigating",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-3cc10cccb6:metric:checkoutservice:latency-90"
+                    ]
+                  }
+                ],
+                "tool": {
+                  "name": "rca_inspect_logs",
+                  "service": "checkoutservice"
+                }
+              },
+              "validation": "accepted",
+              "observation": [
+                {
+                  "id": "rca-3cc10cccb6:logs:checkoutservice",
+                  "service": "checkoutservice",
+                  "kind": "logs",
+                  "data": {
+                    "current_count": 368,
+                    "examples": [
+                      {
+                        "message": "[PlaceOrder] user_id=\"eab70f3e-9fb4-449e-9d0b-52cce7cc5bfc\" user_currency=\"CAD",
+                        "timestamp": 1708475261
+                      },
+                      {
+                        "message": "payment went through (transaction_id: 935d87c9-c15a-4987-82cc-661183004e62)",
+                        "timestamp": 1708475262
+                      }
+                    ],
+                    "id": "rca-3cc10cccb6:logs:checkoutservice",
+                    "keyword_matches": 0,
+                    "reference_count": 498
+                  }
+                }
+              ],
+              "tool_status": "success",
+              "model_ms": 2017
+            },
+            {
+              "round": 4,
+              "decision": {
+                "action": "tool",
+                "update": "checkoutservice的日志中未发现明显错误关键词，但存在大量用户订单和支付信息，需进一步检查其追踪数据以确认是否存在延迟问题",
+                "hypotheses": [
+                  {
+                    "service": "checkoutservice",
+                    "fault": "cpu",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-3cc10cccb6:metric:checkoutservice:cpu"
+                    ]
+                  },
+                  {
+                    "service": "checkoutservice",
+                    "fault": "mem",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-3cc10cccb6:metric:checkoutservice:mem"
+                    ]
+                  },
+                  {
+                    "service": "checkoutservice",
+                    "fault": "delay",
+                    "status": "investigating",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-3cc10cccb6:metric:checkoutservice:latency-90"
+                    ]
+                  }
+                ],
+                "tool": {
+                  "name": "rca_inspect_traces",
+                  "service": "checkoutservice"
+                }
+              },
+              "validation": "accepted",
+              "observation": [
+                {
+                  "id": "rca-3cc10cccb6:traces:checkoutservice",
+                  "service": "checkoutservice",
+                  "kind": "traces",
+                  "data": {
+                    "current_p95": 95666.6,
+                    "current_spans": 435,
+                    "id": "rca-3cc10cccb6:traces:checkoutservice",
+                    "nonzero_status_count": 0,
+                    "reference_p95": 74387.3,
+                    "reference_spans": 2234,
+                    "sample_operation": "opentelemetry.proto.collector.trace.v1.TraceService/Export",
+                    "sample_span": "333bf344c02b0cfa",
+                    "sample_start_ms": 1708475261288,
+                    "sample_trace": "357ea3e31ebec47b4d41b0db840b70f9",
+                    "unit": "source_native_unverified"
+                  }
+                }
+              ],
+              "tool_status": "success",
+              "model_ms": 1544
+            },
+            {
+              "round": 5,
+              "decision": {
+                "action": "tool",
+                "update": "checkoutservice的追踪数据显示延迟有所增加，但无非零状态代码，需进一步检查其历史参考模式以确认是否为异常情况",
+                "hypotheses": [
+                  {
+                    "service": "checkoutservice",
+                    "fault": "cpu",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-3cc10cccb6:metric:checkoutservice:cpu"
+                    ]
+                  },
+                  {
+                    "service": "checkoutservice",
+                    "fault": "mem",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-3cc10cccb6:metric:checkoutservice:mem"
+                    ]
+                  },
+                  {
+                    "service": "checkoutservice",
+                    "fault": "delay",
+                    "status": "investigating",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-3cc10cccb6:metric:checkoutservice:latency-90",
+                      "rca-3cc10cccb6:traces:checkoutservice"
+                    ]
+                  }
+                ],
+                "tool": {
+                  "name": "rca_inspect_history",
+                  "service": "checkoutservice"
+                }
+              },
+              "validation": "accepted",
+              "observation": [
+                {
+                  "id": "reference:rca-97bf1c72d2",
+                  "service": "checkoutservice",
+                  "kind": "history",
+                  "data": {
+                    "distance": 0.41047720000000015,
+                    "historical_fault": "cpu",
+                    "metrics": {
+                      "cpu": {
+                        "column": "checkoutservice_cpu",
+                        "current": 19.994266,
+                        "current_count": 481,
+                        "id": "rca-97bf1c72d2:metric:checkoutservice:cpu",
+                        "log_change": 5.565337,
+                        "missing_fraction": 0,
+                        "ratio": 47.351468,
+                        "reference": 0.418159,
+                        "reference_count": 481,
+                        "reference_cv": 0.2096,
+                        "sparkline": [
+                          0.418141,
+                          0.460308,
+                          0.358262,
+                          0.509059,
+                          0.398019,
+                          0.464196,
+                          16.48238,
+                          20.00305,
+                          19.98359,
+                          20.001394,
+                          19.989891,
+                          19.994266
+                        ],
+                        "unit": "source_native_unverified"
+                      },
+                      "latency-50": {
+                        "column": "checkoutservice_latency-50",
+                        "current": 0.31875,
+                        "current_count": 481,
+                        "id": "rca-97bf1c72d2:metric:checkoutservice:latency-50",
+                        "log_change": 0.069709,
+                        "missing_fraction": 0,
+                        "ratio": 1.049505,
+                        "reference": 0.303571,
+                        "reference_count": 481,
+                        "reference_cv": 0.214341,
+                        "sparkline": [
+                          0.354167,
+                          0.347273,
+                          0.288462,
+                          0.282407,
+                          0.229404,
+                          0.278799,
+                          0.308772,
+                          0.294901,
+                          0.332428,
+                          0.317708,
+                          0.33631,
+                          0.295049
+                        ],
+                        "unit": "source_native_unverified"
+                      },
+                      "latency-90": {
+                        "column": "checkoutservice_latency-90",
+                        "current": 0.857143,
+                        "current_count": 481,
+                        "id": "rca-97bf1c72d2:metric:checkoutservice:latency-90",
+                        "log_change": 0.071359,
+                        "missing_fraction": 0,
+                        "ratio": 1.050706,
+                        "reference": 0.815385,
+                        "reference_count": 481,
+                        "reference_cv": 0.347954,
+                        "sparkline": [
+                          0.941667,
+                          0.825253,
+                          0.55625,
+                          0.740909,
+                          0.622321,
+                          0.789444,
+                          0.817262,
+                          0.77143,
+                          0.73125,
+                          0.768182,
+                          0.936667,
+                          0.907739
+                        ],
+                        "unit": "source_native_unverified"
+                      },
+                      "mem": {
+                        "column": "checkoutservice_mem",
+                        "current": 16359424,
+                        "current_count": 481,
+                        "id": "rca-97bf1c72d2:metric:checkoutservice:mem",
+                        "log_change": 0.490335,
+                        "missing_fraction": 0,
+                        "ratio": 1.404771,
+                        "reference": 11612160,
+                        "reference_count": 481,
+                        "reference_cv": 0.015824,
+                        "sparkline": [
+                          11702272,
+                          11837440,
+                          11481088,
+                          11579392,
+                          11898880,
+                          11923456,
+                          16535552,
+                          16048128,
+                          16297984,
+                          16269312,
+                          16207872,
+                          16564224
+                        ],
+                        "unit": "source_native_unverified"
+                      },
+                      "socket": {
+                        "column": "checkoutservice_socket",
+                        "current": 11,
+                        "current_count": 481,
+                        "id": "rca-97bf1c72d2:metric:checkoutservice:socket",
+                        "log_change": 0.286907,
+                        "missing_fraction": 0,
+                        "ratio": 1.220022,
+                        "reference": 9,
+                        "reference_count": 481,
+                        "reference_cv": 0,
+                        "sparkline": [
+                          9,
+                          9,
+                          9,
+                          9,
+                          9,
+                          9,
+                          11,
+                          11,
+                          11,
+                          11,
+                          11,
+                          11
+                        ],
+                        "unit": "source_native_unverified"
+                      },
+                      "workload": {
+                        "column": "checkoutservice_workload",
+                        "current": 0.867,
+                        "current_count": 481,
+                        "id": "rca-97bf1c72d2:metric:checkoutservice:workload",
+                        "log_change": 0,
+                        "missing_fraction": 0,
+                        "ratio": 1,
+                        "reference": 0.867,
+                        "reference_count": 481,
+                        "reference_cv": 0.374442,
+                        "sparkline": [
+                          0.933,
+                          0.8665,
+                          0.667,
+                          1.0335,
+                          0.867,
+                          0.9665,
+                          1.133,
+                          0.9,
+                          0.867,
+                          0.8,
+                          0.8335,
+                          1
+                        ],
+                        "unit": "source_native_unverified"
+                      }
+                    },
+                    "provenance": "RCAEval public reference run; not current-case truth",
+                    "repair_outcome": "unknown"
+                  }
+                },
+                {
+                  "id": "reference:rca-e375de9cb8",
+                  "service": "checkoutservice",
+                  "kind": "history",
+                  "data": {
+                    "distance": 1.6273136000000001,
+                    "historical_fault": "mem",
+                    "metrics": {
+                      "cpu": {
+                        "column": "checkoutservice_cpu",
+                        "current": 19.967371,
+                        "current_count": 481,
+                        "id": "rca-e375de9cb8:metric:checkoutservice:cpu",
+                        "log_change": 5.65271,
+                        "missing_fraction": 0,
+                        "ratio": 50.307798,
+                        "reference": 0.393052,
+                        "reference_count": 481,
+                        "reference_cv": 0.180604,
+                        "sparkline": [
+                          0.442916,
+                          0.343554,
+                          0.4043,
+                          0.393052,
+                          0.412612,
+                          0.482102,
+                          16.289168,
+                          19.943695,
+                          20.027203,
+                          19.9736,
+                          19.967371,
+                          19.937089
+                        ],
+                        "unit": "source_native_unverified"
+                      },
+                      "latency-50": {
+                        "column": "checkoutservice_latency-50",
+                        "current": 0.875,
+                        "current_count": 481,
+                        "id": "rca-e375de9cb8:metric:checkoutservice:latency-50",
+                        "log_change": 2.498548,
+                        "missing_fraction": 0,
+                        "ratio": 5.651163,
+                        "reference": 0.153571,
+                        "reference_count": 481,
+                        "reference_cv": 0.089917,
+                        "sparkline": [
+                          0.158929,
+                          0.159634,
+                          0.153175,
+                          0.138147,
+                          0.153256,
+                          0.138636,
+                          0.41875,
+                          0.735294,
+                          0.9375,
+                          1.067969,
+                          0.83125,
+                          0.857143
+                        ],
+                        "unit": "source_native_unverified"
+                      },
+                      "latency-90": {
+                        "column": "checkoutservice_latency-90",
+                        "current": 2.216667,
+                        "current_count": 481,
+                        "id": "rca-e375de9cb8:metric:checkoutservice:latency-90",
+                        "log_change": 3.21338,
+                        "missing_fraction": 0,
+                        "ratio": 9.275207,
+                        "reference": 0.236875,
+                        "reference_count": 481,
+                        "reference_cv": 0.104107,
+                        "sparkline": [
+                          0.240357,
+                          0.231927,
+                          0.259034,
+                          0.237063,
+                          0.231364,
+                          0.245313,
+                          2.183516,
+                          2.135714,
+                          2.291667,
+                          2.245652,
+                          2.121667,
+                          2.130724
+                        ],
+                        "unit": "source_native_unverified"
+                      },
+                      "mem": {
+                        "column": "checkoutservice_mem",
+                        "current": 268435456,
+                        "current_count": 481,
+                        "id": "rca-e375de9cb8:metric:checkoutservice:mem",
+                        "log_change": 4.542796,
+                        "missing_fraction": 0,
+                        "ratio": 23.30869,
+                        "reference": 11407360,
+                        "reference_count": 481,
+                        "reference_cv": 0.014704,
+                        "sparkline": [
+                          11464704,
+                          11358208,
+                          11329536,
+                          11411456,
+                          11177984,
+                          11419648,
+                          268431360,
+                          268427264,
+                          268435456,
+                          268423168,
+                          268435456,
+                          206082048
+                        ],
+                        "unit": "source_native_unverified"
+                      },
+                      "socket": {
+                        "column": "checkoutservice_socket",
+                        "current": 12,
+                        "current_count": 481,
+                        "id": "rca-e375de9cb8:metric:checkoutservice:socket",
+                        "log_change": 0.411462,
+                        "missing_fraction": 0,
+                        "ratio": 1.330033,
+                        "reference": 9,
+                        "reference_count": 481,
+                        "reference_cv": 0,
+                        "sparkline": [
+                          9,
+                          9,
+                          9,
+                          9,
+                          9,
+                          9,
+                          12,
+                          12,
+                          12,
+                          12,
+                          12,
+                          12
+                        ],
+                        "unit": "source_native_unverified"
+                      },
+                      "workload": {
+                        "column": "checkoutservice_workload",
+                        "current": 0.933,
+                        "current_count": 481,
+                        "id": "rca-e375de9cb8:metric:checkoutservice:workload",
+                        "log_change": 0.104834,
+                        "missing_fraction": 0,
+                        "ratio": 1.075371,
+                        "reference": 0.867,
+                        "reference_count": 481,
+                        "reference_cv": 0.312273,
+                        "sparkline": [
+                          1.067,
+                          0.733,
+                          0.867,
+                          1.067,
+                          0.733,
+                          1.133,
+                          1.067,
+                          0.8665,
+                          0.9,
+                          1.2,
+                          0.867,
+                          0.867
+                        ],
+                        "unit": "source_native_unverified"
+                      }
+                    },
+                    "provenance": "RCAEval public reference run; not current-case truth",
+                    "repair_outcome": "unknown"
+                  }
+                },
+                {
+                  "id": "reference:rca-e425dee775",
+                  "service": "checkoutservice",
+                  "kind": "history",
+                  "data": {
+                    "distance": 1.7919848000000003,
+                    "historical_fault": "delay",
+                    "metrics": {
+                      "cpu": {
+                        "column": "checkoutservice_cpu",
+                        "current": 0.456336,
+                        "current_count": 481,
+                        "id": "rca-e425dee775:metric:checkoutservice:cpu",
+                        "log_change": 0.090545,
+                        "missing_fraction": 0,
+                        "ratio": 1.064773,
+                        "reference": 0.428315,
+                        "reference_count": 481,
+                        "reference_cv": 0.171708,
+                        "sparkline": [
+                          0.479759,
+                          0.407633,
+                          0.431059,
+                          0.426037,
+                          0.473155,
+                          0.4145,
+                          0.496125,
+                          0.527692,
+                          0.537327,
+                          0.421285,
+                          0.454484,
+                          0.491035
+                        ],
+                        "unit": "source_native_unverified"
+                      },
+                      "latency-50": {
+                        "column": "checkoutservice_latency-50",
+                        "current": 2.21875,
+                        "current_count": 481,
+                        "id": "rca-e425dee775:metric:checkoutservice:latency-50",
+                        "log_change": 4.3337,
+                        "missing_fraction": 0,
+                        "ratio": 20.163866,
+                        "reference": 0.109,
+                        "reference_count": 481,
+                        "reference_cv": 0.178925,
+                        "sparkline": [
+                          0.130556,
+                          0.092188,
+                          0.107143,
+                          0.10483,
+                          0.08875,
+                          0.112745,
+                          1.972973,
+                          2.225,
+                          2.2,
+                          2.217134,
+                          2.279306,
+                          2.21688
+                        ],
+                        "unit": "source_native_unverified"
+                      },
+                      "latency-90": {
+                        "column": "checkoutservice_latency-90",
+                        "current": 4.352941,
+                        "current_count": 481,
+                        "id": "rca-e425dee775:metric:checkoutservice:latency-90",
+                        "log_change": 4.273259,
+                        "missing_fraction": 0,
+                        "ratio": 19.33655,
+                        "reference": 0.223,
+                        "reference_count": 481,
+                        "reference_cv": 0.040542,
+                        "sparkline": [
+                          0.228108,
+                          0.216591,
+                          0.221579,
+                          0.220966,
+                          0.215,
+                          0.228917,
+                          3.909091,
+                          4.355263,
+                          4.333333,
+                          4.354688,
+                          4.395433,
+                          4.348346
+                        ],
+                        "unit": "source_native_unverified"
+                      },
+                      "mem": {
+                        "column": "checkoutservice_mem",
+                        "current": 11845632,
+                        "current_count": 481,
+                        "id": "rca-e425dee775:metric:checkoutservice:mem",
+                        "log_change": 0.013399,
+                        "missing_fraction": 0,
+                        "ratio": 1.009331,
+                        "reference": 11735040,
+                        "reference_count": 481,
+                        "reference_cv": 0.01176,
+                        "sparkline": [
+                          11669504,
+                          11685888,
+                          11776000,
+                          11825152,
+                          11972608,
+                          11673600,
+                          11685888,
+                          11804672,
+                          11984896,
+                          11980800,
+                          11763712,
+                          11845632
+                        ],
+                        "unit": "source_native_unverified"
+                      },
+                      "socket": {
+                        "column": "checkoutservice_socket",
+                        "current": 9,
+                        "current_count": 481,
+                        "id": "rca-e425dee775:metric:checkoutservice:socket",
+                        "log_change": 0,
+                        "missing_fraction": 0,
+                        "ratio": 1,
+                        "reference": 9,
+                        "reference_count": 481,
+                        "reference_cv": 0,
+                        "sparkline": [
+                          9,
+                          9,
+                          9,
+                          9,
+                          9,
+                          9,
+                          9,
+                          9,
+                          9,
+                          9,
+                          9,
+                          9
+                        ],
+                        "unit": "source_native_unverified"
+                      },
+                      "workload": {
+                        "column": "checkoutservice_workload",
+                        "current": 0.933,
+                        "current_count": 481,
+                        "id": "rca-e425dee775:metric:checkoutservice:workload",
+                        "log_change": -0.191561,
+                        "missing_fraction": 0,
+                        "ratio": 0.875658,
+                        "reference": 1.067,
+                        "reference_count": 481,
+                        "reference_cv": 0.256242,
+                        "sparkline": [
+                          1.133,
+                          1.067,
+                          0.933,
+                          0.933,
+                          1.133,
+                          0.867,
+                          0.933,
+                          1.067,
+                          1.1,
+                          0.8335,
+                          0.867,
+                          0.933
+                        ],
+                        "unit": "source_native_unverified"
+                      }
+                    },
+                    "provenance": "RCAEval public reference run; not current-case truth",
+                    "repair_outcome": "unknown"
+                  }
+                }
+              ],
+              "tool_status": "success",
+              "model_ms": 1887
+            },
+            {
+              "round": 6,
+              "decision": {
+                "action": "tool",
+                "update": "checkoutservice的历史参考模式显示CPU和内存使用率异常高，但延迟问题未被历史案例明确关联，需进一步确认是否为当前故障原因",
+                "hypotheses": [
+                  {
+                    "service": "checkoutservice",
+                    "fault": "cpu",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-3cc10cccb6:metric:checkoutservice:cpu",
+                      "reference:rca-97bf1c72d2",
+                      "reference:rca-e375de9cb8"
+                    ]
+                  },
+                  {
+                    "service": "checkoutservice",
+                    "fault": "mem",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-3cc10cccb6:metric:checkoutservice:mem",
+                      "reference:rca-97bf1c72d2",
+                      "reference:rca-e375de9cb8"
+                    ]
+                  },
+                  {
+                    "service": "checkoutservice",
+                    "fault": "delay",
+                    "status": "weakened",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-3cc10cccb6:metric:checkoutservice:latency-90",
+                      "rca-3cc10cccb6:traces:checkoutservice",
+                      "reference:rca-e425dee775"
+                    ]
+                  }
+                ],
+                "tool": {
+                  "name": "rca_inspect_metrics",
+                  "service": "currencyservice"
+                }
+              },
+              "validation": "accepted",
+              "observation": [
+                {
+                  "id": "rca-3cc10cccb6:metric:currencyservice:cpu",
+                  "service": "currencyservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "currencyservice_cpu",
+                    "current": 30.448534,
+                    "current_count": 306,
+                    "id": "rca-3cc10cccb6:metric:currencyservice:cpu",
+                    "log_change": -0.033966,
+                    "missing_fraction": 0.004301,
+                    "ratio": 0.976731,
+                    "reference": 31.181339,
+                    "reference_count": 310,
+                    "reference_cv": 0.130125,
+                    "sparkline": [
+                      31.109975,
+                      31.836466,
+                      31.432192,
+                      31.044077,
+                      31.584739,
+                      33.039903,
+                      31.316593,
+                      30.676963,
+                      30.448534,
+                      31.193738,
+                      31.804587,
+                      25.434121
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-3cc10cccb6:metric:currencyservice:mem",
+                  "service": "currencyservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "currencyservice_mem",
+                    "current": 44523520,
+                    "current_count": 310,
+                    "id": "rca-3cc10cccb6:metric:currencyservice:mem",
+                    "log_change": 0.009493,
+                    "missing_fraction": 0,
+                    "ratio": 1.006602,
+                    "reference": 44228608,
+                    "reference_count": 310,
+                    "reference_cv": 0.008381,
+                    "sparkline": [
+                      44310528,
+                      44572672,
+                      44183552,
+                      44163072,
+                      44806144,
+                      44654592,
+                      44744704,
+                      44445696,
+                      44351488,
+                      44265472,
+                      45846528,
+                      44523520
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-3cc10cccb6:metric:currencyservice:latency-90",
+                  "service": "currencyservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "currencyservice_latency-90",
+                    "current": 0.029075,
+                    "current_count": 310,
+                    "id": "rca-3cc10cccb6:metric:currencyservice:latency-90",
+                    "log_change": -0.268789,
+                    "missing_fraction": 0,
+                    "ratio": 0.830016,
+                    "reference": 0.035102,
+                    "reference_count": 310,
+                    "reference_cv": 0.119964,
+                    "sparkline": [
+                      0.035223,
+                      0.036151,
+                      0.033113,
+                      0.033408,
+                      0.025106,
+                      0.033371,
+                      0.029784,
+                      0.032034,
+                      0.028201,
+                      0.033615,
+                      0.03066,
+                      0.028542
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-3cc10cccb6:metric:currencyservice:socket",
+                  "service": "currencyservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "currencyservice_socket",
+                    "current": 4,
+                    "current_count": 310,
+                    "id": "rca-3cc10cccb6:metric:currencyservice:socket",
+                    "log_change": 0,
+                    "missing_fraction": 0,
+                    "ratio": 1,
+                    "reference": 4,
+                    "reference_count": 310,
+                    "reference_cv": 0,
+                    "sparkline": [
+                      4,
+                      4,
+                      4,
+                      4,
+                      4,
+                      4,
+                      4,
+                      4,
+                      4,
+                      4,
+                      4,
+                      2
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-3cc10cccb6:metric:currencyservice:workload",
+                  "service": "currencyservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "currencyservice_workload",
+                    "current": 76.8665,
+                    "current_count": 310,
+                    "id": "rca-3cc10cccb6:metric:currencyservice:workload",
+                    "log_change": -0.034267,
+                    "missing_fraction": 0,
+                    "ratio": 0.976528,
+                    "reference": 78.733,
+                    "reference_count": 310,
+                    "reference_cv": 0.063707,
+                    "sparkline": [
+                      74.667,
+                      80.267,
+                      78.733,
+                      80.2,
+                      76.467,
+                      78.133,
+                      75.987,
+                      82.267,
+                      77.733,
+                      82.6,
+                      77.2,
+                      56.467
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                }
+              ],
+              "tool_status": "success",
+              "model_ms": 2479
+            },
+            {
+              "round": 7,
+              "decision": {
+                "action": "finish",
+                "update": "根据现有证据，checkoutservice的CPU和内存指标显著异常，但延迟问题未被历史案例明确关联。currencyservice的指标在正常范围内，但未发现明显故障线索。需要更多数据来确认故障原因。",
+                "hypotheses": null,
+                "final": {
+                  "status": "insufficient_evidence",
+                  "summary": "根据现有证据，checkoutservice的CPU和内存指标显著异常，但延迟问题未被历史案例明确关联。currencyservice的指标在正常范围内，但未发现明显故障线索。需要更多数据来确认故障原因。",
+                  "candidates": [
+                    {
+                      "service": "checkoutservice",
+                      "fault": "cpu",
+                      "evidence_ids": [
+                        "overview:checkoutservice",
+                        "rca-3cc10cccb6:metric:checkoutservice:cpu",
+                        "reference:rca-97bf1c72d2",
+                        "reference:rca-e375de9cb8"
+                      ],
+                      "reason": "CPU指标显著高于正常范围，历史参考模式显示类似异常情况",
+                      "uncertainties": [
+                        "无法确定CPU异常是否为当前故障的根本原因"
+                      ],
+                      "checks": [
+                        "进一步检查checkoutservice的详细日志和追踪数据以确认是否存在资源压力或异常行为"
+                      ]
+                    },
+                    {
+                      "service": "checkoutservice",
+                      "fault": "mem",
+                      "evidence_ids": [
+                        "overview:checkoutservice",
+                        "rca-3cc10cccb6:metric:checkoutservice:mem",
+                        "reference:rca-97bf1c72d2",
+                        "reference:rca-e375de9cb8"
+                      ],
+                      "reason": "内存指标显著高于正常范围，历史参考模式显示类似异常情况",
+                      "uncertainties": [
+                        "无法确定内存异常是否为当前故障的根本原因"
+                      ],
+                      "checks": [
+                        "进一步检查checkoutservice的详细日志和追踪数据以确认是否存在资源压力或异常行为"
+                      ]
+                    },
+                    {
+                      "service": "checkoutservice",
+                      "fault": "delay",
+                      "evidence_ids": [
+                        "overview:checkoutservice",
+                        "rca-3cc10cccb6:metric:checkoutservice:latency-90",
+                        "rca-3cc10cccb6:traces:checkoutservice",
+                        "reference:rca-e425dee775"
+                      ],
+                      "reason": "延迟指标有所上升，但未被历史案例明确关联",
+                      "uncertainties": [
+                        "无法确定延迟是否为当前故障的根本原因"
+                      ],
+                      "checks": [
+                        "进一步检查checkoutservice的详细日志和追踪数据以确认是否存在延迟问题"
+                      ]
+                    }
+                  ],
+                  "questions": [
+                    "是否有其他服务或指标需要进一步检查？"
+                  ]
+                }
+              },
+              "validation": "invalid_final_status",
+              "model_ms": 4116
+            },
+            {
+              "round": 8,
+              "decision": {
+                "action": "finish",
+                "update": "根据现有证据，checkoutservice的CPU和内存指标显著异常，但延迟问题未被历史案例明确关联。currencyservice的指标在正常范围内，但未发现明显故障线索。需要更多数据来确认故障原因。",
+                "hypotheses": null,
+                "final": {
+                  "status": "insufficient_evidence",
+                  "summary": "根据现有证据，checkoutservice的CPU和内存指标显著异常，但延迟问题未被历史案例明确关联。currencyservice的指标在正常范围内，但未发现明显故障线索。需要更多数据来确认故障原因。",
+                  "candidates": [
+                    {
+                      "service": "checkoutservice",
+                      "fault": "cpu",
+                      "evidence_ids": [
+                        "overview:checkoutservice",
+                        "rca-3cc10cccb6:metric:checkoutservice:cpu",
+                        "reference:rca-97bf1c72d2",
+                        "reference:rca-e375de9cb8"
+                      ],
+                      "reason": "CPU指标显著高于正常范围，历史参考模式显示类似异常情况",
+                      "uncertainties": [
+                        "无法确定CPU异常是否为当前故障的根本原因"
+                      ],
+                      "checks": [
+                        "进一步检查checkoutservice的详细日志和追踪数据以确认是否存在资源压力或异常行为"
+                      ]
+                    },
+                    {
+                      "service": "checkoutservice",
+                      "fault": "mem",
+                      "evidence_ids": [
+                        "overview:checkoutservice",
+                        "rca-3cc10cccb6:metric:checkoutservice:mem",
+                        "reference:rca-97bf1c72d2",
+                        "reference:rca-e375de9cb8"
+                      ],
+                      "reason": "内存指标显著高于正常范围，历史参考模式显示类似异常情况",
+                      "uncertainties": [
+                        "无法确定内存异常是否为当前故障的根本原因"
+                      ],
+                      "checks": [
+                        "进一步检查checkoutservice的详细日志和追踪数据以确认是否存在资源压力或异常行为"
+                      ]
+                    },
+                    {
+                      "service": "checkoutservice",
+                      "fault": "delay",
+                      "evidence_ids": [
+                        "overview:checkoutservice",
+                        "rca-3cc10cccb6:metric:checkoutservice:latency-90",
+                        "rca-3cc10cccb6:traces:checkoutservice",
+                        "reference:rca-e425dee775"
+                      ],
+                      "reason": "延迟指标有所上升，但未被历史案例明确关联",
+                      "uncertainties": [
+                        "无法确定延迟是否为当前故障的根本原因"
+                      ],
+                      "checks": [
+                        "进一步检查checkoutservice的详细日志和追踪数据以确认是否存在延迟问题"
+                      ]
+                    }
+                  ],
+                  "questions": [
+                    "是否有其他服务或指标需要进一步检查？"
+                  ]
+                }
+              },
+              "validation": "invalid_final_status",
+              "model_ms": 4626
+            }
+          ],
+          "stop_reason": "invalid_final",
+          "completed": false,
+          "input_tokens": 54624,
+          "output_tokens": 1950,
+          "input_bytes": 158755,
+          "questions": []
+        }
+      },
+      "score": {
+        "answer": {
+          "id": "rca-3cc10cccb6",
+          "service": "checkoutservice",
+          "fault": "cpu",
+          "supported": true,
+          "split": "development"
+        },
+        "service_top1": false,
+        "service_top3": false,
+        "joint_correct": false,
+        "rejected": true,
+        "false_acceptance": false
+      },
+      "evaluation_valid": false
+    },
+    {
+      "id": "rca-1d28b06708",
+      "title": "观测窗口 08",
+      "run": {
+        "diagnosis": {
+          "case_id": "rca-1d28b06708",
+          "version": "rca-autonomous-agent-v1",
+          "strategy": "autonomous",
+          "status": "insufficient_evidence",
+          "summary": "当前证据不足以确定具体的故障服务和类型。checkoutservice显示出较高的CPU使用率和延迟，但需要更多数据来确认是否为根因。currencyservice的指标变化较小，未发现明显异常。建议进一步检查其他可能的服务或获取更多详细日志和追踪数据以进行深入分析。",
+          "candidates": [],
+          "references": [],
+          "warnings": [
+            "模型自主选择只读工具；仅公开观测回放，不操作真实主机。",
+            "引用通过只证明来源有效，不证明根因正确；候选及后续核查尚未验证。"
+          ],
+          "model_calls": 7,
+          "repair_status": "not_executed"
+        },
+        "observation": {
+          "id": "rca-1d28b06708",
+          "start": 1705625357,
+          "end": 1705626360,
+          "reference_end": 1705625691,
+          "current_start": 1705626025,
+          "metric_rows": 1004,
+          "log_rows": 122905,
+          "trace_rows": 327148,
+          "sources": [
+            {
+              "name": "metrics.parquet",
+              "sha256": "056254dfdea1f1ec385e513331db82cb99fa8ce2a28a808d37776fc5d4bb951d",
+              "bytes": 130707
+            },
+            {
+              "name": "logs.parquet",
+              "sha256": "3d9d0173cc3e10e00bfe6d3c28953a585b4b9848540ad4aaa5e9d1c5b3aaa850",
+              "bytes": 215831
+            },
+            {
+              "name": "traces.parquet",
+              "sha256": "e126fdd6b5d0bb5d8cb83aa0658234bdf047eabcc3c045ff0fc99078f2b1f408",
+              "bytes": 8358689
+            }
+          ],
+          "services": null,
+          "warnings": [
+            "比较最早/最晚三分之一窗口，参考段健康尚未独立确认。",
+            "保留原始指标单位；分桶摘要不是完整实时遥测。"
+          ]
+        },
+        "tool_calls": [
+          {
+            "call_id": "7a31e8da-bf75-4888-b0de-ee0eff482585-1",
+            "tool_name": "rca_inspect_overview",
+            "tool_version": "rca-autonomous-agent-v1",
+            "args_hash": "a510a14ad38a832240df7a5c06ff3ae4620cb21c2f359926f05477d20dbedfc7",
+            "status": "success",
+            "evidence_refs": [
+              "overview:adservice",
+              "overview:cartservice",
+              "overview:checkoutservice",
+              "overview:currencyservice",
+              "overview:emailservice",
+              "overview:frontend",
+              "overview:frontend-external",
+              "overview:paymentservice",
+              "overview:productcatalogservice",
+              "overview:recommendationservice",
+              "overview:redis",
+              "overview:shippingservice"
+            ],
+            "retryable": false,
+            "latency_ms": 0,
+            "cached": false,
+            "stale": false,
+            "truncated": false
+          },
+          {
+            "call_id": "7a31e8da-bf75-4888-b0de-ee0eff482585-2",
+            "tool_name": "rca_inspect_metrics",
+            "tool_version": "rca-autonomous-agent-v1",
+            "args_hash": "5d69e5f1f3be1ffb54a77593f94785a17cb8331116a8b1df149dfd541fe5f680",
+            "status": "success",
+            "evidence_refs": [
+              "rca-1d28b06708:metric:checkoutservice:cpu",
+              "rca-1d28b06708:metric:checkoutservice:mem",
+              "rca-1d28b06708:metric:checkoutservice:latency-90",
+              "rca-1d28b06708:metric:checkoutservice:socket",
+              "rca-1d28b06708:metric:checkoutservice:workload"
+            ],
+            "retryable": false,
+            "latency_ms": 0,
+            "cached": false,
+            "stale": false,
+            "truncated": false
+          },
+          {
+            "call_id": "7a31e8da-bf75-4888-b0de-ee0eff482585-3",
+            "tool_name": "rca_inspect_logs",
+            "tool_version": "rca-autonomous-agent-v1",
+            "args_hash": "5d69e5f1f3be1ffb54a77593f94785a17cb8331116a8b1df149dfd541fe5f680",
+            "status": "success",
+            "evidence_refs": [
+              "rca-1d28b06708:logs:checkoutservice"
+            ],
+            "retryable": false,
+            "latency_ms": 0,
+            "cached": false,
+            "stale": false,
+            "truncated": false
+          },
+          {
+            "call_id": "7a31e8da-bf75-4888-b0de-ee0eff482585-4",
+            "tool_name": "rca_inspect_traces",
+            "tool_version": "rca-autonomous-agent-v1",
+            "args_hash": "5d69e5f1f3be1ffb54a77593f94785a17cb8331116a8b1df149dfd541fe5f680",
+            "status": "success",
+            "evidence_refs": [
+              "rca-1d28b06708:traces:checkoutservice"
+            ],
+            "retryable": false,
+            "latency_ms": 0,
+            "cached": false,
+            "stale": false,
+            "truncated": false
+          },
+          {
+            "call_id": "7a31e8da-bf75-4888-b0de-ee0eff482585-5",
+            "tool_name": "rca_inspect_metrics",
+            "tool_version": "rca-autonomous-agent-v1",
+            "args_hash": "b10c59f41447fb301ab56ed314024ff8f5dd47e57c71bb93b344bb0f47f730d2",
+            "status": "success",
+            "evidence_refs": [
+              "rca-1d28b06708:metric:currencyservice:cpu",
+              "rca-1d28b06708:metric:currencyservice:mem",
+              "rca-1d28b06708:metric:currencyservice:latency-90",
+              "rca-1d28b06708:metric:currencyservice:socket",
+              "rca-1d28b06708:metric:currencyservice:workload"
+            ],
+            "retryable": false,
+            "latency_ms": 0,
+            "cached": false,
+            "stale": false,
+            "truncated": false
+          },
+          {
+            "call_id": "7a31e8da-bf75-4888-b0de-ee0eff482585-6",
+            "tool_name": "rca_inspect_logs",
+            "tool_version": "rca-autonomous-agent-v1",
+            "args_hash": "b10c59f41447fb301ab56ed314024ff8f5dd47e57c71bb93b344bb0f47f730d2",
+            "status": "success",
+            "evidence_refs": [
+              "rca-1d28b06708:logs:currencyservice"
+            ],
+            "retryable": false,
+            "latency_ms": 0,
+            "cached": false,
+            "stale": false,
+            "truncated": false
+          }
+        ],
+        "trace_id": "7a31e8da-bf75-4888-b0de-ee0eff482585",
+        "dataset_sha256": "1e10d5a275e2942b07dac5483b299cbf4f0e444a051a1373db048c0084281a30",
+        "elapsed_ms": 8665,
+        "audit_storage": "local_run_report",
+        "agent": {
+          "version": "rca-autonomous-agent-v1",
+          "model": "qwen-turbo",
+          "prompt_sha256": "cdc7945e0af2b22362e77312751393ed2c29c4f5559eeefb0779029ace07050b",
+          "implementation_sha256": "7e3f55c0dc18996260b4507bd56d7607299b579fb0a0467a76877ffd97a80106",
+          "steps": [
+            {
+              "round": 1,
+              "decision": {
+                "action": "tool",
+                "update": "开始检查整体服务状态，获取所有服务的粗略指标变化以确定可能问题区域",
+                "hypotheses": [],
+                "tool": {
+                  "name": "rca_inspect_overview",
+                  "service": "all"
+                }
+              },
+              "validation": "accepted",
+              "observation": [
+                {
+                  "id": "overview:adservice",
+                  "service": "adservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 1.024515,
+                    "diskio": 1.054715,
+                    "latency-50": 1.000897,
+                    "latency-90": 0.997846,
+                    "mem": 0.999141,
+                    "socket": 1,
+                    "workload": 0.991182
+                  }
+                },
+                {
+                  "id": "overview:cartservice",
+                  "service": "cartservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.786033,
+                    "latency-50": 1.018052,
+                    "latency-90": 1.020047,
+                    "mem": 0.997117,
+                    "socket": 1,
+                    "workload": 1.002653
+                  }
+                },
+                {
+                  "id": "overview:checkoutservice",
+                  "service": "checkoutservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 39.65674,
+                    "diskio": 1,
+                    "latency-50": 6.926034,
+                    "latency-90": 9.444867,
+                    "mem": 16.365218,
+                    "socket": 1.330033,
+                    "workload": 1.0711
+                  }
+                },
+                {
+                  "id": "overview:currencyservice",
+                  "service": "currencyservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 1.035837,
+                    "diskio": 1,
+                    "latency-50": 1.036627,
+                    "latency-90": 1.030215,
+                    "mem": 1.006071,
+                    "socket": 1,
+                    "workload": 0.985581
+                  }
+                },
+                {
+                  "id": "overview:emailservice",
+                  "service": "emailservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 1.006396,
+                    "diskio": 1,
+                    "latency-50": 1.025702,
+                    "latency-90": 1.030079,
+                    "mem": 1.000373,
+                    "socket": 1,
+                    "workload": 1
+                  }
+                },
+                {
+                  "id": "overview:frontend",
+                  "service": "frontend",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 1.066361,
+                    "error": 1,
+                    "latency-50": 1.049578,
+                    "latency-90": 1.134682,
+                    "mem": 1.015502,
+                    "socket": 0.960396,
+                    "workload": 1.020468
+                  }
+                },
+                {
+                  "id": "overview:frontend-external",
+                  "service": "frontend-external",
+                  "kind": "overview",
+                  "data": {
+                    "error": 1,
+                    "workload": 1.036313
+                  }
+                },
+                {
+                  "id": "overview:paymentservice",
+                  "service": "paymentservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.927982,
+                    "latency-50": 1.522088,
+                    "latency-90": 1.220651,
+                    "mem": 1.009723,
+                    "socket": 1,
+                    "workload": 1
+                  }
+                },
+                {
+                  "id": "overview:productcatalogservice",
+                  "service": "productcatalogservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 1.036894,
+                    "diskio": 1,
+                    "error": 1,
+                    "latency-50": 1.008067,
+                    "latency-90": 0.999383,
+                    "mem": 1.004752,
+                    "socket": 1,
+                    "workload": 0.993041
+                  }
+                },
+                {
+                  "id": "overview:recommendationservice",
+                  "service": "recommendationservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 1.051448,
+                    "diskio": 1,
+                    "latency-50": 1.001014,
+                    "latency-90": 0.99654,
+                    "mem": 1.000088,
+                    "socket": 1,
+                    "workload": 1
+                  }
+                },
+                {
+                  "id": "overview:redis",
+                  "service": "redis",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 0.999573,
+                    "diskio": 1,
+                    "mem": 1,
+                    "socket": 1
+                  }
+                },
+                {
+                  "id": "overview:shippingservice",
+                  "service": "shippingservice",
+                  "kind": "overview",
+                  "data": {
+                    "cpu": 1.030978,
+                    "latency-50": 1.011761,
+                    "latency-90": 1.002517,
+                    "mem": 0.994249,
+                    "socket": 1,
+                    "workload": 1.017635
+                  }
+                }
+              ],
+              "tool_status": "success",
+              "model_ms": 527
+            },
+            {
+              "round": 2,
+              "decision": {
+                "action": "tool",
+                "update": "检查 checkoutservice 的详细指标以确认其是否存在资源压力或延迟问题",
+                "hypotheses": [
+                  {
+                    "service": "checkoutservice",
+                    "fault": "cpu",
+                    "status": "investigating",
+                    "evidence_ids": [
+                      "overview:checkoutservice"
+                    ]
+                  },
+                  {
+                    "service": "checkoutservice",
+                    "fault": "mem",
+                    "status": "investigating",
+                    "evidence_ids": [
+                      "overview:checkoutservice"
+                    ]
+                  },
+                  {
+                    "service": "checkoutservice",
+                    "fault": "delay",
+                    "status": "investigating",
+                    "evidence_ids": [
+                      "overview:checkoutservice"
+                    ]
+                  }
+                ],
+                "tool": {
+                  "name": "rca_inspect_metrics",
+                  "service": "checkoutservice"
+                }
+              },
+              "validation": "accepted",
+              "observation": [
+                {
+                  "id": "rca-1d28b06708:metric:checkoutservice:cpu",
+                  "service": "checkoutservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "checkoutservice_cpu",
+                    "current": 15.769953,
+                    "current_count": 330,
+                    "id": "rca-1d28b06708:metric:checkoutservice:cpu",
+                    "log_change": 5.309494,
+                    "missing_fraction": 0.00498,
+                    "ratio": 39.65674,
+                    "reference": 0.393822,
+                    "reference_count": 335,
+                    "reference_cv": 0.154323,
+                    "sparkline": [
+                      0.44055,
+                      0.351964,
+                      0.411771,
+                      0.395022,
+                      0.484258,
+                      0.414921,
+                      0.414921,
+                      0.376878,
+                      0.454564,
+                      19.956654,
+                      19.76266,
+                      8.358507
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-1d28b06708:metric:checkoutservice:mem",
+                  "service": "checkoutservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "checkoutservice_mem",
+                    "current": 234852352,
+                    "current_count": 335,
+                    "id": "rca-1d28b06708:metric:checkoutservice:mem",
+                    "log_change": 4.032561,
+                    "missing_fraction": 0,
+                    "ratio": 16.365218,
+                    "reference": 14217216,
+                    "reference_count": 335,
+                    "reference_cv": 0.012659,
+                    "sparkline": [
+                      14209024,
+                      14102528,
+                      14462976,
+                      14475264,
+                      14381056,
+                      14118912,
+                      14118912,
+                      14315520,
+                      14483456,
+                      155504640,
+                      146886656,
+                      243179520
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-1d28b06708:metric:checkoutservice:latency-90",
+                  "service": "checkoutservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "checkoutservice_latency-90",
+                    "current": 2.060714,
+                    "current_count": 335,
+                    "id": "rca-1d28b06708:metric:checkoutservice:latency-90",
+                    "log_change": 3.23953,
+                    "missing_fraction": 0,
+                    "ratio": 9.444867,
+                    "reference": 0.21625,
+                    "reference_count": 335,
+                    "reference_cv": 0.072995,
+                    "sparkline": [
+                      0.21625,
+                      0.214462,
+                      0.2275,
+                      0.195769,
+                      0.21,
+                      0.221364,
+                      0.22,
+                      0.196667,
+                      0.21475,
+                      2.05,
+                      2.25,
+                      2.085294
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-1d28b06708:metric:checkoutservice:socket",
+                  "service": "checkoutservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "checkoutservice_socket",
+                    "current": 12,
+                    "current_count": 335,
+                    "id": "rca-1d28b06708:metric:checkoutservice:socket",
+                    "log_change": 0.411462,
+                    "missing_fraction": 0,
+                    "ratio": 1.330033,
+                    "reference": 9,
+                    "reference_count": 335,
+                    "reference_cv": 0,
+                    "sparkline": [
+                      9,
+                      9,
+                      9,
+                      9,
+                      9,
+                      9,
+                      9,
+                      9,
+                      9,
+                      12,
+                      12,
+                      21
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-1d28b06708:metric:checkoutservice:workload",
+                  "service": "checkoutservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "checkoutservice_workload",
+                    "current": 1,
+                    "current_count": 335,
+                    "id": "rca-1d28b06708:metric:checkoutservice:workload",
+                    "log_change": 0.099094,
+                    "missing_fraction": 0,
+                    "ratio": 1.0711,
+                    "reference": 0.933,
+                    "reference_count": 335,
+                    "reference_cv": 0.299733,
+                    "sparkline": [
+                      1.067,
+                      0.8,
+                      0.867,
+                      1.133,
+                      1.067,
+                      0.933,
+                      1,
+                      0.867,
+                      1,
+                      0.933,
+                      0.867,
+                      1
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                }
+              ],
+              "tool_status": "success",
+              "model_ms": 1076
+            },
+            {
+              "round": 3,
+              "decision": {
+                "action": "tool",
+                "update": "检查 checkoutservice 的日志以寻找可能的错误或异常信息",
+                "hypotheses": [
+                  {
+                    "service": "checkoutservice",
+                    "fault": "cpu",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-1d28b06708:metric:checkoutservice:cpu"
+                    ]
+                  },
+                  {
+                    "service": "checkoutservice",
+                    "fault": "mem",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-1d28b06708:metric:checkoutservice:mem"
+                    ]
+                  },
+                  {
+                    "service": "checkoutservice",
+                    "fault": "delay",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-1d28b06708:metric:checkoutservice:latency-90"
+                    ]
+                  }
+                ],
+                "tool": {
+                  "name": "rca_inspect_logs",
+                  "service": "checkoutservice"
+                }
+              },
+              "validation": "accepted",
+              "observation": [
+                {
+                  "id": "rca-1d28b06708:logs:checkoutservice",
+                  "service": "checkoutservice",
+                  "kind": "logs",
+                  "data": {
+                    "current_count": 475,
+                    "examples": [
+                      {
+                        "message": "[PlaceOrder] user_id=\"c9b1b234-54d9-482d-92e2-19492d42fa5a\" user_currency=\"EUR",
+                        "timestamp": 1705626027
+                      },
+                      {
+                        "message": "payment went through (transaction_id: 8366a746-1c0b-4838-b513-3d924dd758b5)",
+                        "timestamp": 1705626027
+                      }
+                    ],
+                    "id": "rca-1d28b06708:logs:checkoutservice",
+                    "keyword_matches": 0,
+                    "reference_count": 480
+                  }
+                }
+              ],
+              "tool_status": "success",
+              "model_ms": 1485
+            },
+            {
+              "round": 4,
+              "decision": {
+                "action": "tool",
+                "update": "检查 checkoutservice 的追踪数据以确认是否存在延迟问题",
+                "hypotheses": [
+                  {
+                    "service": "checkoutservice",
+                    "fault": "cpu",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-1d28b06708:metric:checkoutservice:cpu"
+                    ]
+                  },
+                  {
+                    "service": "checkoutservice",
+                    "fault": "mem",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-1d28b06708:metric:checkoutservice:mem"
+                    ]
+                  },
+                  {
+                    "service": "checkoutservice",
+                    "fault": "delay",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-1d28b06708:metric:checkoutservice:latency-90"
+                    ]
+                  }
+                ],
+                "tool": {
+                  "name": "rca_inspect_traces",
+                  "service": "checkoutservice"
+                }
+              },
+              "validation": "accepted",
+              "observation": [
+                {
+                  "id": "rca-1d28b06708:traces:checkoutservice",
+                  "service": "checkoutservice",
+                  "kind": "traces",
+                  "data": {
+                    "current_p95": 126184.5,
+                    "current_spans": 3312,
+                    "id": "rca-1d28b06708:traces:checkoutservice",
+                    "nonzero_status_count": 0,
+                    "reference_p95": 70771,
+                    "reference_spans": 2151,
+                    "sample_operation": "opentelemetry.proto.collector.trace.v1.TraceService/Export",
+                    "sample_span": "87a56a57972a46d5",
+                    "sample_start_ms": 1705626026004,
+                    "sample_trace": "e0c4183506d551ce8f2eb177e184b20f",
+                    "unit": "source_native_unverified"
+                  }
+                }
+              ],
+              "tool_status": "success",
+              "model_ms": 1469
+            },
+            {
+              "round": 5,
+              "decision": {
+                "action": "tool",
+                "update": "检查 currencyservice 的详细指标以确认其是否存在资源压力或延迟问题",
+                "hypotheses": [
+                  {
+                    "service": "checkoutservice",
+                    "fault": "cpu",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-1d28b06708:metric:checkoutservice:cpu"
+                    ]
+                  },
+                  {
+                    "service": "checkoutservice",
+                    "fault": "mem",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-1d28b06708:metric:checkoutservice:mem"
+                    ]
+                  },
+                  {
+                    "service": "checkoutservice",
+                    "fault": "delay",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-1d28b06708:metric:checkoutservice:latency-90"
+                    ]
+                  }
+                ],
+                "tool": {
+                  "name": "rca_inspect_metrics",
+                  "service": "currencyservice"
+                }
+              },
+              "validation": "accepted",
+              "observation": [
+                {
+                  "id": "rca-1d28b06708:metric:currencyservice:cpu",
+                  "service": "currencyservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "currencyservice_cpu",
+                    "current": 31.133582,
+                    "current_count": 322,
+                    "id": "rca-1d28b06708:metric:currencyservice:cpu",
+                    "log_change": 0.050797,
+                    "missing_fraction": 0.012948,
+                    "ratio": 1.035837,
+                    "reference": 30.046062,
+                    "reference_count": 335,
+                    "reference_cv": 0.0815,
+                    "sparkline": [
+                      31.447523,
+                      29.781442,
+                      30.605932,
+                      29.721236,
+                      30.819635,
+                      30.859287,
+                      31.131183,
+                      31.065757,
+                      30.609098,
+                      31.741049,
+                      32.167273,
+                      27.367394
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-1d28b06708:metric:currencyservice:mem",
+                  "service": "currencyservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "currencyservice_mem",
+                    "current": 47046656,
+                    "current_count": 335,
+                    "id": "rca-1d28b06708:metric:currencyservice:mem",
+                    "log_change": 0.008732,
+                    "missing_fraction": 0,
+                    "ratio": 1.006071,
+                    "reference": 46759936,
+                    "reference_count": 335,
+                    "reference_cv": 0.006392,
+                    "sparkline": [
+                      46833664,
+                      46657536,
+                      46759936,
+                      46661632,
+                      46981120,
+                      47099904,
+                      46927872,
+                      46747648,
+                      46751744,
+                      47071232,
+                      47214592,
+                      46886912
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-1d28b06708:metric:currencyservice:latency-90",
+                  "service": "currencyservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "currencyservice_latency-90",
+                    "current": 0.02988,
+                    "current_count": 335,
+                    "id": "rca-1d28b06708:metric:currencyservice:latency-90",
+                    "log_change": 0.042945,
+                    "missing_fraction": 0,
+                    "ratio": 1.030215,
+                    "reference": 0.028995,
+                    "reference_count": 335,
+                    "reference_cv": 0.133645,
+                    "sparkline": [
+                      0.027092,
+                      0.026267,
+                      0.03158,
+                      0.027362,
+                      0.029522,
+                      0.036491,
+                      0.028295,
+                      0.02979,
+                      0.03006,
+                      0.02286,
+                      0.028027,
+                      0.036975
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-1d28b06708:metric:currencyservice:socket",
+                  "service": "currencyservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "currencyservice_socket",
+                    "current": 4,
+                    "current_count": 335,
+                    "id": "rca-1d28b06708:metric:currencyservice:socket",
+                    "log_change": 0,
+                    "missing_fraction": 0,
+                    "ratio": 1,
+                    "reference": 4,
+                    "reference_count": 335,
+                    "reference_cv": 0,
+                    "sparkline": [
+                      4,
+                      4,
+                      4,
+                      4,
+                      4,
+                      4,
+                      4,
+                      4,
+                      4,
+                      4,
+                      4,
+                      4
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                },
+                {
+                  "id": "rca-1d28b06708:metric:currencyservice:workload",
+                  "service": "currencyservice",
+                  "kind": "metrics",
+                  "data": {
+                    "column": "currencyservice_workload",
+                    "current": 76.733,
+                    "current_count": 335,
+                    "id": "rca-1d28b06708:metric:currencyservice:workload",
+                    "log_change": -0.020954,
+                    "missing_fraction": 0,
+                    "ratio": 0.985581,
+                    "reference": 77.867,
+                    "reference_count": 335,
+                    "reference_cv": 0.09553,
+                    "sparkline": [
+                      82.2,
+                      71.2,
+                      83.533,
+                      79.933,
+                      80.2,
+                      81,
+                      80.8,
+                      78.4,
+                      73,
+                      77.533,
+                      75.467,
+                      80.266
+                    ],
+                    "unit": "source_native_unverified"
+                  }
+                }
+              ],
+              "tool_status": "success",
+              "model_ms": 1491
+            },
+            {
+              "round": 6,
+              "decision": {
+                "action": "tool",
+                "update": "检查 currencyservice 的日志以寻找可能的错误或异常信息",
+                "hypotheses": [
+                  {
+                    "service": "checkoutservice",
+                    "fault": "cpu",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-1d28b06708:metric:checkoutservice:cpu"
+                    ]
+                  },
+                  {
+                    "service": "checkoutservice",
+                    "fault": "mem",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-1d28b06708:metric:checkoutservice:mem"
+                    ]
+                  },
+                  {
+                    "service": "checkoutservice",
+                    "fault": "delay",
+                    "status": "supported",
+                    "evidence_ids": [
+                      "overview:checkoutservice",
+                      "rca-1d28b06708:metric:checkoutservice:latency-90"
+                    ]
+                  }
+                ],
+                "tool": {
+                  "name": "rca_inspect_logs",
+                  "service": "currencyservice"
+                }
+              },
+              "validation": "accepted",
+              "observation": [
+                {
+                  "id": "rca-1d28b06708:logs:currencyservice",
+                  "service": "currencyservice",
+                  "kind": "logs",
+                  "data": {
+                    "current_count": 12683,
+                    "examples": [
+                      {
+                        "message": "Getting supported currencies...",
+                        "timestamp": 1705626026
+                      },
+                      {
+                        "message": "conversion request successful",
+                        "timestamp": 1705626026
+                      }
+                    ],
+                    "id": "rca-1d28b06708:logs:currencyservice",
+                    "keyword_matches": 0,
+                    "reference_count": 12984
+                  }
+                }
+              ],
+              "tool_status": "success",
+              "model_ms": 1596
+            },
+            {
+              "round": 7,
+              "decision": {
+                "action": "finish",
+                "update": "当前证据不足以确定具体的故障服务和类型。checkoutservice显示出较高的CPU使用率和延迟，但需要更多数据来确认是否为根因。currencyservice的指标变化较小，未发现明显异常。建议进一步检查其他可能的服务或获取更多详细日志和追踪数据以进行深入分析。",
+                "hypotheses": null,
+                "final": {
+                  "status": "insufficient_evidence",
+                  "summary": "当前证据不足以确定具体的故障服务和类型。checkoutservice显示出较高的CPU使用率和延迟，但需要更多数据来确认是否为根因。currencyservice的指标变化较小，未发现明显异常。建议进一步检查其他可能的服务或获取更多详细日志和追踪数据以进行深入分析。",
+                  "candidates": [],
+                  "questions": [
+                    "是否有其他服务需要检查？",
+                    "是否需要获取更多详细日志或追踪数据？"
+                  ]
+                }
+              },
+              "validation": "accepted",
+              "model_ms": 1017
+            }
+          ],
+          "stop_reason": "model_finished",
+          "completed": true,
+          "input_tokens": 35858,
+          "output_tokens": 986,
+          "input_bytes": 110759,
+          "questions": [
+            "是否有其他服务需要检查？",
+            "是否需要获取更多详细日志或追踪数据？"
+          ],
+          "final": {
+            "status": "insufficient_evidence",
+            "summary": "当前证据不足以确定具体的故障服务和类型。checkoutservice显示出较高的CPU使用率和延迟，但需要更多数据来确认是否为根因。currencyservice的指标变化较小，未发现明显异常。建议进一步检查其他可能的服务或获取更多详细日志和追踪数据以进行深入分析。",
+            "candidates": [],
+            "questions": [
+              "是否有其他服务需要检查？",
+              "是否需要获取更多详细日志或追踪数据？"
+            ]
+          }
+        }
+      },
+      "score": {
+        "answer": {
+          "id": "rca-1d28b06708",
+          "service": "checkoutservice",
+          "fault": "mem",
+          "supported": true,
+          "split": "development"
+        },
+        "service_top1": false,
+        "service_top3": false,
+        "joint_correct": false,
+        "rejected": true,
+        "false_acceptance": false
+      },
+      "evaluation_valid": true
+    }
+  ],
+  "metrics": {
+    "attempted": 2,
+    "completed": 1,
+    "execution_failed": 1,
+    "input_tokens": 90482,
+    "model_calls": 15,
+    "output_tokens": 2936,
+    "supported": 2
+  },
+  "limitations": [
+    "这是此前已查看案例的模型回放，不是新盲测或生产准确率。",
+    "有限指标/日志/调用链摘要；只支持2个服务和3类已知模式；不执行修复。",
+    "模型调用错误、预算停止不计为正确拒答；保留全部尝试，不能挑最好一次。",
+    "模型自主选工具不意味着诊断必定正确；引用存在也不证明因果。"
+  ]
+}

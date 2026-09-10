@@ -41,10 +41,14 @@ type ExecutionInput struct {
 	TenantID string `json:"-"`
 	UserID   string `json:"-"`
 	Message  string `json:"-"`
+	TraceID  string `json:"-"`
+	// SharedEvidence is populated only by the server-owned dynamic supervisor.
+	SharedEvidence []SharedEvidence `json:"-"`
 }
 
 type SharedEvidence struct {
 	ID                string     `json:"id"`
+	Title             string     `json:"title,omitempty"`
 	SourceType        string     `json:"source_type"`
 	Summary           string     `json:"summary"`
 	TenantID          string     `json:"-"`
@@ -237,6 +241,7 @@ func executeTask(parent context.Context, task PlannedTask, input ExecutionInput,
 	output, err := runner.Run(taskContext, task, input)
 	result.DurationMS = time.Since(startedAt).Milliseconds()
 	if err != nil {
+		result.Output = usageOnlyOutput(output) // failed generation still incurred usage
 		switch {
 		case errors.Is(taskContext.Err(), context.DeadlineExceeded):
 			result.Status, result.ReasonCode = TaskStatusTimedOut, "task_timeout_exceeded"

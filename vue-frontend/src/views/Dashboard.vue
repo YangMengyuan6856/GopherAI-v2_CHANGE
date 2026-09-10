@@ -14,7 +14,7 @@
     </section>
 
     <section class="signal-grid" aria-label="系统概览">
-      <article><small>CAPABILITY DOMAINS</small><strong>08</strong><span>独立能力工作区</span></article>
+      <article><small>WORKSPACE ENTRIES</small><strong>{{ modules.length }}</strong><span>独立工作区入口</span></article>
       <article><small>TOOL GOVERNANCE</small><strong>10</strong><span>统一治理检查点</span></article>
       <article><small>EVAL CATALOG</small><strong>320</strong><span>固定契约回归用例</span></article>
       <article><small>POLICY MODE</small><strong>SAFE</strong><span>Shadow / Recommend-only</span></article>
@@ -58,10 +58,11 @@ export default {
       { code: 'M-03', path: '/dashboard/diagnostics', title: '故障诊断', english: 'DIAGNOSTIC HARNESS', description: '可暂停、可恢复、有预算的只读排障 Agent 工作流。', badge: 'AGENT', icon: Monitor },
       { code: 'M-04', path: '/dashboard/memory', title: '三级记忆', english: 'CONTEXT MEMORY', description: 'Working、Episodic 与 Profile 的来源、冲突和修正控制台。', badge: 'CONTEXT', icon: Connection },
       { code: 'M-05', path: '/dashboard/tools', title: '受治理工具', english: 'TOOL RUNTIME', description: '工具注册、参数校验、权限、预算、熔断与审计一体化。', badge: 'GOVERNED', icon: Cpu },
-      { code: 'M-06', path: '/dashboard/policy', title: '策略演算', english: 'POLICY SIMULATOR', description: '固定分桶、多 Agent 规划门与案例增强的 Shadow 预演。', badge: 'SHADOW', icon: Operation },
+      { code: 'M-06', path: '/dashboard/collaboration', title: '动态多 Agent 协作', english: 'DYNAMIC SUPERVISOR', description: '模型拆分任务、串并行委派与跨 Agent 证据反馈；保留策略演算对照。', badge: 'READ-ONLY SHADOW', icon: Operation },
       { code: 'M-07', path: '/dashboard/evaluation', title: '评测与闭环', english: 'EVALUATION LOOP', description: '离线评测、异常检测、反馈池和 Recommend-only 控制器。', badge: 'OBSERVE', icon: DataAnalysis },
       { code: 'M-08', path: '/dashboard/review', title: '人工验收', english: 'HUMAN GATE', description: 'Full 320 标签复核与 Judge 30 人工校准的独立闸门。', badge: 'REVIEW', icon: Checked },
-      { code: 'M-09', path: '/dashboard/interview', title: '面试导览', english: 'LIVE WALKTHROUGH', description: '用 3–5 分钟串联场景、证据、Agent、治理与反馈闭环。', badge: 'GUIDE', icon: Guide }
+      { code: 'M-09', path: '/dashboard/interview', title: '面试导览', english: 'LIVE WALKTHROUGH', description: '用 3–5 分钟串联场景、证据、Agent、治理与反馈闭环。', badge: 'GUIDE', icon: Guide },
+      { code: 'M-10', path: '/dashboard/rca-experiment', title: '自主排查实验', english: 'RCAEVAL AGENT REPLAY', description: '模型自主选择只读工具，根据新证据更新假设；保留规则对照和标准答案核对。', badge: 'READ-ONLY AGENT', icon: DataAnalysis }
     ]
     return { modules }
   }

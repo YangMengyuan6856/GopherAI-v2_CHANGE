@@ -8,12 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"GopherAI/common/mysql"
-	"GopherAI/internal/diagnostic"
-	"GopherAI/internal/incident"
 	"GopherAI/internal/observability"
 	"GopherAI/internal/orchestration"
-	knowledgeapp "GopherAI/internal/platform/knowledge"
+	collaborationplatform "GopherAI/internal/platform/collaboration"
 	"GopherAI/middleware/requestid"
 
 	"github.com/gin-gonic/gin"
@@ -33,38 +30,15 @@ type CollaborationShadowObserver interface {
 type CollaborationShadowHandler struct {
 	runner   CollaborationShadowRunner
 	observer CollaborationShadowObserver
+	gate     chan struct{}
 }
 
 func NewCollaborationShadowHandler(runner CollaborationShadowRunner, observer CollaborationShadowObserver) *CollaborationShadowHandler {
-	return &CollaborationShadowHandler{runner: runner, observer: observer}
+	return &CollaborationShadowHandler{runner: runner, observer: observer, gate: make(chan struct{}, 1)}
 }
 
 func NewDefaultCollaborationShadowHandler() *CollaborationShadowHandler {
-	knowledgeRunner, err := orchestration.NewKnowledgeRunner(knowledgeapp.NewLazyDefaultAnswerer())
-	if err != nil {
-		panic(err)
-	}
-	caseStrategy, err := diagnostic.NewCaseBasedStrategy(diagnostic.NewAgent(), incident.NewGormRepository(mysql.DB), 1200*time.Millisecond)
-	if err != nil {
-		panic(err)
-	}
-	diagnosticRunner, err := orchestration.NewDiagnosticRunner(caseStrategy)
-	if err != nil {
-		panic(err)
-	}
-	executor, err := orchestration.NewParallelExecutor(map[string]orchestration.AgentRunner{
-		orchestration.KnowledgeAgentRole: knowledgeRunner, orchestration.DiagnosticAgentRole: diagnosticRunner,
-	})
-	if err != nil {
-		panic(err)
-	}
-	coordinator, err := orchestration.NewShadowCoordinator(
-		orchestration.NewDefaultBoundedPlanner(), executor, orchestration.NewEvidenceAwareSynthesizer(),
-	)
-	if err != nil {
-		panic(err)
-	}
-	return NewCollaborationShadowHandler(coordinator, observability.DefaultMetrics())
+	return NewCollaborationShadowHandler(collaborationplatform.NewDefaultRunner(), observability.DefaultMetrics())
 }
 
 func (handler *CollaborationShadowHandler) Run(ctx *gin.Context) {
@@ -88,10 +62,20 @@ func (handler *CollaborationShadowHandler) Run(ctx *gin.Context) {
 		handler.writeError(ctx, http.StatusUnauthorized, "COLLABORATION_SHADOW_PRINCIPAL_MISSING", "无法确认当前登录用户", false)
 		return
 	}
+	select {
+	case handler.gate <- struct{}{}:
+		defer func() { <-handler.gate }()
+	default:
+		handler.writeError(ctx, http.StatusTooManyRequests, "COLLABORATION_BUSY", "已有协作正在运行，请稍后再试", true)
+		return
+	}
+	_, traceID := requestid.IDs(ctx)
 	result, err := handler.runner.Run(ctx.Request.Context(), orchestration.ExecutionInput{
-		TenantID: userID, UserID: userID, Message: request.Message,
+		TenantID: userID, UserID: userID, Message: request.Message, TraceID: traceID,
 	})
-	_, result.TraceID = requestid.IDs(ctx)
+	if result.TraceID == "" {
+		result.TraceID = traceID
+	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			handler.observeResult(result, "cancelled", startedAt)

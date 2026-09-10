@@ -126,7 +126,9 @@ function Invoke-RemoteScript {
         if (-not $process.Start()) {
             throw "Failed to start ssh for remote script execution."
         }
-        $process.StandardInput.Write($Script)
+        # Git core.autocrlf may give this PowerShell file CRLF line endings.
+        # Its here-strings must still be sent to Linux bash as LF-only text.
+        $process.StandardInput.Write($Script.Replace("`r`n", "`n"))
         $process.StandardInput.Close()
         $process.WaitForExit()
         if ($process.ExitCode -ne 0) {

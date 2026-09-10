@@ -1,0 +1,4 @@
+# Preserve the exact bytes bound by the frozen RCAEval report across checkouts.
+internal/rcaexperiment/data/*.json -text whitespace=cr-at-eol
+internal/rcaexperiment/matcher.go text eol=lf
+internal/rcaagent/*.go text eol=lf
