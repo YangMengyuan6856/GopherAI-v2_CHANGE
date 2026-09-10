@@ -61,7 +61,7 @@ func (r *DelegatedKnowledgeRunner) Run(ctx context.Context, task PlannedTask, in
 	}
 	for _, e := range result.Result.Evidence {
 		if cited[e.ID] {
-			out.Evidence = append(out.Evidence, SharedEvidence{ID: e.ID, SourceType: "document_chunk", Summary: boundedRunes(e.Content, maxEvidenceSummaryRunes), TenantID: e.TenantID, SourceID: e.SourceID, SourceVersion: e.SourceVersion, LineStart: e.LineStart, LineEnd: e.LineEnd, ContentHash: e.ContentHash, ParentEvidenceID: e.ParentEvidenceID, SourceKind: e.SourceKind, SourceRevision: e.SourceRevision, Authority: e.Authority, Score: e.Score})
+			out.Evidence = append(out.Evidence, SharedEvidence{ID: e.ID, Title: e.Title, SourceType: "document_chunk", Summary: boundedRunes(e.Content, maxEvidenceSummaryRunes), TenantID: e.TenantID, SourceID: e.SourceID, SourceVersion: e.SourceVersion, LineStart: e.LineStart, LineEnd: e.LineEnd, ContentHash: e.ContentHash, ParentEvidenceID: e.ParentEvidenceID, SourceKind: e.SourceKind, SourceRevision: e.SourceRevision, Authority: e.Authority, Score: e.Score})
 		}
 	}
 	if len(refs) > 0 {

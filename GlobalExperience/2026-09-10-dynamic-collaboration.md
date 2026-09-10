@@ -28,3 +28,11 @@
 部署前 SSH 正常，服务器 1612 MiB 总内存、约 374 MiB 可用；三个原容器均在运行。使用干净 release worktree、本地交叉构建和现有 SSH 原子发布脚本；不得在 ECS 编译、安装依赖、删除容器或改用户复核记录。
 
 线上发布与真实模型验证结果在完成后追加。
+
+## 第一轮真实运行及针对性修正
+
+- 首次部署 `20260910133037-f3718b541441`，bundle SHA `cea9486feea61897da113674153307da67eb2639850d16869e29388a78c53d92`。Backend/Worker/Prometheus/Grafana/前端健康门通过，Prometheus 2/2。
+- 用当前账号已有 `m3b-config.json`，输入先核对 `release.timeout_seconds`、再交给 DiagnosticAgent 分析 HTTP 502 与 context deadline exceeded。真实 Trace `25bea8b8-69c1-4225-a7cd-a94f43d29304`：4 轮调度、4 次委派、10541 个已报告 Token；K 检出 47 → D 接收该证据并分析 → K 补查代理配置无证据 → K 再查文件名无证据，最终 no_new_evidence / partial。
+- 这次运行证明动态委派与交接确实发生，但暴露上下文元数据缺口：SharedEvidence 没传文档 Title，Supervisor 错把数据库 source_id UUID 当作文件名不匹配；诊断还把 release 字段用途猜成 probe 专用。
+- v1.1 补传 Title，明确 source_id 是内部 ID，参数作用范围没有定义就必须待确认。新增标题保留与未 resolved 兜底不能升级结论的回归测试。不删除第一次运行事实，不声称由此获得准确率提升。
+- 浏览器实看新页面为深色独立、可滚动工作区，无原白色指标卡；代码与 RCAEval 页面/数据相互独立。

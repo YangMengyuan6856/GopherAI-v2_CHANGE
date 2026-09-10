@@ -48,6 +48,7 @@ type ExecutionInput struct {
 
 type SharedEvidence struct {
 	ID                string     `json:"id"`
+	Title             string     `json:"title,omitempty"`
 	SourceType        string     `json:"source_type"`
 	Summary           string     `json:"summary"`
 	TenantID          string     `json:"-"`

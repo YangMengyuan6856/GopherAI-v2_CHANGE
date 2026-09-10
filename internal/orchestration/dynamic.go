@@ -376,6 +376,7 @@ func namespaceTask(t *TaskExecution, bank map[string]SharedEvidence) {
 			}
 		}
 		e.Summary = cleanDynamicText(e.Summary, maxEvidenceSummaryRunes)
+		e.Title = cleanDynamicText(e.Title, 300)
 		t.Output.Evidence[i] = e
 		refs[old] = e.ID
 	}

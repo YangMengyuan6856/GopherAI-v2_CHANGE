@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	knowledgeagent "GopherAI/internal/agent/knowledge"
 	"GopherAI/internal/contract"
 	"GopherAI/internal/toolruntime"
 	"github.com/cloudwego/eino/components/model"
@@ -274,5 +275,23 @@ func TestDelegatedDiagnosticDoesNotTurnObjectiveIntoObservedError(t *testing.T) 
 	_, err := r.Run(context.Background(), PlannedTask{Agent: DiagnosticAgentRole, Objective: "假设 Redis NOAUTH"}, ExecutionInput{TenantID: "alice", UserID: "alice", Message: "后端报错"})
 	if err == nil {
 		t.Fatal("fabricated citation accepted")
+	}
+}
+
+func TestDelegatedKnowledgePreservesDocumentNameAndRejectsUnresolvedFallback(t *testing.T) {
+	fixture := knowledgeagent.Output{Result: contract.AgentResult{
+		Resolved: true, Answer: "release.timeout_seconds = 47", Confidence: .9,
+		Evidence:  []contract.Evidence{{ID: "chunk", Title: "m3b-config.json", TenantID: "alice", SourceID: "database-uuid", Content: "release.timeout_seconds = 47", Score: .9}},
+		Citations: []contract.Citation{{ID: "1", EvidenceID: "chunk"}},
+	}}
+	runner := NewDelegatedKnowledgeRunner(knowledgeAnswererStub{output: fixture})
+	out, err := runner.Run(context.Background(), PlannedTask{Agent: KnowledgeAgentRole, Objective: "release.timeout_seconds"}, dynamicInput())
+	if err != nil || len(out.Evidence) != 1 || out.Evidence[0].Title != "m3b-config.json" || out.Evidence[0].SourceID != "database-uuid" {
+		t.Fatalf("document title/ID lost: %+v %v", out, err)
+	}
+	fixture.Result.Resolved = false
+	out, err = NewDelegatedKnowledgeRunner(knowledgeAnswererStub{output: fixture}).Run(context.Background(), PlannedTask{Agent: KnowledgeAgentRole, Objective: "配置"}, dynamicInput())
+	if err != nil || out.Outcome != AgentOutcomeInsufficient || len(out.Claims) != 0 {
+		t.Fatal("unresolved fallback promoted to a claim")
 	}
 }

@@ -8,7 +8,7 @@
     <section class="request-panel">
       <label for="collaboration-request">描述问题和需要核对的项目资料</label>
       <textarea id="collaboration-request" v-model="message" :disabled="running" maxlength="4000" rows="4" placeholder="先根据部署手册核对 Redis 配置，再结合 HTTP 502 与 Redis NOAUTH 分析候选原因，并说明还缺少什么证据。"></textarea>
-      <div class="examples"><span>示例（点击填入，不会自动运行）</span><button v-for="example in examples" :key="example.label" :disabled="running" @click="message = example.text">{{ example.label }}</button></div>
+      <div class="examples"><span>示例：模拟故障描述，点击只填入、不自动运行</span><button v-for="example in examples" :key="example.label" :disabled="running" @click="message = example.text">{{ example.label }}</button></div>
       <div class="actions">
         <button class="primary" :disabled="running || !message.trim()" @click="start">{{ running ? `协作执行中 · ${elapsed} 秒` : '启动动态协作' }}</button>
         <button v-if="running" @click="cancel">取消本次请求</button>
@@ -43,7 +43,7 @@
                 <div class="task-status">{{ statusLabel(step.tasks[index].status) }} · {{ step.tasks[index].duration_ms }} ms</div>
                 <p>{{ step.tasks[index].output.summary || '该子任务未产生可采纳结果。' }}</p>
                 <ul v-if="step.tasks[index].output.follow_ups?.length"><li v-for="question in step.tasks[index].output.follow_ups" :key="question">待确认：{{ question }}</li></ul>
-                <details v-if="step.tasks[index].output.evidence?.length"><summary>查看返回证据（{{ step.tasks[index].output.evidence.length }}）</summary><article v-for="evidence in step.tasks[index].output.evidence" :key="evidence.id" class="evidence"><code>{{ evidence.id }}</code><span>{{ evidence.source_type }} · {{ evidence.source_id }}<template v-if="evidence.line_start"> · L{{ evidence.line_start }}–{{ evidence.line_end }}</template></span><p>{{ evidence.summary }}</p></article></details>
+                <details v-if="step.tasks[index].output.evidence?.length"><summary>查看返回证据（{{ step.tasks[index].output.evidence.length }}）</summary><article v-for="evidence in step.tasks[index].output.evidence" :key="evidence.id" class="evidence"><code>{{ evidence.id }}</code><span>{{ evidence.source_type }} · {{ evidence.title || evidence.source_id }}<template v-if="evidence.line_start"> · L{{ evidence.line_start }}–{{ evidence.line_end }}</template></span><p>{{ evidence.summary }}</p></article></details>
               </template>
               <p v-else class="muted">该委派未执行：{{ reasonLabel(step.validation) }}</p>
             </article>
@@ -69,7 +69,7 @@ import api from '../utils/api'
 export default {
   name: 'CollaborationWorkspace',
   setup() {
-    const message = ref('先根据项目部署手册核对 Redis 连接与认证配置，再结合后端 HTTP 502 和 Redis NOAUTH 分析候选原因。请把查到的文档依据交给诊断 Agent，并说明还需要哪些运行时信息。')
+    const message = ref('演示场景：先从 m3b-config.json 核对 release.timeout_seconds 的值，再把查到的配置证据交给 DiagnosticAgent，结合后端 HTTP 502 和 context deadline exceeded 的模拟报告分析候选原因。请区分文档配置与实际请求超时，说明还需什么证据，不能声称已确认根因。')
     const result = ref(null)
     const running = ref(false)
     const error = ref('')
@@ -78,7 +78,7 @@ export default {
     let timer = null
     const trace = computed(() => result.value?.orchestration)
     const examples = [
-      { label: '先查文档 → 再诊断', text: '先根据项目部署手册核对 Redis 连接与认证配置，再结合后端 HTTP 502 和 Redis NOAUTH 分析候选原因。请把查到的文档依据交给诊断 Agent，并说明还需要哪些运行时信息。' },
+      { label: '先查文档 → 再诊断', text: message.value },
       { label: '两个独立方向', text: '根据 m3b-config.json 核对 release.timeout_seconds；同时针对用户报告的 Redis NOAUTH 给出候选原因。这两个子任务互不依赖，可以并行处理。' },
       { label: '缺少现场信息', text: '系统有时不好用，但我没有日志，也不知道是哪一个服务，请判断目前需要我提供什么，不能凭空确定故障原因。' }
     ]
