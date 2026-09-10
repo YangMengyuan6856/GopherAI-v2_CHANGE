@@ -4,7 +4,8 @@ GopherAI DevSupport 是一个面向研发与运维场景的可治理 Agent 系�
 
 在线实例：[http://101.200.145.78:8080/dashboard](http://101.200.145.78:8080/dashboard)
 运行工作台页面如下：
-<img width="2479" height="1351" alt="image" src="https://github.com/user-attachments/assets/5ba29dd1-748b-4128-89db-96a6f8cc053c" />
+<img width="1912" height="948" alt="image" src="https://github.com/user-attachments/assets/fa0b3684-8ccd-4669-ac6f-c9cd4eb1dbd4" />
+
 
 
 > 在线实例是单机工程演示环境，可能因云主机维护而短时不可用。仓库当前主开发分支为 `add_eico`。
