@@ -125,7 +125,7 @@ flowchart LR
 
 旧入口 `/menu` 和 `/ai-chat` 会重定向到新工作台，已有鉴权守卫继续生效。
 
-动态协作仅升级原双 Agent：最多 5 次 Supervisor 调用、4 次委派、同轮 2 个固定角色、180 秒总超时。KnowledgeAgent 查询授权文档；DiagnosticAgent 结合用户报告、规则候选与交接证据进行模型分析，不访问现场主机或执行修复。控制审计写 MySQL，完整本次轨迹可下载。接口采用显式 Shadow，不改变正式聊天或自动批准策略。详见[动态协作规格与验收](docs/DYNAMIC-COLLABORATION-SPEC.zh-CN.md)。下述历史评测数字不代表这一新版本的诊断准确率或质量收益。
+动态协作仅升级原双 Agent：最多 5 次 Supervisor 调用、4 次委派、同轮 2 个固定角色、180 秒总超时。KnowledgeAgent 查询授权文档；DiagnosticAgent 结合用户报告、规则候选与交接证据进行模型分析，不访问现场主机或执行修复。控制审计写 MySQL，完整本次轨迹可下载。接口采用显式 Shadow，不改变正式聊天或自动批准策略。实现见 [Supervisor 调度循环](internal/orchestration/dynamic.go) 与 [委派适配器](internal/orchestration/dynamic_runners.go)。下述历史评测数字不代表这一新版本的诊断准确率或质量收益。
 
 ## 已验证的评测结果
 
@@ -177,7 +177,7 @@ Rerun Report SHA  6b46cbdd815db0f46b36e42d1b4243df29ae448cc64ce7cc716613402f8ee3
 
 原始约278 MB数据本地处理，ECS只保存小型观测摘要，模型在云端调用，不新增数据库或运行完整微服务集群。此入口复用既有模型凭证；原聊天配置为百炼 `qwen-turbo` 时，仅此入口默认采用 `qwen-plus`，可用服务端 `GOPHERAI_RCA_MODEL` 覆盖，普通聊天不变。会产生真实模型调用用量。
 
-当前12例答案此前已被查看，因此新模型成绩只作为**已有案例回放**单独记录，不称为新盲测。查看 [自主排查规格](docs/RCAEval-AUTONOMOUS-AGENT-SPEC.zh-CN.md) 和 [实验说明](evals/rcaeval/README.md)。最终标准答案由独立评分器核对，不进入模型上下文；不执行修复。
+当前12例答案此前已被查看，因此新模型成绩只作为**已有案例回放**单独记录，不称为新盲测。查看 [自主排查实现](internal/rcaagent/agent.go) 和 [实验说明](evals/rcaeval/README.md)。最终标准答案由独立评分器核对，不进入模型上下文；不执行修复。
 
 当前 `rca-autonomous-agent-v2` / qwen-plus 的一次完整回放：**10/12 执行完成**；6个已知类型案例服务 Top-1 **6/6**、服务与类型同时正确 **4/6**。6个范围外案例中 **4个误接纳、2个执行失败**，不能把失败算作正确拒答。全部87次模型请求及轨迹保存于 [agent-replay.json](evals/rcaeval/agent-replay.json)；此前两轮较差的回放也保留。这证明有限样本上的迭代辅助排查过程可运行，但**不证明优于原规则，也不具备可靠的未知故障识别能力**。页面可回看真实记录，或发起新调用；两者有显著区分。
 
@@ -328,7 +328,6 @@ Invoke-WebRequest http://127.0.0.1:9090/metrics
 ├── router/              # Gin 路由和鉴权分组
 ├── scripts/deploy/      # 阿里云构建、部署、健康门禁与回滚脚本
 ├── evals/               # 版本化评测目录、Schema、Fixture 和基线资产
-├── docs/                # 架构和系统导览文档
 ├── GlobalExperience/    # 已验证的部署与故障处理记录
 └── vue-frontend/        # Vue 3 工作台
 ```
