@@ -27,7 +27,7 @@
 
 部署前 SSH 正常，服务器 1612 MiB 总内存、约 374 MiB 可用；三个原容器均在运行。使用干净 release worktree、本地交叉构建和现有 SSH 原子发布脚本；不得在 ECS 编译、安装依赖、删除容器或改用户复核记录。
 
-线上发布与真实模型验证结果在完成后追加。
+线上发布与真实模型验证结果见下方记录。
 
 ## 第一轮真实运行及针对性修正
 
@@ -36,3 +36,22 @@
 - 这次运行证明动态委派与交接确实发生，但暴露上下文元数据缺口：SharedEvidence 没传文档 Title，Supervisor 错把数据库 source_id UUID 当作文件名不匹配；诊断还把 release 字段用途猜成 probe 专用。
 - v1.1 补传 Title，明确 source_id 是内部 ID，参数作用范围没有定义就必须待确认。新增标题保留与未 resolved 兜底不能升级结论的回归测试。不删除第一次运行事实，不声称由此获得准确率提升。
 - 浏览器实看新页面为深色独立、可滚动工作区，无原白色指标卡；代码与 RCAEval 页面/数据相互独立。
+
+## 最终版本发布
+
+- 代码提交 `623fbb63c12e6c539adc125c35b3d1fa5ab783d6` 已推送 `origin/add_eico`；发布号 `20260910141614-623fbb63c12e`。
+- Bundle SHA-256：`22c3f1ef41e7a46f4e5dcd8ef9839dffbc159252bf3ad0e6cf4482d9ac32f3b5`。
+- Backend SHA-256：`b7e8606a9fca486b2e745f897cce6b64ce870d5d43356f5889dde80408858244`。
+- 使用既有本地构建、上传、原子切换流程；Backend/Worker live 与 ready、Prometheus 2/2、Grafana、前端均通过。未删除原容器，保留上一版回滚；部署后可用内存约 423 MiB。
+- v1.1 补丁定向 Go 测试、Vet、Race 和前端 lint/build 通过；完整 Go 测试与 Vet 在主体实现后通过。RCA 前端范围测试通过，RCA 源码及数据没有改动。
+- 发布后公网 `/health/ready` 为 ready，MySQL、RabbitMQ、Redis cache/vector 与模型配置均为 up。模型配置健康不等同于模型答案准确性。
+- 新页面 `/dashboard/collaboration` 可独立打开，保留全局鉴权；通过当前已登录账号真实调用，不创建或修改人工评测结论。
+
+## v1.1 真实模型复验
+
+- 使用页面默认“先查文档 → 再诊断”模拟报告运行一次，Trace `539c5a0d-eecc-4040-b9a3-942a0b22a519`。返回 `complete / model_finished`，4 次 Supervisor 调用、3 次委派、13534 个模型报告 Token。
+- 第 1 轮 KnowledgeAgent 查到 `release.timeout_seconds = 47`；第 2 轮 DiagnosticAgent 明确接收前轮证据 `d1:aa07e796-3f22-5839-8aee-fc13b1da5a8c`；第 3 轮 Supervisor 根据诊断缺口，重新委派 KnowledgeAgent 查 `probe_code` 的定义和参数关联；第 4 轮主动停止，列出代码实现、参数消费路径和请求耗时等待确认项。
+- 浏览器展开第一轮证据，实际显示 `document_chunk · m3b-config.json · L4–5`，文档标题已传递，不再只向模型交付不透明的内部 source_id。
+- 只读查询 MySQL 得到 7 条对应控制审计：4 条 accepted 调度事件、3 条 succeeded 委派事件；未篡改人工标签或答案。审计表本版 latency_ms 未填，不能将其零值当作真实执行耗时；页面各轮耗时来自执行记录。
+- 局限仍须保留：模型个别措辞将 probe_code 推测为预设探针类型，或将 47 秒评价为较长；原文只有配置字段，不能据此证明用途、有效运行值或因果关系。引用归属校验不能完全防止语义过度推断，本次仅验收动态编排、真实交接、按反馈追加查询与正常停止，**不作为诊断准确率达标或真实故障被解决的证明**。
+- 第一轮 partial 与第二轮 complete 均记录在案；后者“完成”指本次编排结束，不代表根因确认。未为了得到成功状态反复挑选运行结果。
