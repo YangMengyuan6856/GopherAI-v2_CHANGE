@@ -57,8 +57,8 @@ func (h *Handler) Catalog(c *gin.Context) {
 	for _, item := range h.dataset.Catalog {
 		splitCounts[item.Split]++
 	}
-	c.JSON(http.StatusOK, gin.H{"version": h.dataset.Version, "revision": h.dataset.Revision, "dataset_sha256": h.dataset.SHA256, "cases": h.dataset.Catalog, "references": h.dataset.References, "supported_services": rcaexperiment.SupportedServices(), "supported_faults": []string{"cpu", "mem", "delay"}, "extractor": h.dataset.Extractor, "max_concurrency": 1,
-		"evaluation_contract": "known_fault_autonomous_investigation_v3", "split_counts": splitCounts,
+	c.JSON(http.StatusOK, gin.H{"version": h.dataset.Version, "revision": h.dataset.Revision, "dataset_sha256": h.dataset.SHA256, "cases": h.dataset.Catalog, "references": h.dataset.References, "supported_services": rcaexperiment.SupportedServices(), "supported_faults": rcaexperiment.SupportedFaults(), "extractor": h.dataset.Extractor, "max_concurrency": 1,
+		"evaluation_contract": "known_fault_autonomous_investigation_v4", "split_counts": splitCounts,
 		"agent_version": rcaagent.Version, "agent_max_model_calls": rcaagent.MaxRounds, "agent_max_tool_calls": rcaagent.MaxToolCalls, "agent_timeout_seconds": int(rcaagent.TotalTimeout.Seconds())})
 }
 func (h *Handler) Observation(c *gin.Context) {
@@ -164,7 +164,7 @@ func (h *Handler) AgentReport(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"message": "自主 Agent 报告与当前版本不一致，不展示旧成绩"})
 		return
 	}
-	holdout := make(map[string]struct{}, 6)
+	holdout := make(map[string]struct{}, 20)
 	for _, item := range h.dataset.Catalog {
 		if item.Split == "holdout" {
 			holdout[item.ID] = struct{}{}

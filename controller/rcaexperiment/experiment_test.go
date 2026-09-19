@@ -63,7 +63,7 @@ func TestCatalogUsesTheSameSplitNamesAsTheDataset(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.SplitCounts["reference"] != 12 || body.SplitCounts["development"] != 12 || body.SplitCounts["holdout"] != 12 {
+	if body.SplitCounts["reference"] != 20 || body.SplitCounts["development"] != 20 || body.SplitCounts["holdout"] != 20 {
 		t.Fatalf("unexpected split counts: %#v", body.SplitCounts)
 	}
 	if _, exists := body.SplitCounts["evaluation"]; exists {
@@ -122,11 +122,21 @@ func TestFrozenAgentReplayAndRecordedTraceAreVersionBound(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	holdoutID := ""
+	for _, item := range d.Catalog {
+		if item.Split == "holdout" {
+			holdoutID = item.ID
+			break
+		}
+	}
+	if holdoutID == "" {
+		t.Fatal("holdout case is missing")
+	}
 	h := NewHandler(d, nil, nil) // No model factory: viewing records cannot call a model.
 	for _, tt := range []struct {
 		id   string
 		want int
-	}{{"", 200}, {d.Catalog[24].ID, 200}, {"not-in-report", 404}} {
+	}{{"", 200}, {holdoutID, 200}, {"not-in-report", 404}} {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 		c.Set("userName", "tester")
@@ -145,7 +155,7 @@ func TestFrozenAgentReplayAndRecordedTraceAreVersionBound(t *testing.T) {
 		}
 		if tt.id == "" {
 			var rows []json.RawMessage
-			if json.Unmarshal(body["cases"], &rows) != nil || len(rows) != 12 {
+			if json.Unmarshal(body["cases"], &rows) != nil || len(rows) != 20 {
 				t.Fatal("incomplete replay")
 			}
 			if len(body["prompt_sha256"]) == 0 || len(body["implementation_sha256"]) == 0 || string(body["split"]) != `"holdout"` {

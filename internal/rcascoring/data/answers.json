@@ -21,6 +21,13 @@
     "split": "reference"
   },
   {
+    "id": "rca-5930118bc1",
+    "service": "checkoutservice",
+    "fault": "socket",
+    "supported": true,
+    "split": "reference"
+  },
+  {
     "id": "rca-f9278c4f7b",
     "service": "currencyservice",
     "fault": "cpu",
@@ -38,6 +45,13 @@
     "id": "rca-d20ce82152",
     "service": "currencyservice",
     "fault": "delay",
+    "supported": true,
+    "split": "reference"
+  },
+  {
+    "id": "rca-8610a6ecab",
+    "service": "currencyservice",
+    "fault": "socket",
     "supported": true,
     "split": "reference"
   },
@@ -63,6 +77,13 @@
     "split": "reference"
   },
   {
+    "id": "rca-2cf334d2e0",
+    "service": "emailservice",
+    "fault": "socket",
+    "supported": true,
+    "split": "reference"
+  },
+  {
     "id": "rca-be290185f2",
     "service": "productcatalogservice",
     "fault": "cpu",
@@ -80,6 +101,41 @@
     "id": "rca-bdf8aad8af",
     "service": "productcatalogservice",
     "fault": "delay",
+    "supported": true,
+    "split": "reference"
+  },
+  {
+    "id": "rca-c4a56b7233",
+    "service": "productcatalogservice",
+    "fault": "socket",
+    "supported": true,
+    "split": "reference"
+  },
+  {
+    "id": "rca-fc745c5f4c",
+    "service": "recommendationservice",
+    "fault": "cpu",
+    "supported": true,
+    "split": "reference"
+  },
+  {
+    "id": "rca-50e3775f48",
+    "service": "recommendationservice",
+    "fault": "mem",
+    "supported": true,
+    "split": "reference"
+  },
+  {
+    "id": "rca-f07bba6dfd",
+    "service": "recommendationservice",
+    "fault": "delay",
+    "supported": true,
+    "split": "reference"
+  },
+  {
+    "id": "rca-b8a8899e63",
+    "service": "recommendationservice",
+    "fault": "socket",
     "supported": true,
     "split": "reference"
   },
@@ -105,6 +161,13 @@
     "split": "development"
   },
   {
+    "id": "rca-0776f54cd9",
+    "service": "checkoutservice",
+    "fault": "socket",
+    "supported": true,
+    "split": "development"
+  },
+  {
     "id": "rca-4d387bea1c",
     "service": "currencyservice",
     "fault": "cpu",
@@ -122,6 +185,13 @@
     "id": "rca-0db34b4c7e",
     "service": "currencyservice",
     "fault": "delay",
+    "supported": true,
+    "split": "development"
+  },
+  {
+    "id": "rca-37a5303b48",
+    "service": "currencyservice",
+    "fault": "socket",
     "supported": true,
     "split": "development"
   },
@@ -147,6 +217,13 @@
     "split": "development"
   },
   {
+    "id": "rca-ec9e76a45d",
+    "service": "emailservice",
+    "fault": "socket",
+    "supported": true,
+    "split": "development"
+  },
+  {
     "id": "rca-94e5ae21b2",
     "service": "productcatalogservice",
     "fault": "cpu",
@@ -164,6 +241,41 @@
     "id": "rca-99fc833ae8",
     "service": "productcatalogservice",
     "fault": "delay",
+    "supported": true,
+    "split": "development"
+  },
+  {
+    "id": "rca-7c01c92782",
+    "service": "productcatalogservice",
+    "fault": "socket",
+    "supported": true,
+    "split": "development"
+  },
+  {
+    "id": "rca-9a8d5cecc6",
+    "service": "recommendationservice",
+    "fault": "cpu",
+    "supported": true,
+    "split": "development"
+  },
+  {
+    "id": "rca-bd0ab7fc84",
+    "service": "recommendationservice",
+    "fault": "mem",
+    "supported": true,
+    "split": "development"
+  },
+  {
+    "id": "rca-073e220e96",
+    "service": "recommendationservice",
+    "fault": "delay",
+    "supported": true,
+    "split": "development"
+  },
+  {
+    "id": "rca-52eb6b0c94",
+    "service": "recommendationservice",
+    "fault": "socket",
     "supported": true,
     "split": "development"
   },
@@ -189,6 +301,13 @@
     "split": "holdout"
   },
   {
+    "id": "rca-a254fd4742",
+    "service": "checkoutservice",
+    "fault": "socket",
+    "supported": true,
+    "split": "holdout"
+  },
+  {
     "id": "rca-e5abfe8ebd",
     "service": "currencyservice",
     "fault": "cpu",
@@ -206,6 +325,13 @@
     "id": "rca-c91fd2df9f",
     "service": "currencyservice",
     "fault": "delay",
+    "supported": true,
+    "split": "holdout"
+  },
+  {
+    "id": "rca-a28d1285e7",
+    "service": "currencyservice",
+    "fault": "socket",
     "supported": true,
     "split": "holdout"
   },
@@ -231,6 +357,13 @@
     "split": "holdout"
   },
   {
+    "id": "rca-18804bdd7f",
+    "service": "emailservice",
+    "fault": "socket",
+    "supported": true,
+    "split": "holdout"
+  },
+  {
     "id": "rca-498b272d09",
     "service": "productcatalogservice",
     "fault": "cpu",
@@ -248,6 +381,41 @@
     "id": "rca-7041399641",
     "service": "productcatalogservice",
     "fault": "delay",
+    "supported": true,
+    "split": "holdout"
+  },
+  {
+    "id": "rca-98649a36b0",
+    "service": "productcatalogservice",
+    "fault": "socket",
+    "supported": true,
+    "split": "holdout"
+  },
+  {
+    "id": "rca-177092bf56",
+    "service": "recommendationservice",
+    "fault": "cpu",
+    "supported": true,
+    "split": "holdout"
+  },
+  {
+    "id": "rca-cc8c3892e2",
+    "service": "recommendationservice",
+    "fault": "mem",
+    "supported": true,
+    "split": "holdout"
+  },
+  {
+    "id": "rca-e9781b0ed5",
+    "service": "recommendationservice",
+    "fault": "delay",
+    "supported": true,
+    "split": "holdout"
+  },
+  {
+    "id": "rca-6ab11c1b3d",
+    "service": "recommendationservice",
+    "fault": "socket",
     "supported": true,
     "split": "holdout"
   }

@@ -1,20 +1,20 @@
 {
-  "schema_version": "rcaeval-known-manifest-v3",
-  "dataset_version": "rcaeval-ob-known-v3",
+  "schema_version": "rcaeval-known-manifest-v4",
+  "dataset_version": "rcaeval-ob-known-v4",
   "repository": "phamquiluan/RCAEval",
   "revision": "afeacb11bcc94dadfd1c8f483ee4377b2b8b614e",
   "benchmark_family": "RE2-OB",
   "selection": {
-    "services": ["checkoutservice", "currencyservice", "emailservice", "productcatalogservice"],
-    "faults": ["cpu", "mem", "delay"],
+    "services": ["checkoutservice", "currencyservice", "emailservice", "productcatalogservice", "recommendationservice"],
+    "faults": ["cpu", "mem", "delay", "socket"],
     "repetitions": {
       "1": "reference",
       "2": "development",
       "3": "holdout"
     },
-    "case_count": 36,
-    "cases_per_split": 12,
-    "raw_parquet_bytes": 366842864,
+    "case_count": 60,
+    "cases_per_split": 20,
+    "raw_parquet_bytes": 620304433,
     "raw_parquet_in_repository": false,
     "raw_parquet_processing": "local_only"
   },
@@ -31,23 +31,23 @@
   "artifacts": {
     "observations": {
       "path": "internal/rcaexperiment/data/observations.json",
-      "sha256": "723943b7c44d1c05ec97b913d56b1a56a179ddf2bf0ec3a54eceeef1896c01e3",
-      "bytes": 2713869
+      "sha256": "36f1874f1e48046ae054810076ac348ba7c09accc5aa235738231e4e3f44c024",
+      "bytes": 4523943
     },
     "references": {
       "path": "internal/rcaexperiment/data/references.json",
-      "sha256": "877aa4ca74ce84bc54abd51caf2d04ebf9dbd8a6be385083034508691a56efb8",
-      "bytes": 2206
+      "sha256": "502a7e8681f1e13385fcf5a5048fe1d2dd161386d49eba6fc0c893b5af715967",
+      "bytes": 3706
     },
     "answers": {
       "path": "internal/rcascoring/data/answers.json",
-      "sha256": "f50be1279f7988dbc435080bcaacabef3d36ca0a7613e948718e4e05164d51d1",
-      "bytes": 5312
+      "sha256": "4b4f64ce01b02443923e4484d9ddaf91555d1f793b0ab702b2d09fb859ac2f9b",
+      "bytes": 8948
     },
     "sources": {
       "path": "evals/rcaeval/sources.json",
-      "sha256": "2563a27b39ce06b6404841f32c7b645b004cc9b0c4e6aa886fe6cc0ef52bef6c",
-      "bytes": 25384
+      "sha256": "421d9aaba6a68364bf2bc74f482cd2d2d966f6f915822087699d92aa2ad8fef1",
+      "bytes": 42051
     }
   },
   "extractor": {

@@ -1,4 +1,4 @@
-# RCAEval 已知故障自主排查评测集（v3）
+# RCAEval 已知故障自主排查评测集（v4）
 
 这是 GopherAI DevSupport 的一个小型、可复现、只读故障诊断评测。它用于回答一个边界明确的问题：给定一段不含答案标签的微服务观测窗口，系统能否通过受治理的 Agent 工具调用，定位已知故障服务、给出候选故障类型，并列出证据与还需要确认的内容。
 
@@ -6,25 +6,25 @@
 
 ## 当前固定范围
 
-本轮保留 RCAEval 的 RE2-OB（Online Boutique）中的 36 个已知故障案例：
+本轮保留 RCAEval 的 RE2-OB（Online Boutique）中的 60 个已知故障案例：
 
 | 维度 | 范围 |
 | --- | --- |
-| 服务 | `checkoutservice`、`currencyservice`、`emailservice`、`productcatalogservice` |
-| 故障类型 | `cpu`（CPU 压力）、`mem`（内存压力）、`delay`（网络延迟） |
+| 服务 | `checkoutservice`、`currencyservice`、`emailservice`、`productcatalogservice`、`recommendationservice` |
+| 故障类型 | `cpu`（CPU 压力）、`mem`（内存压力）、`delay`（网络延迟）、`socket`（连接资源压力） |
 | 每个服务/故障组合 | 3 次独立重复运行 |
-| 第 1 次运行 | `reference`：只读历史参考库，12 例 |
-| 第 2 次运行 | `development`：开发调参集，12 例 |
-| 第 3 次运行 | `holdout`：固定评测集，12 例 |
-| 总数 | 36 例；每个 split 12 例 |
+| 第 1 次运行 | `reference`：只读历史参考库，20 例 |
+| 第 2 次运行 | `development`：开发调参集，20 例 |
+| 第 3 次运行 | `holdout`：固定评测集，20 例 |
+| 总数 | 60 例；每个 split 20 例 |
 
-`holdout` 是当前代码和页面统一使用的评测名称。参考、开发、评测三组没有重复 ID，且每个 split 都覆盖四个服务 × 三种故障。v3 扩的是根因服务覆盖面，仍不重新引入证据较难解释的 `disk`、`loss`、`socket`。
+`holdout` 是当前代码和页面统一使用的评测名称。参考、开发、评测三组没有重复 ID，且每个 split 都覆盖五个服务 × 四种故障。v4 新增第五个根因服务与可直接由 `socket` 指标核查的连接资源压力；`loss`、`disk` 仍不纳入主成绩，避免把当前证据合同难以稳定区分或关键指标缺失的类型强行混入。
 
 固定数据来源：
 
 - 仓库：[phamquiluan/RCAEval](https://huggingface.co/datasets/phamquiluan/RCAEval)
 - 固定 revision：`afeacb11bcc94dadfd1c8f483ee4377b2b8b614e`
-- 选择规则与工件摘要：[`v3-manifest.json`](./v3-manifest.json)
+- 选择规则与工件摘要：[`v4-manifest.json`](./v4-manifest.json)
 
 ## 数据边界
 
@@ -43,28 +43,28 @@
 - `inject_time.txt`；
 - 评分真值、原始路径和来源映射。
 
-评分真值独立保存在 `internal/rcascoring/data/answers.json`。原始案例映射和完整来源摘要保存在 `evals/rcaeval/sources.json`，只供审计、复现和离线评分使用，不能作为 Agent 工具输入。公开参考库 `internal/rcaexperiment/data/references.json` 只包含第 1 次运行的 12 个已知组合；评测真值不会回流到参考检索。
+评分真值独立保存在 `internal/rcascoring/data/answers.json`。原始案例映射和完整来源摘要保存在 `evals/rcaeval/sources.json`，只供审计、复现和离线评分使用，不能作为 Agent 工具输入。公开参考库 `internal/rcaexperiment/data/references.json` 只包含第 1 次运行的 20 个已知组合；评测真值不会回流到参考检索。
 
 ## 数据准备
 
 准备环境需要 Python、`requests`、`numpy`、`pandas`、`pyarrow`。缓存目录应放在仓库之外，例如：
 
 ```powershell
-$cache = "$env:TEMP\gopherai-rcaeval-v3-cache"
+$cache = "$env:TEMP\gopherai-rcaeval-v4-cache"
 python scripts/eval/prepare_rcaeval.py --cache $cache
 ```
 
 脚本固定 revision、最多两路下载并发和 1 GiB 原始数据上限。重复运行会复用已校验文件。脚本只写入以下小型静态工件：
 
-- `internal/rcaexperiment/data/observations.json`：36 条匿名观测窗口；
-- `internal/rcaexperiment/data/references.json`：12 条历史参考案例；
-- `internal/rcascoring/data/answers.json`：36 条独立评分真值；
-- `evals/rcaeval/sources.json`：36 条来源和原始文件摘要。
+- `internal/rcaexperiment/data/observations.json`：60 条匿名观测窗口；
+- `internal/rcaexperiment/data/references.json`：20 条历史参考案例；
+- `internal/rcascoring/data/answers.json`：60 条独立评分真值；
+- `evals/rcaeval/sources.json`：60 条来源和原始文件摘要。
 
-当前 v3 工件的 SHA-256、字节数和选择约束以 `v3-manifest.json` 为准。生成后可执行：
+当前 v4 工件的 SHA-256、字节数和选择约束以 `v4-manifest.json` 为准。生成后可执行：
 
 ```powershell
-python -c "import json,collections; d=json.load(open('internal/rcaexperiment/data/observations.json',encoding='utf-8')); a=json.load(open('internal/rcascoring/data/answers.json',encoding='utf-8')); assert len(d['observations'])==36 and len(d['catalog'])==36; assert collections.Counter(x['split'] for x in d['catalog'])=={'reference':12,'development':12,'holdout':12}; assert len(a)==36; print('RCAEval v3 artifacts: OK')"
+python -c "import json,collections; d=json.load(open('internal/rcaexperiment/data/observations.json',encoding='utf-8')); a=json.load(open('internal/rcascoring/data/answers.json',encoding='utf-8')); assert len(d['observations'])==60 and len(d['catalog'])==60; assert collections.Counter(x['split'] for x in d['catalog'])=={'reference':20,'development':20,'holdout':20}; assert len(a)==60; print('RCAEval v4 artifacts: OK')"
 ```
 
 ## 如何解释评测结果
@@ -84,24 +84,24 @@ python -c "import json,collections; d=json.load(open('internal/rcaexperiment/dat
 
 ## 固定留出评测结果
 
-冻结 `rca-autonomous-agent-v4` 的提示词、工具、预算和实现后，使用固定模型 `qwen3.7-plus-2026-05-26` 对 12 条 `holdout` 案例顺序运行一次。以下结果由本轮固定报告生成：
+冻结 `rca-autonomous-agent-v5` 的提示词、工具、预算和实现后，使用固定模型 `qwen3.7-plus-2026-05-26` 对 20 条 `holdout` 案例顺序运行一次。以下结果由本轮固定报告生成：
 
 | 指标 | 结果 |
 | --- | ---: |
-| 尝试 / 完成 / 执行失败 | 12 / 12 / 0 |
-| 服务 Top-1 | 12 / 12 |
-| 服务与故障类型联合命中 | 12 / 12 |
-| 证据引用契约通过 | 12 / 12 |
-| 模型请求 / 只读工具调用 | 75 / 61 |
-| 输入 / 输出 tokens | 355031 / 47857 |
-| 总耗时 / 单例平均耗时 | 758999 ms / 约 63.25 s |
+| 尝试 / 完成 / 执行失败 | 20 / 17 / 3 |
+| 服务 Top-1 | 17 / 20 |
+| 服务与故障类型联合命中 | 16 / 20 |
+| 证据引用契约通过 | 17 / 20 |
+| 模型请求 / 只读工具调用 | 119 / 96 |
+| 输入 / 输出 tokens | 517500 / 70576 |
+| 总耗时 / 单例平均耗时 | 1316859 ms / 约 65.84 s |
 
 完整记录保存在 [`agent-evaluation.json`](./agent-evaluation.json)，并绑定数据集 SHA-256、提示词 SHA-256 与实现 SHA-256。后端只在这些标识与当前代码全部一致时展示成绩，避免把旧报告冒充成当前结果。评分标准答案只在 Agent 停止后由独立 Go 评分器读取，不进入模型提示词或任何工具输出。
 
 该固定报告发布后，再次对 `holdout` 运行 CLI 只会标记为 `previously_exposed_case_replay`，不能生成第二份“首次固定评测”覆盖当前成绩。
 
-这是固定、公开、范围受限的已知故障评测；每个案例只运行一次。它可以证明受治理的排查循环、证据引用与独立评分链路在这 12 个案例上完整运行，但不能外推为生产准确率，也不能证明未知故障识别、跨系统泛化或自动修复成功率。由于公开数据与旧版实验已被查看，本报告称固定评测而不称严格盲测。
+这是固定、公开、范围受限的已知故障评测；每个案例只运行一次。3 条模型调用超时和 1 条故障类型误判均保留在分母，没有重跑挑选最好结果。它可以证明受治理的排查循环、证据引用与独立评分链路在这 20 个案例上完整运行，但不能外推为生产准确率，也不能证明未知故障识别、跨系统泛化或自动修复成功率。由于公开数据与旧版实验已被查看，本报告称固定评测而不称严格盲测。
 
 ## 旧版替换说明
 
-此前混合故障类型的 27 例、规则按钮、A/B/C 分组和多轮 `agent-replay*.json` 已从当前评测入口与仓库工件中移除，避免把不同口径混合展示。当前页面、数据加载器和报告只认本 README、`v3-manifest.json` 的 36 例约束以及 `agent-evaluation.json` 的 12 例固定评测结果。
+此前混合故障类型的 27 例、规则按钮、A/B/C 分组和多轮 `agent-replay*.json` 已从当前评测入口与仓库工件中移除，避免把不同口径混合展示。当前页面、数据加载器和报告只认本 README、`v4-manifest.json` 的 60 例约束以及 `agent-evaluation.json` 的 20 例固定评测结果。

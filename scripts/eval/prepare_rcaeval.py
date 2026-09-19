@@ -15,18 +15,26 @@ import re
 import numpy as np
 import pandas as pd
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 REVISION = 'afeacb11bcc94dadfd1c8f483ee4377b2b8b614e'
 REPOSITORY = 'phamquiluan/RCAEval'
-# v3 widens the proven v2 contract by service, not by ambiguous fault type. It
-# still excludes the earlier unsupported disk/loss/socket cases and keeps raw
-# Parquet files local to the preparation workstation.
-VERSION = 'rcaeval-ob-known-v3'
+# v4 keeps one rectangular, auditable RE2-OB scope. It adds the fifth root
+# service and socket resource stress, whose metric signal exists in every
+# selected repetition. Loss/disk remain excluded because this bounded experiment is
+# intended to demonstrate explainable known-pattern diagnosis, not every
+# fault available in the upstream benchmark.
+VERSION = 'rcaeval-ob-known-v4'
 EXTRACTOR = 'window-thirds-v2'
-KINDS = ('cpu', 'mem', 'delay')
-SERVICES = ('checkoutservice', 'currencyservice', 'emailservice', 'productcatalogservice')
+KINDS = ('cpu', 'mem', 'delay', 'socket')
+SERVICES = ('checkoutservice', 'currencyservice', 'emailservice', 'productcatalogservice', 'recommendationservice')
 CASES_PER_SPLIT = len(SERVICES) * len(KINDS)
 EXPECTED_SPLITS = {name: CASES_PER_SPLIT for name in ('reference', 'development', 'holdout')}
+SESSION = requests.Session()
+SESSION.mount('https://', HTTPAdapter(max_retries=Retry(
+    total=4, connect=4, read=4, backoff_factor=.8,
+    status_forcelist=(429, 500, 502, 503, 504), allowed_methods=('GET',))))
 
 
 def digest(path):
@@ -40,7 +48,7 @@ def download(remote, target, size=None):
         return
     target.parent.mkdir(parents=True, exist_ok=True)
     partial = target.with_suffix(target.suffix + '.partial')
-    with requests.get(f'https://huggingface.co/datasets/{REPOSITORY}/resolve/{REVISION}/{remote}', stream=True, timeout=(20, 120)) as r:
+    with SESSION.get(f'https://huggingface.co/datasets/{REPOSITORY}/resolve/{REVISION}/{remote}', stream=True, timeout=(20, 120)) as r:
         r.raise_for_status()
         with partial.open('wb') as f:
             for chunk in r.iter_content(1024 * 1024):
@@ -60,13 +68,13 @@ def selection():
 
 
 def validate_selection(items):
-    """Fail closed if the bounded v3 selection is accidentally widened."""
+    """Fail closed if the bounded v4 selection is accidentally widened."""
     expected_total = CASES_PER_SPLIT * len(EXPECTED_SPLITS)
     if len(items) != expected_total:
-        raise ValueError(f'v3 selection must contain {expected_total} cases, got {len(items)}')
+        raise ValueError(f'v4 selection must contain {expected_total} cases, got {len(items)}')
     split_counts = Counter(split for _, split, _, _ in items)
     if dict(split_counts) != EXPECTED_SPLITS:
-        raise ValueError(f'v3 split counts mismatch: {dict(split_counts)}')
+        raise ValueError(f'v4 split counts mismatch: {dict(split_counts)}')
     expected = {
         (split, service, fault)
         for split, repetition in (('reference', 1), ('development', 2), ('holdout', 3))
@@ -75,7 +83,7 @@ def validate_selection(items):
     }
     actual = {(split, service, fault) for _, split, service, fault in items}
     if actual != expected:
-        raise ValueError('v3 selection must cover every service/fault pair exactly once per split')
+        raise ValueError('v4 selection must cover every service/fault pair exactly once per split')
 
 
 def number(x):
@@ -168,11 +176,14 @@ def main():
     args = parser.parse_args()
     selected = selection()
     validate_selection(selected)
-    metadata = []
-    for case, *_ in selected:
-        r = requests.get(f'https://huggingface.co/api/datasets/{REPOSITORY}/tree/{REVISION}/{case}', timeout=40)
+    def inspect(case):
+        r = SESSION.get(f'https://huggingface.co/api/datasets/{REPOSITORY}/tree/{REVISION}/{case}', timeout=(20, 60))
         r.raise_for_status()
-        metadata.extend([row for row in r.json() if row['path'].endswith('.parquet')])
+        return [row for row in r.json() if row['path'].endswith('.parquet')]
+    metadata = []
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        for rows in pool.map(inspect, (case for case, *_ in selected)):
+            metadata.extend(rows)
     total = sum(row['size'] for row in metadata)
     if total > 1024 ** 3:
         raise ValueError(f'Raw selection exceeds 1 GiB: {total}')
@@ -213,7 +224,7 @@ def main():
         'internal/rcaexperiment/data/references.json': references,
         'internal/rcascoring/data/answers.json': answers,
         'evals/rcaeval/sources.json': {
-            'schema_version': 'rcaeval-source-manifest-v3',
+            'schema_version': 'rcaeval-source-manifest-v4',
             'dataset_version': VERSION,
             'repository': REPOSITORY,
             'revision': REVISION,

@@ -43,7 +43,7 @@ func TestDatasetBoundaries(t *testing.T) {
 			}
 		}
 	}
-	if !reflect.DeepEqual(counts, map[string]int{"reference": 12, "development": 12, "holdout": 12}) {
+	if !reflect.DeepEqual(counts, map[string]int{"reference": 20, "development": 20, "holdout": 20}) {
 		t.Fatal(counts)
 	}
 }
@@ -129,6 +129,19 @@ func TestReferenceCannotMatchItself(t *testing.T) {
 	for _, r := range SearchReferences(o, d.References) {
 		if r.ID == o.ID {
 			t.Fatal("self retrieval")
+		}
+	}
+}
+
+func TestEveryKnownPatternHasUsablePrimaryEvidence(t *testing.T) {
+	d := dataForTest(t)
+	if len(d.References) != 20 {
+		t.Fatalf("references = %d", len(d.References))
+	}
+	for _, reference := range d.References {
+		metric, ok := reference.Observation.Metrics[primaryMetric(reference.Fault)]
+		if !ok || metric.ReferenceCount < 20 || metric.CurrentCount < 20 || metric.MissingFraction > .2 {
+			t.Fatalf("reference %s has no usable primary evidence for %s", reference.ID, reference.Fault)
 		}
 	}
 }

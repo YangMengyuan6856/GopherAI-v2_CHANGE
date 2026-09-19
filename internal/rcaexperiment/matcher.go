@@ -6,7 +6,7 @@ import (
 	"sort"
 )
 
-const MatcherVersion = "known-pattern-matcher-v2"
+const MatcherVersion = "known-pattern-matcher-v3"
 const MinSimilarity = 0.64
 
 type Evidence struct {
@@ -47,7 +47,7 @@ type Diagnosis struct {
 var dimensions = []struct {
 	Name   string
 	Weight float64
-}{{"cpu", 1}, {"mem", 1.4}, {"latency-90", 1}, {"socket", .35}, {"workload", .3}}
+}{{"cpu", 1}, {"mem", 1.4}, {"latency-90", 1}, {"diskio", 1.2}, {"socket", .35}, {"workload", .3}}
 
 func change(s Service, name string) float64 { return s.Metrics[name].LogChange }
 func similarity(a, b Service, fault string) float64 {
@@ -131,13 +131,16 @@ func eligibleAt(s Service, fault string, threshold float64) (float64, bool) {
 		return cpu, cpu >= threshold && mem < 1.0
 	case "delay":
 		return lat, lat >= threshold && cpu < 1.0 && mem < 1.0
+	case "socket":
+		socket, ok := s.Metrics["socket"]
+		return socket.LogChange, ok && socket.MissingFraction <= .2 && socket.ReferenceCount >= 20 && socket.CurrentCount >= 20 && socket.LogChange >= threshold
 	}
 	return 0, false
 }
 
 func Diagnose(o Observation, refs []Reference, strategy string) Diagnosis {
 	r := Diagnosis{CaseID: o.ID, Version: MatcherVersion, Strategy: strategy, Status: "insufficient_evidence", Candidates: []Candidate{}, References: []Reference{}, Warnings: append([]string{}, o.Warnings...), RepairStatus: "not_executed"}
-	r.Warnings = append(r.Warnings, "只支持指定服务的 CPU/内存/网络延迟模式；相似度不是根因概率。", "未知故障可能出现相似现象；此输出是候选假设，不是根因确认。")
+	r.Warnings = append(r.Warnings, "只支持指定服务的 CPU/内存/网络延迟/连接资源压力模式；相似度不是根因概率。", "未知故障可能出现相似现象；此输出是候选假设，不是根因确认。")
 	if strategy == "case_based" {
 		r.References = refs
 	}
@@ -145,7 +148,7 @@ func Diagnose(o Observation, refs []Reference, strategy string) Diagnosis {
 		if !KnownService(s.Name) {
 			continue
 		}
-		for _, fault := range []string{"cpu", "mem", "delay"} {
+		for _, fault := range SupportedFaults() {
 			strength, ok := eligible(s, fault)
 			var matched *Reference
 			if strategy == "case_based" {
@@ -181,7 +184,7 @@ func Diagnose(o Observation, refs []Reference, strategy string) Diagnosis {
 			if fault != "delay" {
 				c.Score += .5
 			}
-			for _, name := range []string{"cpu", "mem", "latency-90", "workload", "socket"} {
+			for _, name := range []string{"cpu", "mem", "latency-90", "diskio", "workload", "socket"} {
 				if m, ok := s.Metrics[name]; ok {
 					c.Evidence = append(c.Evidence, Evidence{m.ID, "metric", fmt.Sprintf("%s：参考 %.4g → 当前 %.4g，%.2f×（原始单位）", m.Column, m.Reference, m.Current, m.Ratio)})
 				}
@@ -214,6 +217,8 @@ func followUps(f string) []FollowUp {
 		return []FollowUp{{"检查目标服务 CPU 配额、节流时间及同期负载", "CPU/节流持续增加且发生时间与故障相符", "CPU 正常或异常主要由上游/下游传播", false}, {"核查近期压测、流量变化或计算密集变更", "发现与当前窗口相关的负载或代码变化", "没有相应变化，需要继续排查", false}}
 	case "mem":
 		return []FollowUp{{"核对 RSS/工作集、内存上限和分配/GC 情况", "内存持续升高，接近限制或出现分配压力", "只有 CPU 上升，内存缺乏持续异常", false}, {"排查对象积压、缓存增长或内存压力注入", "增长与当前事故时间相关", "短暂波动或健康窗口本来不稳定", false}}
+	case "socket":
+		return []FollowUp{{"核对目标服务的打开连接、socket 上限、连接池等待与失败计数", "连接资源持续升高且时间窗与故障吻合", "连接资源稳定，异常更像网络传播或下游处理变慢", false}, {"检查近期并发、连接泄漏、端口耗尽或连接池配置变化", "发现与故障窗口相关的连接资源压力", "没有对应连接变化，需要继续排查", false}}
 	default:
 		return []FollowUp{{"补查目标服务网络 RTT、丢包/重传与调用依赖耗时", "网络耗时增加，与延迟窗口及依赖关系吻合", "CPU/内存压力或下游处理耗时更能解释现象", false}, {"区分纯延迟、丢包、socket 限制或连接池等待", "存在可定位的网络延迟证据", "只看到请求变慢，不能区分具体原因", false}}
 	}

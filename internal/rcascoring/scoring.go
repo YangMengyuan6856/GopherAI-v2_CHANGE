@@ -112,7 +112,7 @@ func Evaluate(ctx context.Context, d *rcaexperiment.Dataset, split string) (Repo
 	if split != "development" && split != "holdout" {
 		return Report{}, fmt.Errorf("invalid evaluation split")
 	}
-	r := Report{Version: "rcaeval-known-report-v1", MatcherVersion: rcaexperiment.MatcherVersion, DatasetSHA256: d.SHA256, Revision: d.Revision, Split: split, GeneratedAt: time.Now().UTC(), Metrics: map[string]Metrics{}, Cases: []CaseResult{}, Limitations: []string{"同一服务/故障配方的不同实验运行；仅检查已知模式复现，不证明未知故障或跨系统泛化。", "只有两个受支持服务，Top-3 区分力有限；优先看 Top-1 与服务/类型联合正确数。", "窗口最早/最晚三分之一聚合；参考窗口健康是显式假设，不使用注入时间或正确服务选取特征。", "本报告运行在本地，不是服务器端耗时/内存测试；不调用 LLM，不验证修复成功率。"}}
+	r := Report{Version: "rcaeval-known-report-v1", MatcherVersion: rcaexperiment.MatcherVersion, DatasetSHA256: d.SHA256, Revision: d.Revision, Split: split, GeneratedAt: time.Now().UTC(), Metrics: map[string]Metrics{}, Cases: []CaseResult{}, Limitations: []string{"同一服务/故障配方的不同实验运行；仅检查已知模式复现，不证明未知故障或跨系统泛化。", "范围限定为五个根因服务和 CPU、内存、延迟、连接资源压力四类故障；优先看 Top-1 与服务/类型联合正确数。", "窗口最早/最晚三分之一聚合；参考窗口健康是显式假设，不使用注入时间或正确服务选取特征。", "本报告运行在本地，不是服务器端耗时/内存测试；不调用 LLM，不验证修复成功率。"}}
 	r.PolicySHA256 = d.PolicySHA256
 	for _, c := range d.Catalog {
 		if c.Split != split {

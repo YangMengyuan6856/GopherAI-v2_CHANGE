@@ -2,13 +2,13 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { evaluationCases, summarizeAgentReport } from '../src/utils/rcaEvaluation.mjs'
 
-test('only the twelve evaluation repetitions are selectable', () => {
+test('only the twenty holdout repetitions are selectable', () => {
   const catalog = [
-    ...Array.from({ length: 12 }, (_, i) => ({ id: `r${i}`, split: 'reference' })),
-    ...Array.from({ length: 12 }, (_, i) => ({ id: `d${i}`, split: 'development' })),
-    ...Array.from({ length: 12 }, (_, i) => ({ id: `e${i}`, split: 'holdout' }))
+    ...Array.from({ length: 20 }, (_, i) => ({ id: `r${i}`, split: 'reference' })),
+    ...Array.from({ length: 20 }, (_, i) => ({ id: `d${i}`, split: 'development' })),
+    ...Array.from({ length: 20 }, (_, i) => ({ id: `e${i}`, split: 'holdout' }))
   ]
-  assert.deepEqual(evaluationCases(catalog).map(row => row.id), Array.from({ length: 12 }, (_, i) => `e${i}`))
+  assert.deepEqual(evaluationCases(catalog).map(row => row.id), Array.from({ length: 20 }, (_, i) => `e${i}`))
 })
 
 test('failed runs remain in the denominator and cannot inherit a score', () => {

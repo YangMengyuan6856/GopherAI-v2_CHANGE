@@ -122,10 +122,10 @@ func Load() (*Dataset, error) {
 	if err = json.Unmarshal(refs, &d.References); err != nil {
 		return nil, err
 	}
-	// The bounded v3 benchmark is deliberately small enough to inspect and run
+	// The bounded v4 benchmark is deliberately small enough to inspect and run
 	// serially on a developer machine: one reference, development and evaluation
 	// repetition for every supported service/fault pair.
-	casesPerSplit := len(supportedServices) * 3
+	casesPerSplit := len(supportedServices) * len(supportedFaults)
 	expectedTotal := casesPerSplit * 3
 	if len(d.Catalog) != expectedTotal || len(d.Observations) != expectedTotal || len(d.References) != casesPerSplit {
 		return nil, fmt.Errorf("unexpected experiment population")
@@ -203,9 +203,11 @@ func FindService(o Observation, name string) (Service, bool) {
 	return Service{}, false
 }
 
-var supportedServices = []string{"checkoutservice", "currencyservice", "emailservice", "productcatalogservice"}
+var supportedServices = []string{"checkoutservice", "currencyservice", "emailservice", "productcatalogservice", "recommendationservice"}
+var supportedFaults = []string{"cpu", "mem", "delay", "socket"}
 
 func SupportedServices() []string { return append([]string(nil), supportedServices...) }
+func SupportedFaults() []string   { return append([]string(nil), supportedFaults...) }
 func KnownService(s string) bool {
 	for _, candidate := range supportedServices {
 		if s == candidate {
@@ -222,6 +224,8 @@ func FaultName(f string) string {
 		return "内存压力"
 	case "delay":
 		return "网络延迟"
+	case "socket":
+		return "连接资源压力"
 	}
 	return ""
 }

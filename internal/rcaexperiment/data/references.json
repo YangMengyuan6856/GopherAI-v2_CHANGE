@@ -21,6 +21,13 @@
     "provenance": "RCAEval controlled fault injection"
   },
   {
+    "id": "rca-5930118bc1",
+    "service": "checkoutservice",
+    "fault": "socket",
+    "resolution": "unknown",
+    "provenance": "RCAEval controlled fault injection"
+  },
+  {
     "id": "rca-f9278c4f7b",
     "service": "currencyservice",
     "fault": "cpu",
@@ -38,6 +45,13 @@
     "id": "rca-d20ce82152",
     "service": "currencyservice",
     "fault": "delay",
+    "resolution": "unknown",
+    "provenance": "RCAEval controlled fault injection"
+  },
+  {
+    "id": "rca-8610a6ecab",
+    "service": "currencyservice",
+    "fault": "socket",
     "resolution": "unknown",
     "provenance": "RCAEval controlled fault injection"
   },
@@ -63,6 +77,13 @@
     "provenance": "RCAEval controlled fault injection"
   },
   {
+    "id": "rca-2cf334d2e0",
+    "service": "emailservice",
+    "fault": "socket",
+    "resolution": "unknown",
+    "provenance": "RCAEval controlled fault injection"
+  },
+  {
     "id": "rca-be290185f2",
     "service": "productcatalogservice",
     "fault": "cpu",
@@ -80,6 +101,41 @@
     "id": "rca-bdf8aad8af",
     "service": "productcatalogservice",
     "fault": "delay",
+    "resolution": "unknown",
+    "provenance": "RCAEval controlled fault injection"
+  },
+  {
+    "id": "rca-c4a56b7233",
+    "service": "productcatalogservice",
+    "fault": "socket",
+    "resolution": "unknown",
+    "provenance": "RCAEval controlled fault injection"
+  },
+  {
+    "id": "rca-fc745c5f4c",
+    "service": "recommendationservice",
+    "fault": "cpu",
+    "resolution": "unknown",
+    "provenance": "RCAEval controlled fault injection"
+  },
+  {
+    "id": "rca-50e3775f48",
+    "service": "recommendationservice",
+    "fault": "mem",
+    "resolution": "unknown",
+    "provenance": "RCAEval controlled fault injection"
+  },
+  {
+    "id": "rca-f07bba6dfd",
+    "service": "recommendationservice",
+    "fault": "delay",
+    "resolution": "unknown",
+    "provenance": "RCAEval controlled fault injection"
+  },
+  {
+    "id": "rca-b8a8899e63",
+    "service": "recommendationservice",
+    "fault": "socket",
     "resolution": "unknown",
     "provenance": "RCAEval controlled fault injection"
   }

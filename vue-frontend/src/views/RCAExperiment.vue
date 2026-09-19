@@ -8,8 +8,8 @@
       </div>
       <div class="boundary">
         <strong>只读 · 不执行修复</strong>
-        <span>{{ catalog?.cases?.length || 36 }} 例：参考 / 开发 / 评测各 {{ splitCount('holdout') }} 例</span>
-        <span>{{ catalog?.supported_services?.length || 4 }} 个根因服务 × 3 类已知故障</span>
+        <span>{{ catalog?.cases?.length || 60 }} 例：参考 / 开发 / 评测各 {{ splitCount('holdout') }} 例</span>
+        <span>{{ catalog?.supported_services?.length || 5 }} 个根因服务 × {{ catalog?.supported_faults?.length || 4 }} 类已知故障</span>
         <span>单 Agent · 单并发 · 有界预算</span>
       </div>
     </header>
@@ -173,7 +173,7 @@ export default {
 
     const cases = computed(() => evaluationCases(catalog.value?.cases))
     const service = computed(() => observation.value?.services.find(item => item.name === evidenceService.value))
-    const metricRows = computed(() => ['cpu', 'mem', 'latency-90', 'workload', 'socket'].map(key => service.value?.metrics[key]).filter(Boolean))
+    const metricRows = computed(() => ['cpu', 'mem', 'latency-90', 'diskio', 'workload', 'socket'].map(key => service.value?.metrics[key]).filter(Boolean))
     const diagnosis = computed(() => result.value?.run?.diagnosis || { candidates: [], summary: '' })
     const reportMetrics = computed(() => agentReport.value?.metrics || {})
     const averageElapsed = computed(() => reportMetrics.value.attempted ? (reportMetrics.value.elapsed_ms_total / reportMetrics.value.attempted / 1000).toFixed(2) : '0.00')
@@ -182,7 +182,7 @@ export default {
     const time = stamp => new Date(stamp * 1000).toLocaleString('zh-CN', { timeZone: 'UTC', hour12: false }) + ' UTC'
     const count = value => Number(value || 0).toLocaleString('zh-CN')
     const number = value => Number.isFinite(value) ? Number(value.toPrecision(5)).toLocaleString('zh-CN') : '缺失'
-    const faultName = key => ({ cpu: 'CPU 压力', mem: '内存压力', delay: '网络延迟' }[key] || key)
+    const faultName = key => ({ cpu: 'CPU 压力', mem: '内存压力', delay: '网络延迟', socket: '连接资源压力' }[key] || key)
     const toolName = key => ({ rca_inspect_overview: '查看全局概览', rca_inspect_metrics: '检查详细指标', rca_inspect_logs: '查询日志摘要', rca_inspect_traces: '查询调用链摘要', rca_inspect_history: '检索历史案例' }[key] || key)
     const spark = values => {
       if (!values?.length) return ''
