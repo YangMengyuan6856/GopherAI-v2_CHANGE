@@ -62,7 +62,7 @@ export default {
       { code: 'M-07', path: '/dashboard/evaluation', title: '评测与闭环', english: 'EVALUATION LOOP', description: '离线评测、异常检测、反馈池和 Recommend-only 控制器。', badge: 'OBSERVE', icon: DataAnalysis },
       { code: 'M-08', path: '/dashboard/review', title: '人工验收', english: 'HUMAN GATE', description: 'Full 320 标签复核与 Judge 30 人工校准的独立闸门。', badge: 'REVIEW', icon: Checked },
       { code: 'M-09', path: '/dashboard/interview', title: '面试导览', english: 'LIVE WALKTHROUGH', description: '用 3–5 分钟串联场景、证据、Agent、治理与反馈闭环。', badge: 'GUIDE', icon: Guide },
-      { code: 'M-10', path: '/dashboard/rca-experiment', title: '自主排查实验', english: 'RCAEVAL AGENT REPLAY', description: '模型自主选择只读工具，根据新证据更新假设；保留规则对照和标准答案核对。', badge: 'READ-ONLY AGENT', icon: DataAnalysis }
+      { code: 'M-10', path: '/dashboard/rca-experiment', title: '已知故障排查评测', english: 'RCAEVAL AGENT BENCHMARK', description: '模型自主选择只读工具，根据新证据更新假设；停止后由隔离评分器核对结果。', badge: 'READ-ONLY AGENT', icon: DataAnalysis }
     ]
     return { modules }
   }

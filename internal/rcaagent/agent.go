@@ -111,6 +111,22 @@ type Run struct {
 	Agent Trace `json:"agent"`
 }
 
+// EvidenceContractSatisfied is the report-level check for the same citation
+// contract enforced before an online run may complete. It deliberately scores
+// the recorded trajectory rather than trusting a boolean emitted by the model.
+func EvidenceContractSatisfied(run Run) bool {
+	if !run.Agent.Completed || run.Agent.Final == nil || run.Agent.Final.Status != "matched_hypothesis" {
+		return false
+	}
+	seen := make(map[string]Evidence)
+	for _, step := range run.Agent.Steps {
+		for _, evidence := range step.Observation {
+			seen[evidence.ID] = evidence
+		}
+	}
+	return validateFinal(*run.Agent.Final, seen) == "accepted"
+}
+
 type checkedAuditor struct {
 	delegate toolruntime.Auditor
 	failed   bool

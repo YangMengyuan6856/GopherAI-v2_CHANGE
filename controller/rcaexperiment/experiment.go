@@ -53,7 +53,8 @@ func (h *Handler) Catalog(c *gin.Context) {
 	if !h.ready(c) {
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"version": h.dataset.Version, "revision": h.dataset.Revision, "dataset_sha256": h.dataset.SHA256, "matcher_version": rcaexperiment.MatcherVersion, "cases": h.dataset.Catalog, "references": h.dataset.References, "supported_services": []string{"checkoutservice", "currencyservice"}, "supported_faults": []string{"cpu", "mem", "delay"}, "extractor": h.dataset.Extractor, "rule_model_calls": 0, "max_concurrency": 1,
+	c.JSON(http.StatusOK, gin.H{"version": h.dataset.Version, "revision": h.dataset.Revision, "dataset_sha256": h.dataset.SHA256, "cases": h.dataset.Catalog, "references": h.dataset.References, "supported_services": rcaexperiment.SupportedServices(), "supported_faults": []string{"cpu", "mem", "delay"}, "extractor": h.dataset.Extractor, "max_concurrency": 1,
+		"evaluation_contract": "known_fault_autonomous_investigation_v2", "split_counts": gin.H{"reference": 6, "development": 6, "holdout": 6},
 		"agent_version": rcaagent.Version, "agent_max_model_calls": rcaagent.MaxRounds, "agent_max_tool_calls": rcaagent.MaxToolCalls, "agent_timeout_seconds": int(rcaagent.TotalTimeout.Seconds())})
 }
 func (h *Handler) Observation(c *gin.Context) {
@@ -86,8 +87,8 @@ func (h *Handler) Diagnose(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"message": "请求包含多余内容"})
 		return
 	}
-	if request.Strategy != "legacy" && request.Strategy != "feature_only" && request.Strategy != "case_based" && request.Strategy != "autonomous" {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "不支持的实验策略"})
+	if request.Strategy != "autonomous" {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "该实验仅运行受治理的自主排查 Agent"})
 		return
 	}
 	if _, ok := h.dataset.Case(request.CaseID); !ok {
@@ -101,103 +102,130 @@ func (h *Handler) Diagnose(c *gin.Context) {
 		c.JSON(http.StatusTooManyRequests, gin.H{"message": "已有实验正在运行，请稍后再试"})
 		return
 	}
-	if request.Strategy == "autonomous" {
-		if h.agentFactory == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"message": "自主排查模型暂不可用；不会切换成规则结果"})
-			return
-		}
-		agent, err := h.agentFactory(c.Request.Context())
-		if err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"message": "自主排查模型配置不可用；未调用规则诊断"})
-			return
-		}
-		run, err := agent.Execute(c.Request.Context(), h.dataset, request.CaseID, c.GetString("userName"), h.auditor, h.observer)
-		if err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"message": "自主排查初始化失败；未执行修复"})
-			return
-		}
-		score, err := rcascoring.Check(run.Diagnosis)
-		if err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"message": "诊断完成但评分不可用", "run": run})
-			return
-		}
-		// A failed model run is NOT counted as successful unknown-fault rejection.
-		c.JSON(http.StatusOK, gin.H{"run": run, "score": score, "evaluation_valid": run.Agent.Completed})
+	if h.agentFactory == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"message": "自主排查模型暂不可用；不会切换成规则结果"})
 		return
 	}
-	run, err := rcaexperiment.Execute(c.Request.Context(), h.dataset, request.CaseID, request.Strategy, c.GetString("userName"), h.auditor, h.observer)
+	agent, err := h.agentFactory(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"message": "只读诊断未完成，未执行任何修复", "tool_calls": run.ToolCalls})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"message": "自主排查模型配置不可用；未调用规则诊断"})
 		return
 	}
-	// The scorer is invoked only AFTER diagnosis and cannot influence matching.
+	run, err := agent.Execute(c.Request.Context(), h.dataset, request.CaseID, c.GetString("userName"), h.auditor, h.observer)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"message": "自主排查初始化失败；未执行修复"})
+		return
+	}
 	score, err := rcascoring.Check(run.Diagnosis)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"message": "诊断完成但评分不可用", "run": run})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"run": run, "score": score})
-}
-func (h *Handler) Report(c *gin.Context) {
-	if !h.ready(c) {
-		return
-	}
-	f, err := os.Open("evals/rcaeval/holdout.json")
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"message": "留出报告尚未生成"})
-		return
-	}
-	defer f.Close()
-	var r rcascoring.Report
-	if err = json.NewDecoder(io.LimitReader(f, 32<<20)).Decode(&r); err != nil || r.DatasetSHA256 != h.dataset.SHA256 || r.PolicySHA256 != h.dataset.PolicySHA256 || r.MatcherVersion != rcaexperiment.MatcherVersion || r.Split != "holdout" {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"message": "报告版本与当前实验不一致"})
-		return
-	}
-	rows := make([]gin.H, 0, len(r.Cases))
-	for _, row := range r.Cases {
-		rows = append(rows, gin.H{"id": row.ID, "strategy": row.Strategy, "score": row.Score, "status": row.Run.Diagnosis.Status, "candidates": row.Run.Diagnosis.Candidates, "error": row.Error})
-	}
-	c.JSON(http.StatusOK, gin.H{"version": r.Version, "matcher_version": r.MatcherVersion, "dataset_sha256": r.DatasetSHA256, "generated_at": r.GeneratedAt, "metrics": r.Metrics, "cases": rows, "limitations": r.Limitations, "execution_environment": "local_offline"})
+	// Truth is consulted only after the Agent stops and never enters its tools.
+	c.JSON(http.StatusOK, gin.H{"run": run, "score": score, "evaluation_valid": run.Agent.Completed, "evidence_valid": rcaagent.EvidenceContractSatisfied(run)})
 }
 
-// This report is a separately recorded REAL-model replay. It must never inherit
-// the deterministic baseline's scores or be represented as a new blind test.
+// AgentReport exposes the one-pass, real-model evaluation. It never inherits
+// scores from the retired deterministic rule comparison.
 func (h *Handler) AgentReport(c *gin.Context) {
 	if !h.ready(c) {
 		return
 	}
-	f, err := os.Open("evals/rcaeval/agent-replay.json")
+	f, err := os.Open("evals/rcaeval/agent-evaluation.json")
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"message": "自主 Agent 回放报告尚未生成；可直接运行单例查看真实轨迹"})
 		return
 	}
 	defer f.Close()
 	var report struct {
-		Version              string         `json:"version"`
-		DatasetSHA256        string         `json:"dataset_sha256"`
-		PromptSHA256         string         `json:"prompt_sha256"`
-		ImplementationSHA256 string         `json:"implementation_sha256"`
-		Split                string         `json:"split"`
-		EvaluationKind       string         `json:"evaluation_kind"`
-		GeneratedAt          string         `json:"generated_at"`
-		Metrics              map[string]int `json:"metrics"`
-		Limitations          []string       `json:"limitations"`
+		Version              string           `json:"version"`
+		DatasetSHA256        string           `json:"dataset_sha256"`
+		PromptSHA256         string           `json:"prompt_sha256"`
+		ImplementationSHA256 string           `json:"implementation_sha256"`
+		Split                string           `json:"split"`
+		EvaluationKind       string           `json:"evaluation_kind"`
+		GeneratedAt          string           `json:"generated_at"`
+		Metrics              map[string]int64 `json:"metrics"`
+		Limitations          []string         `json:"limitations"`
 		Cases                []struct {
-			ID    string           `json:"id"`
-			Title string           `json:"title"`
-			Run   rcaagent.Run     `json:"run"`
-			Score rcascoring.Score `json:"score"`
-			Valid bool             `json:"evaluation_valid"`
+			ID            string           `json:"id"`
+			Title         string           `json:"title"`
+			Run           rcaagent.Run     `json:"run"`
+			Score         rcascoring.Score `json:"score"`
+			Valid         bool             `json:"evaluation_valid"`
+			EvidenceValid bool             `json:"evidence_valid"`
 		} `json:"cases"`
 	}
-	if json.NewDecoder(io.LimitReader(f, 16<<20)).Decode(&report) != nil || report.Version != rcaagent.Version || report.DatasetSHA256 != h.dataset.SHA256 || report.PromptSHA256 != rcaagent.PromptHash() || report.ImplementationSHA256 != rcaagent.ImplementationHash() || report.Split != "holdout" || len(report.Cases) != 12 {
+	if json.NewDecoder(io.LimitReader(f, 16<<20)).Decode(&report) != nil || report.Version != rcaagent.Version || report.DatasetSHA256 != h.dataset.SHA256 || report.PromptSHA256 != rcaagent.PromptHash() || report.ImplementationSHA256 != rcaagent.ImplementationHash() || report.Split != "holdout" || report.EvaluationKind != "fixed_known_fault_evaluation" || len(report.Cases) != 6 {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"message": "自主 Agent 报告与当前版本不一致，不展示旧成绩"})
+		return
+	}
+	holdout := make(map[string]struct{}, 6)
+	for _, item := range h.dataset.Catalog {
+		if item.Split == "holdout" {
+			holdout[item.ID] = struct{}{}
+		}
+	}
+	seen := make(map[string]struct{}, len(report.Cases))
+	recomputedMetrics := map[string]int64{
+		"attempted":        int64(len(report.Cases)),
+		"completed":        0,
+		"execution_failed": 0,
+		"service_top1":     0,
+		"joint_correct":    0,
+		"evidence_valid":   0,
+		"model_calls":      0,
+		"tool_calls":       0,
+		"input_tokens":     0,
+		"output_tokens":    0,
+		"elapsed_ms_total": 0,
+	}
+	validReport := len(holdout) == 6
+	for _, entry := range report.Cases {
+		_, expectedID := holdout[entry.ID]
+		_, duplicateID := seen[entry.ID]
+		seen[entry.ID] = struct{}{}
+		currentScore, scoreErr := rcascoring.Check(entry.Run.Diagnosis)
+		evidenceValid := rcaagent.EvidenceContractSatisfied(entry.Run)
+		if !expectedID || duplicateID || entry.Run.Diagnosis.CaseID != entry.ID || entry.Score.Answer.ID != entry.ID || entry.Score.Answer.Split != "holdout" ||
+			entry.Run.DatasetSHA256 != report.DatasetSHA256 || entry.Run.Agent.Version != report.Version || entry.Run.Agent.PromptSHA256 != report.PromptSHA256 ||
+			entry.Run.Agent.ImplementationSHA256 != report.ImplementationSHA256 || scoreErr != nil || currentScore != entry.Score || evidenceValid != entry.EvidenceValid || entry.Valid != entry.Run.Agent.Completed {
+			validReport = false
+			break
+		}
+		if entry.Valid {
+			recomputedMetrics["completed"]++
+			if entry.Score.ServiceTop1 {
+				recomputedMetrics["service_top1"]++
+			}
+			if entry.Score.JointCorrect {
+				recomputedMetrics["joint_correct"]++
+			}
+			if entry.EvidenceValid {
+				recomputedMetrics["evidence_valid"]++
+			}
+		} else {
+			recomputedMetrics["execution_failed"]++
+		}
+		recomputedMetrics["model_calls"] += int64(entry.Run.Diagnosis.ModelCalls)
+		recomputedMetrics["tool_calls"] += int64(len(entry.Run.ToolCalls))
+		recomputedMetrics["input_tokens"] += int64(entry.Run.Agent.InputTokens)
+		recomputedMetrics["output_tokens"] += int64(entry.Run.Agent.OutputTokens)
+		recomputedMetrics["elapsed_ms_total"] += int64(entry.Run.ElapsedMS)
+	}
+	for key, value := range recomputedMetrics {
+		if report.Metrics[key] != value {
+			validReport = false
+		}
+	}
+	if !validReport || len(seen) != len(holdout) {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"message": "自主 Agent 报告完整性校验失败，不展示不可复核成绩"})
 		return
 	}
 	if id := c.Param("id"); id != "" {
 		for _, entry := range report.Cases {
 			if entry.ID == id {
-				c.JSON(http.StatusOK, gin.H{"run": entry.Run, "score": entry.Score, "evaluation_valid": entry.Valid, "recorded": true, "recorded_at": report.GeneratedAt})
+				c.JSON(http.StatusOK, gin.H{"run": entry.Run, "score": entry.Score, "evaluation_valid": entry.Valid, "evidence_valid": entry.EvidenceValid, "recorded": true, "recorded_at": report.GeneratedAt})
 				return
 			}
 		}
@@ -212,7 +240,7 @@ func (h *Handler) AgentReport(c *gin.Context) {
 				tools = append(tools, s.Decision.Tool.Name+":"+s.Decision.Tool.Service)
 			}
 		}
-		rows = append(rows, gin.H{"id": entry.ID, "title": entry.Title, "score": entry.Score, "valid": entry.Valid, "stop_reason": entry.Run.Agent.StopReason, "model_calls": entry.Run.Diagnosis.ModelCalls, "tools": tools, "model": entry.Run.Agent.Model, "summary": entry.Run.Diagnosis.Summary})
+		rows = append(rows, gin.H{"id": entry.ID, "title": entry.Title, "score": entry.Score, "valid": entry.Valid, "evidence_valid": entry.EvidenceValid, "stop_reason": entry.Run.Agent.StopReason, "model_calls": entry.Run.Diagnosis.ModelCalls, "tool_calls": len(entry.Run.ToolCalls), "tools": tools, "input_tokens": entry.Run.Agent.InputTokens, "output_tokens": entry.Run.Agent.OutputTokens, "elapsed_ms": entry.Run.ElapsedMS, "model": entry.Run.Agent.Model, "summary": entry.Run.Diagnosis.Summary})
 	}
-	c.JSON(http.StatusOK, gin.H{"version": report.Version, "dataset_sha256": report.DatasetSHA256, "implementation_sha256": report.ImplementationSHA256, "generated_at": report.GeneratedAt, "evaluation_kind": report.EvaluationKind, "metrics": report.Metrics, "limitations": report.Limitations, "cases": rows})
+	c.JSON(http.StatusOK, gin.H{"version": report.Version, "dataset_sha256": report.DatasetSHA256, "prompt_sha256": report.PromptSHA256, "implementation_sha256": report.ImplementationSHA256, "split": report.Split, "generated_at": report.GeneratedAt, "evaluation_kind": report.EvaluationKind, "metrics": report.Metrics, "limitations": report.Limitations, "cases": rows})
 }

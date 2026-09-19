@@ -52,7 +52,7 @@ func TestGatewayRewritesAPIAndPreservesHealth(t *testing.T) {
 	for path, expected := range map[string]string{
 		"/api/evaluations/collaboration/latest?view=summary": "/api/v1/evaluations/collaboration/latest?view=summary",
 		"/api/experiments/rca":                               "/api/v1/experiments/rca?",
-		"/api/experiments/rca/report":                        "/api/v1/experiments/rca/report?",
+		"/api/experiments/rca/agent-report":                  "/api/v1/experiments/rca/agent-report?",
 		"/api/experiments/rca/diagnose":                      "/api/v1/experiments/rca/diagnose?",
 		"/health/ready":                                      "/health/ready?",
 		"/metrics":                                           "/metrics?",

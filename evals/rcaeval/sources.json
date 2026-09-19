@@ -1,598 +1,420 @@
 {
+  "schema_version": "rcaeval-source-manifest-v2",
+  "dataset_version": "rcaeval-ob-known-v2",
   "repository": "phamquiluan/RCAEval",
   "revision": "afeacb11bcc94dadfd1c8f483ee4377b2b8b614e",
+  "raw_parquet": "local-only-not-committed",
+  "selection": {
+    "services": [
+      "emailservice",
+      "productcatalogservice"
+    ],
+    "faults": [
+      "cpu",
+      "mem",
+      "delay"
+    ],
+    "repetitions": {
+      "1": "reference",
+      "2": "development",
+      "3": "holdout"
+    },
+    "case_count": 18
+  },
   "cases": [
     {
-      "id": "rca-97bf1c72d2",
-      "original_case": "re2ob_checkoutservice_cpu_1",
+      "id": "rca-0abf02c950",
+      "original_case": "re2ob_emailservice_cpu_1",
       "split": "reference",
       "sources": [
         {
           "name": "metrics.parquet",
-          "sha256": "f46b3d354b234e37c424f54a005329b61aac83d15dcdd46b5642e55f390ab25a",
-          "bytes": 157212
+          "sha256": "52752452d9f2fdb69cec2b7575b617f84419131338fcb1c2e1829ef5c242e586",
+          "bytes": 156391
         },
         {
           "name": "logs.parquet",
-          "sha256": "e1a25e50c8b0beae4b2886df54d86d2f28877d0b611fed98411e9c0b0c77dad3",
-          "bytes": 336876
+          "sha256": "5b0eff42c36df03f4b618f79fea5e0e6f95d54e9afe0e857c86b68696bf72f05",
+          "bytes": 337106
         },
         {
           "name": "traces.parquet",
-          "sha256": "56ca8f6dbeb76fab2d33faeca54bce8f40e9c5491ebd76404ebb2dfd83409367",
-          "bytes": 10146857
+          "sha256": "c98764ff45836b7514480c515a4e0bfe685fb0ce15de8484eae012451b5aea6e",
+          "bytes": 10155267
         }
       ]
     },
     {
-      "id": "rca-e375de9cb8",
-      "original_case": "re2ob_checkoutservice_mem_1",
+      "id": "rca-847b7ca578",
+      "original_case": "re2ob_emailservice_mem_1",
       "split": "reference",
       "sources": [
         {
           "name": "metrics.parquet",
-          "sha256": "761de264537cd3134834cca7cf90d230683a60d58ca0a0a35e538096e701383e",
-          "bytes": 158037
+          "sha256": "8a97bd135d13810f3c798514e65540fa029942b315377f1f1ae08941d672d9f1",
+          "bytes": 158761
         },
         {
           "name": "logs.parquet",
-          "sha256": "af5f8e086ac423727abbe07a45dfc3647cb8614e87cec2647f7f1b28b4262da4",
-          "bytes": 347965
+          "sha256": "409e2d794d9276af2dc27faccb635d66b216acb0984efb94bbe1e18886067b39",
+          "bytes": 344893
         },
         {
           "name": "traces.parquet",
-          "sha256": "05b3971a30ddd08f70fc08f39380a551ec2d03672c9df9657ca728d3f9e745aa",
-          "bytes": 10277460
+          "sha256": "353671ca7f53ed0fb63901a6ebbf3cbb49497dbcb2c789a7b4e9ddac6d1e3a1d",
+          "bytes": 10222020
         }
       ]
     },
     {
-      "id": "rca-e425dee775",
-      "original_case": "re2ob_checkoutservice_delay_1",
+      "id": "rca-648fd48698",
+      "original_case": "re2ob_emailservice_delay_1",
       "split": "reference",
       "sources": [
         {
           "name": "metrics.parquet",
-          "sha256": "3a428e2e4792c6ceecd1e47c770477887b7c14c175347ac52b28011595d23088",
-          "bytes": 161729
+          "sha256": "888dae20bf94fe78534fe3e2bb821b898ab66f53e2c87101d21466c0fb88aea1",
+          "bytes": 153820
         },
         {
           "name": "logs.parquet",
-          "sha256": "f3645724f7c021ba532deea938049a575b75d265e1e0535038f5ea5fbb854b16",
-          "bytes": 350672
+          "sha256": "9f742c0c42f0739222db8c92d5d716e1a94a1774d66cb82de3e5bbd64744f9aa",
+          "bytes": 336154
         },
         {
           "name": "traces.parquet",
-          "sha256": "a86818c7ab72aa360c3d81aafd9c4dc6a4da0ef75204cbf3a0c70d07a1fd44da",
-          "bytes": 10233639
+          "sha256": "569e86b874736c9815ea4be07726a4abe4a76990c93c1b992e356b686fed1a9d",
+          "bytes": 10184723
         }
       ]
     },
     {
-      "id": "rca-f9278c4f7b",
-      "original_case": "re2ob_currencyservice_cpu_1",
+      "id": "rca-be290185f2",
+      "original_case": "re2ob_productcatalogservice_cpu_1",
       "split": "reference",
       "sources": [
         {
           "name": "metrics.parquet",
-          "sha256": "ed8471d2f53c0c3f4095b25eff69d5c45762425afaa973d4dbdc04d7bc32c0f3",
-          "bytes": 159637
+          "sha256": "40a32cdc027251907770a69cfff1a1f7f0b93d9188148b837a3afa1ed425f2de",
+          "bytes": 143586
         },
         {
           "name": "logs.parquet",
-          "sha256": "4fd881f7620902c141a7cfa2cd4c6c8115ab2d85c6c0a7fd1914a8dcf9a0c1ba",
-          "bytes": 342888
+          "sha256": "3d9a771b2325aee6bce7b1536d7baae0fca7ba8cea8c043921fc64a123d34442",
+          "bytes": 340440
         },
         {
           "name": "traces.parquet",
-          "sha256": "04d1512a44ece85f370caeaa09d24e441adc7f67bbebc0de689faea0d5563a63",
-          "bytes": 10214448
+          "sha256": "fcc49515cf5f50a84000a1dfddf0d75ab5ca06e9712a7f4775bfd2c364283135",
+          "bytes": 10244076
         }
       ]
     },
     {
-      "id": "rca-e26fc30ca6",
-      "original_case": "re2ob_currencyservice_mem_1",
+      "id": "rca-3bb38f3165",
+      "original_case": "re2ob_productcatalogservice_mem_1",
       "split": "reference",
       "sources": [
         {
           "name": "metrics.parquet",
-          "sha256": "689b626fe46e2ee6bb430853dedcc410c839ae2a93833349be9ad96803fee6e0",
-          "bytes": 158714
+          "sha256": "ac6b3d751f45963eca95d66f771123cd10b862eabd4783d4138e467c72c1f267",
+          "bytes": 162407
         },
         {
           "name": "logs.parquet",
-          "sha256": "146a10318522c38abb82ced4722e5f7bd68bbfc7930ae70a615e4d5cf725ff6d",
-          "bytes": 317390
+          "sha256": "406d5a3988dcfb66b2848e7d6b4d34959fffae04beda74c70c6dc86876010544",
+          "bytes": 258741
         },
         {
           "name": "traces.parquet",
-          "sha256": "fbe435f1ac87ad1822a90e1635a0bfad6f7e5a3ea30715cf61f6cd53ad397b7d",
-          "bytes": 9787628
+          "sha256": "0295a4c78cdb39db6559530d5660cb4ebe1cba340bc03be004b25ffe7be436c5",
+          "bytes": 8512907
         }
       ]
     },
     {
-      "id": "rca-d20ce82152",
-      "original_case": "re2ob_currencyservice_delay_1",
+      "id": "rca-bdf8aad8af",
+      "original_case": "re2ob_productcatalogservice_delay_1",
       "split": "reference",
       "sources": [
         {
           "name": "metrics.parquet",
-          "sha256": "5a7291e34ce019824e0dafb6c3f2d29153b54563c65795444d9a329e745c4b25",
-          "bytes": 158114
+          "sha256": "58640c77551e8eddb189f555457d597fefebd65ac28043d1f633891cd9f0178d",
+          "bytes": 153586
         },
         {
           "name": "logs.parquet",
-          "sha256": "32c77b4bcdeba1e0fa770c96417c79616b7c6c41576644d193e1d5a2944c4b1d",
-          "bytes": 321294
+          "sha256": "51243d1ea9378b7ec45c87c450d19f104a8c143f87cbafbe5c768df03bbff565",
+          "bytes": 312686
         },
         {
           "name": "traces.parquet",
-          "sha256": "9e6b77c4512536fa9d83cb6ff2c037e31af6db28e752891ba35f822d888f23af",
-          "bytes": 9806239
+          "sha256": "5669ed603a30e6727cc2279b774844c545fd6410a9dc9ac5f869f9ae67f15036",
+          "bytes": 9445147
         }
       ]
     },
     {
-      "id": "rca-3cc10cccb6",
-      "original_case": "re2ob_checkoutservice_cpu_2",
+      "id": "rca-7c907c38ac",
+      "original_case": "re2ob_emailservice_cpu_2",
       "split": "development",
       "sources": [
         {
           "name": "metrics.parquet",
-          "sha256": "11f2df96b6b2b60a9600bacd8d3163b2f31a614aa756c19adfc51a41bcbebfc7",
-          "bytes": 127755
+          "sha256": "b59f3b7193915ec3a19c7714d80f6b2f4446b9b471f61c8abe7cd9e1c4173199",
+          "bytes": 157489
         },
         {
           "name": "logs.parquet",
-          "sha256": "36fd5701f2d6e1f2d93131985d6feae5e284bdcbb21828ef9f3e90271a79f6b7",
-          "bytes": 191241
+          "sha256": "c8a5331efaeea916dd3b70006e126d43612fd1e9bfa660c41c38ae93dc2e7c87",
+          "bytes": 341605
         },
         {
           "name": "traces.parquet",
-          "sha256": "f833e959286b706b60307fc3beca2980f26a0dda62782362dbcb34e7f696b3d1",
-          "bytes": 5426555
+          "sha256": "1075d795eea30f170a19ddaa1f5c97b0712ca6f697938db90cff4975192135be",
+          "bytes": 10259513
         }
       ]
     },
     {
-      "id": "rca-1d28b06708",
-      "original_case": "re2ob_checkoutservice_mem_2",
+      "id": "rca-db856d2c9b",
+      "original_case": "re2ob_emailservice_mem_2",
       "split": "development",
       "sources": [
         {
           "name": "metrics.parquet",
-          "sha256": "056254dfdea1f1ec385e513331db82cb99fa8ce2a28a808d37776fc5d4bb951d",
-          "bytes": 130707
+          "sha256": "59aa24e82f58dfc77a025802305b5694313edc4fa8924b6001be34965a775f37",
+          "bytes": 161226
         },
         {
           "name": "logs.parquet",
-          "sha256": "3d9d0173cc3e10e00bfe6d3c28953a585b4b9848540ad4aaa5e9d1c5b3aaa850",
-          "bytes": 215831
+          "sha256": "d5438abb2532df7cf82104e9cb19a7119aeeeaf6b4221b2f241dbfb4c04f6724",
+          "bytes": 339833
         },
         {
           "name": "traces.parquet",
-          "sha256": "e126fdd6b5d0bb5d8cb83aa0658234bdf047eabcc3c045ff0fc99078f2b1f408",
-          "bytes": 8358689
+          "sha256": "6827c3b13b4f61b04bce5db338fcd9bd70792330183eb8992e2074d00d747e80",
+          "bytes": 10180081
         }
       ]
     },
     {
-      "id": "rca-b0f876b48e",
-      "original_case": "re2ob_checkoutservice_delay_2",
+      "id": "rca-3a0764b124",
+      "original_case": "re2ob_emailservice_delay_2",
       "split": "development",
       "sources": [
         {
           "name": "metrics.parquet",
-          "sha256": "6c7d7e5038844fc6e3e66ae2561d57ba1bbb8c9950b8017433bfa5791daa269a",
-          "bytes": 159560
+          "sha256": "217523780a38bd6afc28fad3362cbc15a6f1b97c4a1ca1400f442c25140236e0",
+          "bytes": 155859
         },
         {
           "name": "logs.parquet",
-          "sha256": "d7ad77c5bd782c7a2793a9526727fda2135535cea371ef4290dcbe1860824ca1",
-          "bytes": 334150
+          "sha256": "29c9ac39878c9cd2f8bcbb7ab9e8976dae4a9a48b7eaa174f381d247a40cd77c",
+          "bytes": 337914
         },
         {
           "name": "traces.parquet",
-          "sha256": "7280e269cfc28daa5bc6e44b184ec430996295dd203f55fc2d8fabfff289c02c",
-          "bytes": 10149026
+          "sha256": "480da7546046056e2be34e24dce910276c6d884a09a5499681a2fb0fb1be7123",
+          "bytes": 10201711
         }
       ]
     },
     {
-      "id": "rca-4d387bea1c",
-      "original_case": "re2ob_currencyservice_cpu_2",
+      "id": "rca-94e5ae21b2",
+      "original_case": "re2ob_productcatalogservice_cpu_2",
       "split": "development",
       "sources": [
         {
           "name": "metrics.parquet",
-          "sha256": "c06a8807374665322abcd580ce8d62e7f97e5d22cf4586c3dc6b65e24cfdd1d2",
-          "bytes": 159003
+          "sha256": "f4c6d5617b8895dcf131e444d960a7ffd0b3be48552ad49d3318330fe17be27d",
+          "bytes": 156224
         },
         {
           "name": "logs.parquet",
-          "sha256": "b23442ffd493e8b2365d541659b7f85b507b0970b93c42218d378735d041bc60",
-          "bytes": 340865
+          "sha256": "b078a4cbed76998b57acd97d23d0c7fe3d70aeeeb1fee3339f568dca12803485",
+          "bytes": 341594
         },
         {
           "name": "traces.parquet",
-          "sha256": "0f0954b806eefe4c74540afd3eb25ce22ed4463d73df6c99bdbcc6248be0450b",
-          "bytes": 10204412
+          "sha256": "9c599bc635232ea9139bfb69beed83d7aac28b55da31037e69d55a9d492ced33",
+          "bytes": 10197838
         }
       ]
     },
     {
-      "id": "rca-5ad5f3d0de",
-      "original_case": "re2ob_currencyservice_mem_2",
+      "id": "rca-2951888112",
+      "original_case": "re2ob_productcatalogservice_mem_2",
       "split": "development",
       "sources": [
         {
           "name": "metrics.parquet",
-          "sha256": "d0bb3a38d4fb930e63e3f862712d72a2a3f2ee82ab14c071d926f2c2e9de46fc",
-          "bytes": 153938
+          "sha256": "9996d312665780341f977b4e3cef2a13aff8473375a79aabeb693abc59bbca3d",
+          "bytes": 161139
         },
         {
           "name": "logs.parquet",
-          "sha256": "bf5483dcdfc122b3d05fe98926ac2e9465dbf235c8086b37d71dff4f76bdba58",
-          "bytes": 325203
+          "sha256": "5bfd05dffa34c24fe4f16ede861d385dfb7e1f53e68a6d8c953d15889f871e30",
+          "bytes": 311470
         },
         {
           "name": "traces.parquet",
-          "sha256": "bcea2effb074eef8883be4558525b6be0149c3b7667e0142b628c0e5ff9a8550",
-          "bytes": 9927642
+          "sha256": "c3255d786af4fd8ae5f9fd0727b45e0a5762caa7c262a42ca8b12474b6eacb6c",
+          "bytes": 8434233
         }
       ]
     },
     {
-      "id": "rca-0db34b4c7e",
-      "original_case": "re2ob_currencyservice_delay_2",
+      "id": "rca-99fc833ae8",
+      "original_case": "re2ob_productcatalogservice_delay_2",
       "split": "development",
       "sources": [
         {
           "name": "metrics.parquet",
-          "sha256": "d9e62c8b4929b1ad6d571e97d7c72be7b6d1c328e501e02b08f7d6c3e59f678e",
-          "bytes": 158552
+          "sha256": "c37e0e13bcc77cf5dd89d3aceb197264d28454ec273aeb9e5746690a90d44553",
+          "bytes": 151711
         },
         {
           "name": "logs.parquet",
-          "sha256": "f66f5ea87c17639049b828f5778f298403d263bce171757ad0099161b450fe39",
-          "bytes": 267671
+          "sha256": "df3382ada0009756577425d259c4907d1e68893fe836efcccda012c85566e025",
+          "bytes": 309974
         },
         {
           "name": "traces.parquet",
-          "sha256": "6b0a0f7ada98756df9c0b076667ea5f9e977230ff1d4a20fc09cae1808b73b29",
-          "bytes": 9781593
+          "sha256": "00472fae707b0dfe2f5d7094077b7435e7529b639fa256c814db02b5023dcd80",
+          "bytes": 9369325
         }
       ]
     },
     {
-      "id": "rca-34a5398b52",
-      "original_case": "re2ob_checkoutservice_cpu_3",
+      "id": "rca-a0cadd712c",
+      "original_case": "re2ob_emailservice_cpu_3",
       "split": "holdout",
       "sources": [
         {
           "name": "metrics.parquet",
-          "sha256": "ad82f59a98501f4f634fe30bed508cabb0f4a809993c165fb5aa2f340c64b692",
-          "bytes": 158238
+          "sha256": "c59c8e43619afe8b1a2783d580a4d19bbc604f4cdff64f4d87cb4911ce04b769",
+          "bytes": 157993
         },
         {
           "name": "logs.parquet",
-          "sha256": "355576dcfc9ec58a5ae268cf8810f586664a2cb45cb591f0c5c2ab212404ef31",
-          "bytes": 337942
+          "sha256": "d6e529d2f10893ff9fc60bf6665f891eba86754d12121580e047f2c8f18f19af",
+          "bytes": 343005
         },
         {
           "name": "traces.parquet",
-          "sha256": "95545a9293d2603db3739474739c6e0dde3de2a8c6e29361393b3a5346137005",
-          "bytes": 10221848
+          "sha256": "139312b20b169e31a605c918a76a13da149c08dcd4d0aee0259dcb5e5c9c832b",
+          "bytes": 10310120
         }
       ]
     },
     {
-      "id": "rca-0ae1ec693f",
-      "original_case": "re2ob_checkoutservice_mem_3",
+      "id": "rca-6e97052d57",
+      "original_case": "re2ob_emailservice_mem_3",
       "split": "holdout",
       "sources": [
         {
           "name": "metrics.parquet",
-          "sha256": "0b3078df04188dd7c2b752a9b936b7cbb95921fc14bc0b482b6033ac5d8c508a",
-          "bytes": 160489
+          "sha256": "a551edda9023b9020b83e42b6a6b3d65f64c98cd15c7732edfd2a766ecc99ddc",
+          "bytes": 159852
         },
         {
           "name": "logs.parquet",
-          "sha256": "a44c0261ed1d167e22c9b0f1eda89784d5fab072789f17c3a10f3c63e72cf083",
-          "bytes": 342151
+          "sha256": "e6a22eb7387ff62e57202d14948ad827498f3a90ce84da8875981b5cce10147b",
+          "bytes": 336164
         },
         {
           "name": "traces.parquet",
-          "sha256": "1ad86af098b852a0af308afaf2665fb27caf1f6b83a60a9c4f655a57d134d6f7",
-          "bytes": 10229549
+          "sha256": "7ab7a1ed4d48e0db720d2dd7a30a617497c44270b5de2a58172d2844e9a1ff62",
+          "bytes": 9948904
         }
       ]
     },
     {
-      "id": "rca-ce14e33b0b",
-      "original_case": "re2ob_checkoutservice_delay_3",
+      "id": "rca-8e8d35d164",
+      "original_case": "re2ob_emailservice_delay_3",
       "split": "holdout",
       "sources": [
         {
           "name": "metrics.parquet",
-          "sha256": "7fc076f546364b1f5c99701eb4c40756ebcedc3e841b5750f7bf8f9d4bf15a0a",
-          "bytes": 160840
+          "sha256": "7d96768d13a0700c2c4d80f9a3c693d408f423cc5923c5c90bcf2147c7a38136",
+          "bytes": 156934
         },
         {
           "name": "logs.parquet",
-          "sha256": "9b311baa1d2e7cf9910c68a83b87c6220f719d7dd7d1472d4d759ac51be38559",
-          "bytes": 345667
+          "sha256": "e5a1ddf3fb025adafa4949c6bac2676592e7c08b3a90b07c422afb2b6272cca6",
+          "bytes": 341234
         },
         {
           "name": "traces.parquet",
-          "sha256": "6e12fbdf92a66fab23bfe24342c3829038d847e751b8b5fd6dc224ef5d62c5e4",
-          "bytes": 10221446
+          "sha256": "f790c4d626f015d74bea92f6b4c0f5cd8de1807fdd5b4afff735cd69b56e18a9",
+          "bytes": 10212194
         }
       ]
     },
     {
-      "id": "rca-e5abfe8ebd",
-      "original_case": "re2ob_currencyservice_cpu_3",
+      "id": "rca-498b272d09",
+      "original_case": "re2ob_productcatalogservice_cpu_3",
       "split": "holdout",
       "sources": [
         {
           "name": "metrics.parquet",
-          "sha256": "7080eff2016aa46caf64474916b366736f5840716edff66fc4dc195578b5a89a",
-          "bytes": 160101
+          "sha256": "8e4e586944eeb863c6e3d9440403eae4680c61efa6c0694849915236e91c5df1",
+          "bytes": 154647
         },
         {
           "name": "logs.parquet",
-          "sha256": "6a06effe5e239002f0bfaeb47c7f46a6b2458b8983678a3679764c22249099cc",
-          "bytes": 346455
+          "sha256": "4addc432d0882d78f03564d201e26cb9a33520c110541181b64324247a60bf0d",
+          "bytes": 352942
         },
         {
           "name": "traces.parquet",
-          "sha256": "5a4687157fe8c7be951feb018dcbf4cae159eb32155f8362682d808b10ba2126",
-          "bytes": 10279081
+          "sha256": "d362139d07f50395b17f87efaea74ce5a86be7fe829523bbbc13330d02658e9a",
+          "bytes": 10316938
         }
       ]
     },
     {
-      "id": "rca-e39c7bb9d6",
-      "original_case": "re2ob_currencyservice_mem_3",
+      "id": "rca-22a7556181",
+      "original_case": "re2ob_productcatalogservice_mem_3",
       "split": "holdout",
       "sources": [
         {
           "name": "metrics.parquet",
-          "sha256": "326f12119594afa643db66c9a1251935a07b9560cf40651fbc49d5ac450a4e82",
-          "bytes": 163698
+          "sha256": "5a7a21f08af00b9fbade3b6dc1a18045d804a8d438a6b1ce7975e90edad00674",
+          "bytes": 159459
         },
         {
           "name": "logs.parquet",
-          "sha256": "60aae5863663e1b72b4a3df572a2aa47577eb40b505eb0bd7ab9882d8163393a",
-          "bytes": 327596
+          "sha256": "347939bb5aedfb1bb659b6cfc354a2865f7a5a0c310ab9a0b038c572af50cc54",
+          "bytes": 293495
         },
         {
           "name": "traces.parquet",
-          "sha256": "0d34319461cc7dbc775870291882a88bdc7520a50c16e3eb3ea2a4e7e2786e31",
-          "bytes": 9907309
+          "sha256": "16ffca268bca49e53649475516afddbf816bdb65afcf7eb92fa0b6a9576f6a85",
+          "bytes": 7295482
         }
       ]
     },
     {
-      "id": "rca-c91fd2df9f",
-      "original_case": "re2ob_currencyservice_delay_3",
+      "id": "rca-7041399641",
+      "original_case": "re2ob_productcatalogservice_delay_3",
       "split": "holdout",
       "sources": [
         {
           "name": "metrics.parquet",
-          "sha256": "12756074029a5e2361a67254fbf15b9c192e845fd9c77bc5961f7293b51f8feb",
-          "bytes": 159581
+          "sha256": "3b5921d96ab975ca0ce6eca4eb7b7d576a86c9c794afa33ec946ef99848807b9",
+          "bytes": 149986
         },
         {
           "name": "logs.parquet",
-          "sha256": "30b78e84502addecf6d69091cbc97af88d13e29b5dc1dc0b241c967219681d92",
-          "bytes": 263430
+          "sha256": "2cbbd8c16432888d27cc70adbd7a96bf71c03eed7c88b22c046d1213543426ab",
+          "bytes": 308665
         },
         {
           "name": "traces.parquet",
-          "sha256": "034dc91bcfdf69973af19dc9ce57886c7b75ad12c6fba7db872d9a837d968ed4",
-          "bytes": 9616612
-        }
-      ]
-    },
-    {
-      "id": "rca-025a43e8ef",
-      "original_case": "re2ob_checkoutservice_disk_2",
-      "split": "development",
-      "sources": [
-        {
-          "name": "metrics.parquet",
-          "sha256": "59b36387c7a66818e5545a7fab07060841a8d76e9cc93177906ff959c7a27220",
-          "bytes": 164778
-        },
-        {
-          "name": "logs.parquet",
-          "sha256": "cc54ba80c871b76a2bfafebdcf377b29ef47c960b86347ada8edaed1bc26ebba",
-          "bytes": 344568
-        },
-        {
-          "name": "traces.parquet",
-          "sha256": "ffccbbc9a5f21d879efcae4c71147fce4974ba82ee37a1f03c79740083d446dd",
-          "bytes": 10232511
-        }
-      ]
-    },
-    {
-      "id": "rca-1d389615b3",
-      "original_case": "re2ob_currencyservice_loss_2",
-      "split": "development",
-      "sources": [
-        {
-          "name": "metrics.parquet",
-          "sha256": "a11e3af15c8c574809cb0bc40f5613ebc6865e658f64f217e2e8f763015e8664",
-          "bytes": 165081
-        },
-        {
-          "name": "logs.parquet",
-          "sha256": "5a1844ab2ce53ebdd6458e8c4302bcdee830ca2db6553bd4da719df41bde5bd6",
-          "bytes": 275031
-        },
-        {
-          "name": "traces.parquet",
-          "sha256": "aea30bd6de802aa7d2d52951881917b73a650ecf8f29b943a3ad7ae1c8ebea1d",
-          "bytes": 9371708
-        }
-      ]
-    },
-    {
-      "id": "rca-0776f54cd9",
-      "original_case": "re2ob_checkoutservice_socket_2",
-      "split": "development",
-      "sources": [
-        {
-          "name": "metrics.parquet",
-          "sha256": "65f1dcc88d780c32184d36ac8cb38e7e298d8c4606c38037eac3e87910a967f1",
-          "bytes": 159697
-        },
-        {
-          "name": "logs.parquet",
-          "sha256": "19fd2f37a8952fbc4a2282abd0f099363dd3f503bbebb8da107e374592c8e2ac",
-          "bytes": 343055
-        },
-        {
-          "name": "traces.parquet",
-          "sha256": "382089543181648a89a48ac47afcbdf677e9f3225394c576d9e63ddeab7d37db",
-          "bytes": 10173608
-        }
-      ]
-    },
-    {
-      "id": "rca-bba0bc25ab",
-      "original_case": "re2ob_checkoutservice_disk_3",
-      "split": "holdout",
-      "sources": [
-        {
-          "name": "metrics.parquet",
-          "sha256": "5563e35b896144b6d5fc700a1048913857c136a0fae0558dbac6db11879be782",
-          "bytes": 162878
-        },
-        {
-          "name": "logs.parquet",
-          "sha256": "29c85c7dcf16d986d226b9f1b5565c97775c0cdc4efe5a564258fd2745bcd1c9",
-          "bytes": 342286
-        },
-        {
-          "name": "traces.parquet",
-          "sha256": "324303a04481f80c7f9259e30e5d1a97b9e1a2e4b82b573235de4ce3526497e4",
-          "bytes": 10269672
-        }
-      ]
-    },
-    {
-      "id": "rca-90376d73d9",
-      "original_case": "re2ob_checkoutservice_loss_3",
-      "split": "holdout",
-      "sources": [
-        {
-          "name": "metrics.parquet",
-          "sha256": "5ab4187e2220146eeb971899b0f7634bc465a884fd30ef4a477cbcc0c5866ce3",
-          "bytes": 171031
-        },
-        {
-          "name": "logs.parquet",
-          "sha256": "c012a01a24d3b95d02088dda52d9ba9c1c2b2ae62568759976b3c35bc1d5cf50",
-          "bytes": 340151
-        },
-        {
-          "name": "traces.parquet",
-          "sha256": "fb202a1b992eb5fe116da572081bd9616312d2ff5e250ccf359a5c63c71abed6",
-          "bytes": 10145276
-        }
-      ]
-    },
-    {
-      "id": "rca-a254fd4742",
-      "original_case": "re2ob_checkoutservice_socket_3",
-      "split": "holdout",
-      "sources": [
-        {
-          "name": "metrics.parquet",
-          "sha256": "052b10383bb2841a15d6daef4d89aa2de8723ca9c107d6eada3c22bd4a0cc12b",
-          "bytes": 162192
-        },
-        {
-          "name": "logs.parquet",
-          "sha256": "adbc1c95e27ef2295827490e6f309934d803bd43feb32ecd91cd219459e33921",
-          "bytes": 343151
-        },
-        {
-          "name": "traces.parquet",
-          "sha256": "1fc575af3774d116ba71cba4657ab2079d8d75263279126f9fdf74b5989b3f9e",
-          "bytes": 10260288
-        }
-      ]
-    },
-    {
-      "id": "rca-d1059aa9c3",
-      "original_case": "re2ob_currencyservice_disk_3",
-      "split": "holdout",
-      "sources": [
-        {
-          "name": "metrics.parquet",
-          "sha256": "b2c6882086e4a011e7e4450d027c158689ef6bf8811d5efe27e49ae3e343dd3d",
-          "bytes": 162125
-        },
-        {
-          "name": "logs.parquet",
-          "sha256": "14dc604f459dc969f3f4452a5b63c3819f6d72ea5e52424668a26d892445ae84",
-          "bytes": 349053
-        },
-        {
-          "name": "traces.parquet",
-          "sha256": "8a27b8895199d6093bf6fa75b039f309f5d697cd63299e29381e621fa974cd0e",
-          "bytes": 10302803
-        }
-      ]
-    },
-    {
-      "id": "rca-3a0809d8d0",
-      "original_case": "re2ob_currencyservice_loss_3",
-      "split": "holdout",
-      "sources": [
-        {
-          "name": "metrics.parquet",
-          "sha256": "c4055cbedea6c9aeb164bba921b81023ba76f798ad90c672f0a5ed51550b8568",
-          "bytes": 163223
-        },
-        {
-          "name": "logs.parquet",
-          "sha256": "6fb018727729cc73726506dbdf0d2ec0776676ae8fb0a1fe14787db0ec057e42",
-          "bytes": 292616
-        },
-        {
-          "name": "traces.parquet",
-          "sha256": "6fc519b2286f0e5e445eedf6e634735f309087ec7a6bfe0c65ee6661d71b1765",
-          "bytes": 9181276
-        }
-      ]
-    },
-    {
-      "id": "rca-a28d1285e7",
-      "original_case": "re2ob_currencyservice_socket_3",
-      "split": "holdout",
-      "sources": [
-        {
-          "name": "metrics.parquet",
-          "sha256": "02faf42fc54f07a868c1e7659f073d010ded9ac407440b69b9f2c9f856849f8e",
-          "bytes": 160544
-        },
-        {
-          "name": "logs.parquet",
-          "sha256": "6ec02019d9ae0d7f11307c2c83b2296fa4e1707b4b1533c28b25739eb510daf7",
-          "bytes": 341726
-        },
-        {
-          "name": "traces.parquet",
-          "sha256": "df1cbdf0e98fa4fce7ae8dd65c3b697dbb1d7f6b1063b9552ae656d9c5d2dfd6",
-          "bytes": 10208934
+          "sha256": "155fc5eed519c9688059b322eb02067b8ffa53e5fbf9c883c5c48727d90476b2",
+          "bytes": 9402175
         }
       ]
     }

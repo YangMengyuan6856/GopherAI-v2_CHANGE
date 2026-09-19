@@ -1,129 +1,107 @@
-# RCAEval 已知故障案例辅助排查实验
+# RCAEval 已知故障自主排查评测集（v2）
 
-这是 GopherAI 的独立、只读实验，不是生产故障注入或自动修复系统。
+这是 GopherAI DevSupport 的一个小型、可复现、只读故障诊断评测。它用于回答一个边界明确的问题：给定一段不含答案标签的微服务观测窗口，系统能否通过受治理的 Agent 工具调用，定位已知故障服务、给出候选故障类型，并列出证据与还需要确认的内容。
 
-**当前页面演示范围（2026-09-09调整）：**按用户要求，窗口22–27退出本轮测试和逐例展示，默认选择器及两种报告视图聚焦13–18这6个已知故障。页面从原报告逐例重算该范围统计，不覆盖下面的12例完整历史报告、不修改数据或诊断算法；已有错误仍保留。这是事后范围缩减，不代表整体准确率提升，也不用于证明未知类型识别。后续只重放本轮6例可在以下holdout命令加 `-limit 6`；不再要求验收22–27。
+它不是生产事故数据，不执行故障注入、修复或回滚，也不证明对未见过的系统和故障具备泛化能力。
 
-## 来源与范围
+## 当前固定范围
 
-- 官方数据：[RCAEval](https://huggingface.co/datasets/phamquiluan/RCAEval)，数据卡许可证 MIT；作者提供的微服务故障注入观测，不是客户真实事故。
-- 固定 revision：`afeacb11bcc94dadfd1c8f483ee4377b2b8b614e`，子集 RE2-OB / Online Boutique。
-- 限定服务：checkoutservice、currencyservice；支持类型：CPU 压力、内存压力、网络延迟。
-- 参考库为这六个组合的第 1 次运行；开发集为第 2 次运行中的 6 个范围内 + 3 个范围外案例；留出集为第 3 次运行中的 6 个范围内 + 6 个范围外案例。
-- 共 27 例、81 个原始 Parquet、277,840,487 bytes。原始文件只保存在本地缓存，不上传 GitHub 或 ECS；本目录 `sources.json` 保留原始路径、文件 SHA-256、字节数和分组。
-- 下载器 `scripts/eval/prepare_rcaeval.py` 固定 revision、两路并发、1 GiB 原始数据上限。运行需要 Python、requests、numpy、pandas、pyarrow；在线后端没有 Python 依赖。
+本轮只保留 RCAEval 的 RE2-OB（Online Boutique）中的 18 个已知故障案例：
 
-原始目录名包含答案，不能作为在线模型/匹配器输入。本地转换器分开写出观测、参考库和评分标签。特征函数只接收匿名 ID 与文件，不接收故障类型、正确服务或注入时间。
+| 维度 | 范围 |
+| --- | --- |
+| 服务 | `emailservice`、`productcatalogservice` |
+| 故障类型 | `cpu`（CPU 压力）、`mem`（内存压力）、`delay`（网络延迟） |
+| 每个服务/故障组合 | 3 次独立重复运行 |
+| 第 1 次运行 | `reference`：只读历史参考库，6 例 |
+| 第 2 次运行 | `development`：开发调参集，6 例 |
+| 第 3 次运行 | `holdout`：最终留出集，6 例 |
+| 总数 | 18 例；每个 split 6 例 |
 
-## 两条互相独立的链路
+`holdout` 是当前代码和页面统一使用的留出名称；它对应本实验所说的 evaluation。参考、开发、留出三组没有重复 ID，且每个 split 都覆盖两个服务 × 三种故障。
 
-2026-09-09 新增真正调用云端模型的自主排查入口。原 A/B/C 规则及 `holdout.json` 不变；下文旧成绩属于规则版，不能当作新 Agent 的成绩。
+固定数据来源：
 
-### D：自主排查 Agent
+- 仓库：[phamquiluan/RCAEval](https://huggingface.co/datasets/phamquiluan/RCAEval)
+- 固定 revision：`afeacb11bcc94dadfd1c8f483ee4377b2b8b614e`
+- 选择规则与工件摘要：[`v2-manifest.json`](./v2-manifest.json)
 
-```text
-服务清单 + 只读工具契约 + 预算（不提供当前答案）
-  → LLM 选择下一项工具与服务
-  → Tool Runtime 校验并查询当前观测 / 历史参考
-  → 实际新证据回到模型；保留简短假设变化与引用
-  → 模型决定继续查询、修正假设或结束
-  → Go 校验最终证据归属、候选范围与未验证边界
-  → 独立评分器核对结果；失败不冒充正确拒答
+## 数据边界
+
+原始 Parquet 只在本地准备数据时使用，不提交到 Git，也不上传 ECS。`scripts/eval/prepare_rcaeval.py` 会在指定缓存目录下载并校验原始文件，然后将每个案例转换成不超过服务端预算的匿名观测摘要。
+
+在线 Agent 能看到：
+
+- 不含业务答案的 opaque case ID；
+- 时间范围和最早/最晚三分之一窗口摘要；
+- 服务级 metrics、logs、traces 摘要；
+- 每个来源的匿名模态名（`metrics.parquet`、`logs.parquet`、`traces.parquet`）、SHA-256 和字节数。
+
+在线 Agent 不会看到：
+
+- 原始目录名中的服务、故障类型和重复编号；
+- `inject_time.txt`；
+- 评分真值、原始路径和来源映射。
+
+评分真值独立保存在 `internal/rcascoring/data/answers.json`。原始案例映射和完整来源摘要保存在 `evals/rcaeval/sources.json`，只供审计、复现和离线评分使用，不能作为 Agent 工具输入。公开参考库 `internal/rcaexperiment/data/references.json` 只包含第 1 次运行的 6 个已知组合；留出真值不会回流到参考检索。
+
+## 数据准备
+
+准备环境需要 Python、`requests`、`numpy`、`pandas`、`pyarrow`。缓存目录应放在仓库之外，例如：
+
+```powershell
+$cache = "$env:TEMP\gopherai-rcaeval-v2-cache"
+python scripts/eval/prepare_rcaeval.py --cache $cache
 ```
 
-单 Agent，最多8次模型请求、6次工具额度、180秒；不是预先固定工具顺序。每次调用记录 Tool Runtime 审计。可以探索其他服务作为排除项，但最终已知模式仍限定2个服务、3个类型。跨服务对照不能替代候选自身的详细指标及另一类证据。不会执行修复。
+脚本固定 revision、最多两路下载并发和 1 GiB 原始数据上限。重复运行会复用已校验文件。脚本只写入以下小型静态工件：
 
-此入口默认读取服务端 `reasoningModelName`，当前发布配置为固定版本 `qwen3.7-plus-2026-05-26`；可用 `GOPHERAI_RCA_MODEL` 做运行时覆盖。它与高频 RAG 模型解耦，需要既有 `OPENAI_API_KEY`、模型 BaseURL 配置及网络，不能由浏览器指定模型，也不能离线伪造模型结果。
+- `internal/rcaexperiment/data/observations.json`：18 条匿名观测窗口；
+- `internal/rcaexperiment/data/references.json`：6 条历史参考案例；
+- `internal/rcascoring/data/answers.json`：18 条独立评分真值；
+- `evals/rcaeval/sources.json`：18 条来源和原始文件摘要。
 
-```bash
-# 在配置已就绪的环境运行；输出必须是新路径，不覆盖旧结果。
-go run ./cmd/rca-agent-eval -split development -output /path/to/new-agent-development.json
-go run ./cmd/rca-agent-eval -split holdout -output /path/to/new-agent-replay.json
+当前 v2 工件的 SHA-256、字节数和选择约束以 `v2-manifest.json` 为准。生成后可执行：
+
+```powershell
+python -c "import json,collections; d=json.load(open('internal/rcaexperiment/data/observations.json',encoding='utf-8')); a=json.load(open('internal/rcascoring/data/answers.json',encoding='utf-8')); assert len(d['observations'])==18 and len(d['catalog'])==18; assert collections.Counter(x['split'] for x in d['catalog'])=={'reference':6,'development':6,'holdout':6}; assert len(a)==18; print('RCAEval v2 artifacts: OK')"
 ```
 
-旧12例已经公开查看过答案，新增 Agent 的运行叫“已有案例回放”，不是新盲测。`agent-replay.json` 单独保存一次完整12例回放，包含错误、误接纳、模型调用、Token、每轮实际选择和证据。报告绑定数据、Prompt、执行器源码 Hash，版本失配不能展示旧成绩。执行器测试用替身模型只验证控制流，不计入质量分数。
+## 如何解释评测结果
 
-开发运行也保留为 `agent-development-*.json`；包含时间顺序上的失败，不删坏结果、不给原有规则增益换名字。
+系统报告至少应区分以下指标：
 
-真实模型的三次完整回放（均为已看过的同12例，不能当独立盲测）：
+- `service Top-1`：第一候选服务是否为官方标签服务；
+- `joint`：第一候选同时命中服务和故障类型；
+- `evidence_valid`：结论引用的证据是否来自本次实际工具返回；
+- Agent 工具调用次数、模型请求次数、tokens、耗时和失败原因。
 
-| 工件 | 执行完成 / 12 | 已知服务+类型正确 / 6 | 范围外误接纳 / 6 | 执行失败 / 12 |
-| --- | --- | --- | --- | --- |
-| `agent-replay-initial-v1.json` | 4 | 2 | 1 | 8 |
-| `agent-replay-v2-before-feedback.json` | 6 | 2 | 1 | 6 |
-| `agent-replay.json`（当前实现） | 10 | 4 | 4 | 2 |
+开发集用于调整提示词、工具预算和停止条件。冻结这些设置后，才运行 `holdout`，并把留出结果作为一次独立的最终检查。不能把参考集上的命中率称为泛化能力，也不能把同一故障配方的三次运行称为真实生产事故统计。
 
-当前已知服务 Top-1 为6/6；类型错误2例。范围外4个误接纳、2个运行失败，没有正确拒答。改进的是这次回放中的执行稳定性，不是证明未知故障识别已解决，也不能由以上重复回放推导统计显著性。输入469,456、输出14,551 tokens，共87次模型请求；后续重跑路径和结果可能不同。
+## 与生产系统的关系
 
-演示入口为工作台 M-10“自主排查实验”（`/dashboard/rca-experiment`）。选择窗口13–18之一，点击“启动自主排查 Agent”，查看逐轮工具、新证据、停止原因与标准答案核对；也可点击“查看记录轨迹”回看已保存的真实运行。记录回看不是本次新执行，不产生新模型调用费用。
+评测使用与生产 Agent 相同的只读工具治理、候选范围校验、证据引用校验和超时/预算边界，但输入是离线 RCAEval 快照。服务器只提供静态数据和单例演示；原始 Parquet 下载、转换及批量评测在开发机执行，避免在小内存 ECS 上进行高负载计算。
 
-### A/B/C：原确定性规则链路
+## 固定留出评测结果
 
-```text
-匿名窗口 ID
-  → 固定窗口聚合：最早/最晚三分之一，不使用 inject_time
-  → Tool Runtime 读取 metrics
-  → Tool Runtime 检索 6 条参考案例（只有 C 方案）
-  → Tool Runtime 读取 logs / traces
-  → 指标轮廓匹配、证据准入、候选排序（最多 3 个）
-  → 当前依据 + 历史差异 + 尚未执行的验证建议
-  → 诊断结束后，独立评分器读取官方标签
-```
+冻结 `rca-autonomous-agent-v3` 的提示词、工具、预算和实现后，使用固定模型 `qwen3.7-plus-2026-05-26` 对 6 条 `holdout` 案例顺序运行一次，结果如下：
 
-本版是确定性、有界的案例辅助诊断工作流，LLM 调用为 0；没有自由规划、递归创建 Agent 或拓扑因果推断。五个排名维度为 cpu、mem、latency-90、socket、workload，使用窗口中位数和 log2 变化。日志/调用链是真实补充观测，但不参与本版排名。
+| 指标 | 结果 |
+| --- | ---: |
+| 尝试 / 完成 / 执行失败 | 6 / 6 / 0 |
+| 服务 Top-1 | 6 / 6 |
+| 服务与故障类型联合命中 | 6 / 6 |
+| 证据引用契约通过 | 6 / 6 |
+| 模型请求 / 只读工具调用 | 40 / 30 |
+| 输入 / 输出 tokens | 190729 / 31702 |
+| 总耗时 / 单例平均耗时 | 477956 ms / 约 79.7 s |
 
-匹配器只导入观测与参考库。`internal/rcascoring` 独立持有答案，不能被 `internal/rcaexperiment` 导入。已知参考标签是允许的历史先验，留出标签不能回流。前端报告允许人工查看全部留出结果，因此它是可重放演示，不是对用户保密的考试。
+完整记录保存在 [`agent-evaluation.json`](./agent-evaluation.json)，并绑定数据集 SHA-256、提示词 SHA-256 与实现 SHA-256。后端只在这些标识与当前代码全部一致时展示成绩，避免把旧报告冒充成当前结果。评分标准答案只在 Agent 停止后由独立 Go 评分器读取，不进入模型提示词或任何工具输出。
 
-参考库刻意采用只读嵌入 JSON，不新增数据库/向量基础设施，也不污染生产历史案例库。在线每次工具调用通过现有 Tool Runtime：限定 benchmark target 和 case_id、RBAC、Schema、1 MiB 返回体、单工具 1 秒、最多 4 次、请求总超时 60 秒；服务端同一时刻最多一个诊断请求。审计写入已有 MySQL ToolAudit，并记录 Trace。只读后续建议不冒充已经执行的核验。
+该固定报告发布后，再次对 `holdout` 运行 CLI 只会标记为 `previously_exposed_case_replay`，不能生成第二份“首次固定评测”覆盖当前成绩。
 
-## 三组对照与第一轮结果
+这是固定、公开、范围受限的已知故障评测；每个案例只运行一次。它可以证明受治理的排查循环、证据引用与独立评分链路在这 6 个案例上完整运行，但不能外推为生产准确率，也不能证明未知故障识别、跨系统泛化或自动修复成功率。
 
-开发集用于调参数，`policy-freeze.json` 在首次留出运行前生成。`holdout.json` 保留首次完整留出输出，不删失败、不挑最佳运行。
+## 旧版替换说明
 
-| 方案 | 范围内服务 Top-1 | 范围内服务+类型 | 范围外拒答 | 范围外误接纳 | 执行错误 |
-| --- | --- | --- | --- | --- | --- |
-| A 原文本错误规则 | 0/6 | 0/6 | 6/6 | 0/6 | 0 |
-| B 观测特征规则 | 5/6 | 5/6 | 1/6 | 5/6 | 0 |
-| C 历史案例增强 | 6/6 | 6/6 | 2/6 | 4/6 | 0 |
-
-A 是原有文本规则缺少结构化遥测定位的边界对照，不是对所有传统 RCA 算法的结论。B/C 使用相同当前指标和资源优先规则，C 同时增加历史相似性和参考尺度准入；这是案例增强机制的整体对照，不是单独一种权重的严格消融。
-
-关键案例：`rca-e5abfe8ebd`，官方标签 currencyservice / cpu。B 未正确定位，C 参考历史尺度后正确定位。用于解释为什么只按统一固定幅度规则可能遗漏某服务的故障。不要把这个一例增益称为统计显著优势。
-
-反例：`rca-bba0bc25ab`，官方标签 checkoutservice / disk；C 误判成内存压力。`rca-90376d73d9`（checkoutservice / loss）则返回证据不足。页面同时保留两者，避免只演示成功例。
-
-## 如何复现
-
-Go 依赖就绪后，在仓库根目录运行；不需要 MySQL、Redis 或 LLM 服务：
-
-```bash
-go test ./internal/rcaexperiment ./internal/rcascoring ./controller/rcaexperiment
-go run ./cmd/rca-eval -split development -output .codex-tmp/rca-dev-replay.json
-go run ./cmd/rca-eval -split holdout -output .codex-tmp/rca-holdout-replay.json
-```
-
-保持已封存 `holdout.json` 不变，重放写新文件。时间、UUID Trace 等自然变化，匹配/评分应相同。报告绑定数据 Hash 和匹配器源码 Hash；API 遇到版本不一致会拒绝展示旧报告。`.gitattributes` 保留哈希工件字节，避免 Windows/Git 行尾转换使发布后报告失配。
-
-文件索引：
-
-- `internal/rcaexperiment/data/observations.json`：匿名、全服务有界观测。
-- `internal/rcaexperiment/data/references.json`：6 条公开参考案例的标签和来源。
-- `internal/rcascoring/data/answers.json`：独立评分真值。
-- `development-frozen.json`：最终开发集运行结果。
-- `policy-freeze.json`：首次留出前冻结信息。
-- `holdout.json`：首次留出运行、逐例候选、引用、工具状态和评分。去除了可按 Hash 找回的重复遥测，保留诊断证据。
-- `sources.json`：27 例的来源、分组和原始文件摘要；不能作为匹配器输入。
-
-## 原规则版演示验收
-
-1. 登录后打开 `/dashboard`，点击 M-10“自主排查实验”卡片（M-09之后），进入 `/dashboard/rca-experiment`。
-2. 保持“原留出集回放”，选择 `rca-34a5398b52`，展开“规则对照”并运行案例增强诊断。预期首候选 checkoutservice / CPU 压力，有当前指标引用、参考案例、差异和未执行的确认建议；展开答案核对应正确。
-3. 选择 `rca-e5abfe8ebd`，分别运行 B 与 C；观察前者未正确定位、后者定位 currencyservice / CPU 压力，不只比较文案。
-4. 查看真实工具轨迹：C 共四次、成功状态、Trace 和 MySQL 审计。此处读取的是 RCAEval 快照，不是现有 ECS 的运行状态。
-5. 运行 `rca-bba0bc25ab` 并核对答案，预期明确显示范围外误接纳；运行 `rca-90376d73d9`，预期证据不足。最后查看页面下方冻结对照表。
-
-## 能说与不能说
-
-可以说：GopherAI 在这两个服务、三类已知故障的小型公开实验上，能够基于当前观测与历史案例给出候选、引用和辅助排查建议，且工具调用受限、可审计。
-
-不能说：生产准确率 100%、未知故障识别已解决、具备任意系统因果根因定位、自动修复有效，或这些是经过验证的真实事故处置案例。六个已知留出例来自同配方不同运行，范围外误接纳 4/6 是当前明显局限；需要扩大数据、独立评测及隔离环境修复验证后才可扩大能力声明。
+此前 27 例、规则按钮、A/B/C 分组和多轮 `agent-replay*.json` 已从当前评测入口与仓库工件中移除，避免把不同口径混合展示。当前页面、数据加载器和报告只认本 README、`v2-manifest.json` 的 18 例约束以及 `agent-evaluation.json` 的 6 例留出结果。

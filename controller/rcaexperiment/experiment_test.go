@@ -25,10 +25,10 @@ func TestEndpointsValidateIdentityAndBody(t *testing.T) {
 		want             int
 	}{
 		{"unauthenticated", `{}`, "", 401},
-		{"forged answer", `{"case_id":"x","strategy":"case_based","fault":"cpu"}`, "tester", 400},
-		{"unknown case", `{"case_id":"no-such-case","strategy":"case_based"}`, "tester", 404},
+		{"forged answer", `{"case_id":"x","strategy":"autonomous","fault":"cpu"}`, "tester", 400},
+		{"unknown case", `{"case_id":"no-such-case","strategy":"autonomous"}`, "tester", 404},
 		{"unknown strategy", `{"case_id":"x","strategy":"repair"}`, "tester", 400},
-		{"valid", `{"case_id":"` + d.Catalog[6].ID + `","strategy":"case_based"}`, "tester", 200},
+		{"retired deterministic strategy", `{"case_id":"` + d.Catalog[6].ID + `","strategy":"case_based"}`, "tester", 400},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
@@ -40,6 +40,34 @@ func TestEndpointsValidateIdentityAndBody(t *testing.T) {
 				t.Fatalf("%d: %s", w.Code, w.Body.String())
 			}
 		})
+	}
+}
+
+func TestCatalogUsesTheSameSplitNamesAsTheDataset(t *testing.T) {
+	d, err := rcaexperiment.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(d, nil, nil)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set("userName", "tester")
+	c.Request = httptest.NewRequest("GET", "/catalog", nil)
+	h.Catalog(c)
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	var body struct {
+		SplitCounts map[string]int `json:"split_counts"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.SplitCounts["reference"] != 6 || body.SplitCounts["development"] != 6 || body.SplitCounts["holdout"] != 6 {
+		t.Fatalf("unexpected split counts: %#v", body.SplitCounts)
+	}
+	if _, exists := body.SplitCounts["evaluation"]; exists {
+		t.Fatal("catalog must use holdout, not an API-only evaluation alias")
 	}
 }
 
@@ -81,7 +109,7 @@ func TestSingleConcurrencyGuard(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Set("userName", "tester")
-	c.Request = httptest.NewRequest("POST", "/diagnose", strings.NewReader(`{"case_id":"`+d.Catalog[6].ID+`","strategy":"case_based"}`))
+	c.Request = httptest.NewRequest("POST", "/diagnose", strings.NewReader(`{"case_id":"`+d.Catalog[6].ID+`","strategy":"autonomous"}`))
 	h.Diagnose(c)
 	if w.Code != 429 {
 		t.Fatal(w.Code)
@@ -98,7 +126,7 @@ func TestFrozenAgentReplayAndRecordedTraceAreVersionBound(t *testing.T) {
 	for _, tt := range []struct {
 		id   string
 		want int
-	}{{"", 200}, {"rca-34a5398b52", 200}, {"not-in-report", 404}} {
+	}{{"", 200}, {d.Catalog[12].ID, 200}, {"not-in-report", 404}} {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 		c.Set("userName", "tester")
@@ -117,11 +145,14 @@ func TestFrozenAgentReplayAndRecordedTraceAreVersionBound(t *testing.T) {
 		}
 		if tt.id == "" {
 			var rows []json.RawMessage
-			if json.Unmarshal(body["cases"], &rows) != nil || len(rows) != 12 {
+			if json.Unmarshal(body["cases"], &rows) != nil || len(rows) != 6 {
 				t.Fatal("incomplete replay")
 			}
-		} else if string(body["recorded"]) != "true" || len(body["run"]) == 0 {
-			t.Fatal("record presented as fresh execution")
+			if len(body["prompt_sha256"]) == 0 || len(body["implementation_sha256"]) == 0 || string(body["split"]) != `"holdout"` {
+				t.Fatal("report audit identity is incomplete")
+			}
+		} else if string(body["recorded"]) != "true" || string(body["evidence_valid"]) != "true" || len(body["run"]) == 0 {
+			t.Fatal("recorded trace contract is incomplete")
 		}
 	}
 }

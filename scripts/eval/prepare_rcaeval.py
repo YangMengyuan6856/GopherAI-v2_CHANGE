@@ -6,6 +6,7 @@ injection timestamp. Scoring labels are emitted to a separate Go package.
 """
 import argparse
 from concurrent.futures import ThreadPoolExecutor
+from collections import Counter
 import hashlib
 import json
 from pathlib import Path
@@ -17,10 +18,14 @@ import requests
 
 REVISION = 'afeacb11bcc94dadfd1c8f483ee4377b2b8b614e'
 REPOSITORY = 'phamquiluan/RCAEval'
-VERSION = 'rcaeval-ob-known-v1'
-EXTRACTOR = 'window-thirds-v1'
+# v2 is deliberately a compact, known-fault slice.  It replaces the earlier
+# mixed 27-case artifact (which included unsupported disk/loss/socket cases)
+# while keeping the raw Parquet files local to the preparation workstation.
+VERSION = 'rcaeval-ob-known-v2'
+EXTRACTOR = 'window-thirds-v2'
 KINDS = ('cpu', 'mem', 'delay')
-SERVICES = ('checkoutservice', 'currencyservice')
+SERVICES = ('emailservice', 'productcatalogservice')
+EXPECTED_SPLITS = {'reference': 6, 'development': 6, 'holdout': 6}
 
 
 def digest(path):
@@ -50,12 +55,25 @@ def selection():
         for service in SERVICES:
             for fault in KINDS:
                 items.append((f're2ob_{service}_{fault}_{repetition}', split, service, fault))
-    for service, fault in [('checkoutservice', 'disk'), ('currencyservice', 'loss'), ('checkoutservice', 'socket')]:
-        items.append((f're2ob_{service}_{fault}_2', 'development', service, fault))
-    for service in SERVICES:
-        for fault in ('disk', 'loss', 'socket'):
-            items.append((f're2ob_{service}_{fault}_3', 'holdout', service, fault))
     return items
+
+
+def validate_selection(items):
+    """Fail closed if the compact v2 selection is accidentally widened."""
+    if len(items) != 18:
+        raise ValueError(f'v2 selection must contain 18 cases, got {len(items)}')
+    split_counts = Counter(split for _, split, _, _ in items)
+    if dict(split_counts) != EXPECTED_SPLITS:
+        raise ValueError(f'v2 split counts mismatch: {dict(split_counts)}')
+    expected = {
+        (split, service, fault)
+        for split, repetition in (('reference', 1), ('development', 2), ('holdout', 3))
+        for service in SERVICES
+        for fault in KINDS
+    }
+    actual = {(split, service, fault) for _, split, service, fault in items}
+    if actual != expected:
+        raise ValueError('v2 selection must cover every service/fault pair exactly once per split')
 
 
 def number(x):
@@ -147,6 +165,7 @@ def main():
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[2])
     args = parser.parse_args()
     selected = selection()
+    validate_selection(selected)
     metadata = []
     for case, *_ in selected:
         r = requests.get(f'https://huggingface.co/api/datasets/{REPOSITORY}/tree/{REVISION}/{case}', timeout=40)
@@ -176,17 +195,35 @@ def main():
         bundle = observation(opaque, paths)
         bundles.append(bundle)
         catalog.append({'id': opaque, 'split': split, 'title': f'观测窗口 {ordinal:02d}', 'start': bundle['start'], 'end': bundle['end']})
-        label = {'id': opaque, 'service': service, 'fault': fault, 'supported': fault in KINDS, 'split': split}
+        label = {'id': opaque, 'service': service, 'fault': fault, 'supported': True, 'split': split}
         answers.append(label)
         provenance.append({'id': opaque, 'original_case': case, 'split': split, 'sources': bundle['sources']})
         if split == 'reference':
             references.append({'id': opaque, 'service': service, 'fault': fault, 'resolution': 'unknown', 'provenance': 'RCAEval controlled fault injection'})
         print(f'Extracted {ordinal}/{len(selected)}: {opaque} ({split})', flush=True)
+    if len({bundle['id'] for bundle in bundles}) != len(selected):
+        raise ValueError('opaque case IDs are not unique')
+    if any(source['name'] not in {'metrics.parquet', 'logs.parquet', 'traces.parquet'}
+           for bundle in bundles for source in bundle['sources']):
+        raise ValueError('observation source names must remain anonymous')
     files = {
         'internal/rcaexperiment/data/observations.json': {'version': VERSION, 'extractor': EXTRACTOR, 'revision': REVISION, 'catalog': catalog, 'observations': bundles},
         'internal/rcaexperiment/data/references.json': references,
         'internal/rcascoring/data/answers.json': answers,
-        'evals/rcaeval/sources.json': {'repository': REPOSITORY, 'revision': REVISION, 'cases': provenance},
+        'evals/rcaeval/sources.json': {
+            'schema_version': 'rcaeval-source-manifest-v2',
+            'dataset_version': VERSION,
+            'repository': REPOSITORY,
+            'revision': REVISION,
+            'raw_parquet': 'local-only-not-committed',
+            'selection': {
+                'services': list(SERVICES),
+                'faults': list(KINDS),
+                'repetitions': {'1': 'reference', '2': 'development', '3': 'holdout'},
+                'case_count': len(selected),
+            },
+            'cases': provenance,
+        },
     }
     for relative, value in files.items():
         path = args.root / relative

@@ -1,4 +1,5 @@
-// Runs real-model replays. Never overwrites the previous deterministic report.
+// Runs real-model evaluations into new files. Once the fixed holdout artifact is
+// published, later holdout runs are explicitly labeled as exposed replays.
 package main
 
 import (
@@ -16,23 +17,37 @@ import (
 )
 
 type row struct {
-	ID    string           `json:"id"`
-	Title string           `json:"title"`
-	Run   rcaagent.Run     `json:"run"`
-	Score rcascoring.Score `json:"score"`
-	Valid bool             `json:"evaluation_valid"`
+	ID            string           `json:"id"`
+	Title         string           `json:"title"`
+	Run           rcaagent.Run     `json:"run"`
+	Score         rcascoring.Score `json:"score"`
+	Valid         bool             `json:"evaluation_valid"`
+	EvidenceValid bool             `json:"evidence_valid"`
+}
+type metrics struct {
+	Attempted       int   `json:"attempted"`
+	Completed       int   `json:"completed"`
+	ExecutionFailed int   `json:"execution_failed"`
+	ServiceTop1     int   `json:"service_top1"`
+	JointCorrect    int   `json:"joint_correct"`
+	EvidenceValid   int   `json:"evidence_valid"`
+	ModelCalls      int   `json:"model_calls"`
+	ToolCalls       int   `json:"tool_calls"`
+	InputTokens     int   `json:"input_tokens"`
+	OutputTokens    int   `json:"output_tokens"`
+	ElapsedMSTotal  int64 `json:"elapsed_ms_total"`
 }
 type report struct {
-	Version              string         `json:"version"`
-	DatasetSHA256        string         `json:"dataset_sha256"`
-	PromptSHA256         string         `json:"prompt_sha256"`
-	ImplementationSHA256 string         `json:"implementation_sha256"`
-	Split                string         `json:"split"`
-	EvaluationKind       string         `json:"evaluation_kind"`
-	GeneratedAt          time.Time      `json:"generated_at"`
-	Cases                []row          `json:"cases"`
-	Metrics              map[string]int `json:"metrics"`
-	Limitations          []string       `json:"limitations"`
+	Version              string    `json:"version"`
+	DatasetSHA256        string    `json:"dataset_sha256"`
+	PromptSHA256         string    `json:"prompt_sha256"`
+	ImplementationSHA256 string    `json:"implementation_sha256"`
+	Split                string    `json:"split"`
+	EvaluationKind       string    `json:"evaluation_kind"`
+	GeneratedAt          time.Time `json:"generated_at"`
+	Cases                []row     `json:"cases"`
+	Metrics              metrics   `json:"metrics"`
+	Limitations          []string  `json:"limitations"`
 }
 
 func main() {
@@ -69,8 +84,9 @@ func run(split string, limit int, path string) error {
 		return err
 	}
 	defer checkpoints.Close()
-	r := report{Version: rcaagent.Version, DatasetSHA256: d.SHA256, PromptSHA256: rcaagent.PromptHash(), ImplementationSHA256: rcaagent.ImplementationHash(), Split: split, EvaluationKind: "previously_exposed_case_replay_not_new_blind_test", GeneratedAt: time.Now().UTC(), Cases: []row{}, Metrics: map[string]int{},
-		Limitations: []string{"这是此前已查看案例的模型回放，不是新盲测或生产准确率。", "有限指标/日志/调用链摘要；只支持2个服务和3类已知模式；不执行修复。", "模型调用错误、预算停止不计为正确拒答；保留全部尝试，不能挑最好一次。", "模型自主选工具不意味着诊断必定正确；引用存在也不证明因果。"}}
+	kind := reportKind(split)
+	r := report{Version: rcaagent.Version, DatasetSHA256: d.SHA256, PromptSHA256: rcaagent.PromptHash(), ImplementationSHA256: rcaagent.ImplementationHash(), Split: split, EvaluationKind: kind, GeneratedAt: time.Now().UTC(), Cases: []row{},
+		Limitations: []string{"公开 RCAEval RE2-OB 的固定案例评测；标准答案与模型工具隔离，但不宣称生产准确率或绝对盲测。", "仅覆盖2个服务和CPU、内存、延迟3类已知故障；不评价未知故障、跨系统泛化或修复成功率。", "每个案例只运行一次，模型错误、超时和预算停止都保留在分母。", "模型自主选工具只证明有界排查流程可运行；引用有效仍不等于因果已经确认。"}}
 	for _, c := range d.Catalog {
 		if c.Split != split {
 			continue
@@ -92,7 +108,7 @@ func run(split string, limit int, path string) error {
 		for i := range out.ToolCalls {
 			out.ToolCalls[i].Data = nil
 		}
-		entry := row{ID: c.ID, Title: c.Title, Run: out, Score: score, Valid: out.Agent.Completed}
+		entry := row{ID: c.ID, Title: c.Title, Run: out, Score: score, Valid: out.Agent.Completed, EvidenceValid: rcaagent.EvidenceContractSatisfied(out)}
 		if e = json.NewEncoder(checkpoints).Encode(entry); e != nil {
 			return e
 		}
@@ -100,33 +116,27 @@ func run(split string, limit int, path string) error {
 			return e
 		}
 		r.Cases = append(r.Cases, entry)
-		r.Metrics["attempted"]++
-		if score.Answer.Supported {
-			r.Metrics["supported"]++
-		} else {
-			r.Metrics["unsupported"]++
-		}
+		r.Metrics.Attempted++
 		if !entry.Valid {
-			r.Metrics["execution_failed"]++
+			r.Metrics.ExecutionFailed++
 		} else {
-			r.Metrics["completed"]++
-			if score.Answer.Supported && score.JointCorrect {
-				r.Metrics["joint_correct"]++
+			r.Metrics.Completed++
+			if score.JointCorrect {
+				r.Metrics.JointCorrect++
 			}
-			if score.Answer.Supported && score.ServiceTop1 {
-				r.Metrics["service_top1"]++
+			if score.ServiceTop1 {
+				r.Metrics.ServiceTop1++
 			}
-			if !score.Answer.Supported && score.Rejected {
-				r.Metrics["unknown_rejected"]++
-			}
-			if score.FalseAcceptance {
-				r.Metrics["false_acceptance"]++
+			if entry.EvidenceValid {
+				r.Metrics.EvidenceValid++
 			}
 		}
-		r.Metrics["model_calls"] += out.Diagnosis.ModelCalls
-		r.Metrics["input_tokens"] += out.Agent.InputTokens
-		r.Metrics["output_tokens"] += out.Agent.OutputTokens
-		fmt.Printf("%s completed=%t stop=%s model_calls=%d tools=%d joint=%t false_acceptance=%t\n", c.Title, entry.Valid, out.Agent.StopReason, out.Diagnosis.ModelCalls, len(out.ToolCalls), score.JointCorrect, score.FalseAcceptance)
+		r.Metrics.ModelCalls += out.Diagnosis.ModelCalls
+		r.Metrics.ToolCalls += len(out.ToolCalls)
+		r.Metrics.InputTokens += out.Agent.InputTokens
+		r.Metrics.OutputTokens += out.Agent.OutputTokens
+		r.Metrics.ElapsedMSTotal += int64(out.ElapsedMS)
+		fmt.Printf("%s completed=%t stop=%s model_calls=%d tools=%d service_top1=%t joint=%t evidence_valid=%t\n", c.Title, entry.Valid, out.Agent.StopReason, out.Diagnosis.ModelCalls, len(out.ToolCalls), score.ServiceTop1, score.JointCorrect, entry.EvidenceValid)
 	}
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "  ")
@@ -136,4 +146,11 @@ func run(split string, limit int, path string) error {
 	b, _ := json.Marshal(r.Metrics)
 	fmt.Println(string(b))
 	return f.Sync()
+}
+
+func reportKind(split string) string {
+	if split == "holdout" {
+		return "previously_exposed_case_replay"
+	}
+	return "development_iteration"
 }

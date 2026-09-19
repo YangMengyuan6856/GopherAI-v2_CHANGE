@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -36,8 +37,13 @@ func TestDatasetBoundaries(t *testing.T) {
 		if len(raw) > 1<<20 {
 			t.Fatal("oversized observation")
 		}
+		for _, source := range o.Sources {
+			if strings.Contains(strings.ToLower(source.Name), "re2ob_") {
+				t.Fatal("source name leaks encoded truth", source.Name)
+			}
+		}
 	}
-	if !reflect.DeepEqual(counts, map[string]int{"reference": 6, "development": 9, "holdout": 12}) {
+	if !reflect.DeepEqual(counts, map[string]int{"reference": 6, "development": 6, "holdout": 6}) {
 		t.Fatal(counts)
 	}
 }
@@ -45,15 +51,14 @@ func TestHistoricalScaleAndOpaqueIDInvariance(t *testing.T) {
 	d := dataForTest(t)
 	var ref Reference
 	for _, r := range d.References {
-		if r.Service == "currencyservice" && r.Fault == "cpu" {
+		if r.Service == "productcatalogservice" && r.Fault == "cpu" {
 			ref = r
 		}
 	}
 	o := Observation{ID: "new-observation", Services: []Service{ref.Observation}}
-	before := Diagnose(o, nil, "feature_only")
 	after := Diagnose(o, SearchReferences(o, d.References), "case_based")
-	if len(before.Candidates) != 0 || len(after.Candidates) != 1 || after.Candidates[0].Service != ref.Service || after.Candidates[0].Fault != ref.Fault {
-		t.Fatalf("historical amplitude not applied: %v %v", before, after)
+	if len(after.Candidates) != 1 || after.Candidates[0].Service != ref.Service || after.Candidates[0].Fault != ref.Fault || after.Candidates[0].ReferenceID != ref.ID {
+		t.Fatalf("historical reference not applied: %v", after)
 	}
 	o.ID = "another-opaque-id"
 	renamed := Diagnose(o, SearchReferences(o, d.References), "case_based")
@@ -66,7 +71,7 @@ func TestHistoricalScaleAndOpaqueIDInvariance(t *testing.T) {
 }
 func TestMissingOrHealthyEvidenceDoesNotForceNearestCase(t *testing.T) {
 	d := dataForTest(t)
-	for _, services := range [][]Service{nil, {{Name: "checkoutservice", Metrics: map[string]Metric{"cpu": {Ratio: 1, LogChange: 0}}}}} {
+	for _, services := range [][]Service{nil, {{Name: "emailservice", Metrics: map[string]Metric{"cpu": {Ratio: 1, LogChange: 0}}}}} {
 		o := Observation{ID: "unknown", Services: services}
 		r := Diagnose(o, SearchReferences(o, d.References), "case_based")
 		if len(r.Candidates) != 0 || r.Status != "insufficient_evidence" {

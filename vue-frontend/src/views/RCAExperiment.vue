@@ -1,186 +1,259 @@
 <template>
-  <div class="rca-page">
+  <main class="rca-page">
     <header class="hero panel">
-      <div><small class="eyebrow">RCAEVAL / AUTONOMOUS DIAGNOSTIC AGENT</small><h1>自主排查与历史案例实验</h1><p>模型自主选择排查工具，根据每轮新证据更新假设，最终给出候选故障与待确认项。不是固定调用顺序，也不操作真实服务器。</p></div>
-      <div class="boundary"><strong>只读 · 不修复</strong><span>2 个服务 / 3 类已知模式</span><span>单 Agent · 云端模型 · 有界执行</span></div>
+      <div>
+        <small class="eyebrow">RCAEVAL RE2-OB / KNOWN-FAULT EVALUATION</small>
+        <h1>已知故障自主排查评测</h1>
+        <p>给 Agent 一段匿名观测窗口，由模型自主选择指标、日志、调用链或历史案例工具，随着新证据更新判断，最终给出最可能的故障服务、故障类型和待确认项。</p>
+      </div>
+      <div class="boundary">
+        <strong>只读 · 不执行修复</strong>
+        <span>18 例：参考 / 开发 / 评测各 6 例</span>
+        <span>2 个服务 × 3 类已知故障</span>
+        <span>单 Agent · 单并发 · 有界预算</span>
+      </div>
     </header>
 
     <div v-if="error" role="alert" class="warning">{{ error }}</div>
-    <section class="controls panel">
-      <div class="control-row">
-        <label>选择案例分组<select v-model="split" :disabled="busy" @change="changeSplit"><option value="holdout">已知故障回放 · 6 例（窗口 13–18）</option><option value="development">开发调试 · 9 例</option><option value="reference">历史参考 · 6 例（不计测试成绩）</option></select></label>
-        <label class="case-select">选择一个故障案例<select v-model="selected" :disabled="busy" @change="loadObservation"><option v-for="item in visibleCases" :key="item.id" :value="item.id">{{ item.title }} · {{ item.id }}</option></select></label>
-        <button class="primary" :disabled="busy || !observation" @click="run('autonomous')">{{ busy ? (loadingRecord ? '读取记录…' : `正在排查 · ${elapsed} 秒…`) : '启动自主排查 Agent' }}</button>
+
+    <section class="panel score-panel">
+      <div class="heading">
+        <div><small class="section-no">01 / FIXED EVALUATION</small><h2>固定评测结果</h2></div>
+        <span class="status-chip">失败保留在分母</span>
       </div>
-      <p>操作：选一个案例 → 启动 Agent → 查看下方每轮证据和假设更新 → 最后展开标准答案核对。右侧服务选择只切换数据展示，不指定故障答案。</p>
-      <p v-if="busy && !loadingRecord" role="status" class="accent">正在调用真实云端模型，最多 180 秒。完成后展示实际工具顺序；离开本页会取消本次请求。</p>
-      <details><summary>规则对照（零模型调用，不是自主 Agent）</summary><div class="control-row"><button :disabled="busy || !observation" @click="run('case_based')">运行案例增强诊断（原规则版）</button><button :disabled="busy || !observation" @click="run('feature_only')">仅特征规则对照</button><button :disabled="busy || !observation" @click="run('legacy')">原文本规则对照</button></div></details>
-      <p class="muted">本轮演示与下方统计仅覆盖窗口 13–18：checkoutservice、currencyservice 的 CPU 压力 / 内存压力 / 网络延迟。窗口 22–27 已退出本轮测试，历史数据与完整报告仍保留；本页不评估未知类型识别能力。开发调试和历史参考不计入下方统计。</p>
-      <small v-if="catalog" class="mono">{{ catalog.agent_version }} · 数据 {{ catalog.dataset_sha256.slice(0, 16) }} · 最多 8 轮模型 / 6 次工具 / 单并发</small>
+      <template v-if="agentReport">
+        <div class="stats five">
+          <article><strong>{{ reportMetrics.completed }} / {{ reportMetrics.attempted }}</strong><span>执行完成率</span></article>
+          <article><strong>{{ reportMetrics.service_top1 }} / {{ reportMetrics.attempted }}</strong><span>故障服务 Top-1</span></article>
+          <article><strong>{{ reportMetrics.joint_correct }} / {{ reportMetrics.attempted }}</strong><span>服务 + 类型联合正确</span></article>
+          <article><strong>{{ reportMetrics.evidence_valid }} / {{ reportMetrics.attempted }}</strong><span>引用合同有效</span></article>
+          <article><strong>{{ reportMetrics.execution_failed }}</strong><span>执行失败</span></article>
+        </div>
+        <div class="run-budget">
+          <span>模型调用 <b>{{ reportMetrics.model_calls }}</b></span>
+          <span>工具调用 <b>{{ reportMetrics.tool_calls }}</b></span>
+          <span>Tokens <b>{{ count(reportMetrics.input_tokens + reportMetrics.output_tokens) }}</b></span>
+          <span>平均耗时 <b>{{ averageElapsed }}s</b></span>
+          <span>模型 <b>{{ agentReport.cases[0]?.model || 'unknown' }}</b></span>
+        </div>
+        <div class="audit-hashes mono muted">
+          <span>DATA {{ agentReport.dataset_sha256?.slice(0, 12) }}</span>
+          <span>PROMPT {{ agentReport.prompt_sha256?.slice(0, 12) }}</span>
+          <span>AGENT {{ agentReport.implementation_sha256?.slice(0, 12) }}</span>
+          <span>SPLIT {{ agentReport.split }}</span>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>评测案例</th><th>执行</th><th>服务定位</th><th>服务 + 类型</th><th>证据合同</th><th>轨迹</th></tr></thead>
+            <tbody>
+              <tr v-for="row in agentReport.cases" :key="row.id">
+                <td>{{ row.title }}</td>
+                <td :class="row.valid ? 'ok' : 'bad'">{{ row.valid ? '完成' : row.stop_reason }}</td>
+                <td :class="row.valid && row.score.service_top1 ? 'ok' : 'bad'">{{ row.valid && row.score.service_top1 ? '正确' : '未命中' }}</td>
+                <td :class="row.valid && row.score.joint_correct ? 'ok' : 'bad'">{{ row.valid && row.score.joint_correct ? '正确' : '未命中' }}</td>
+                <td :class="row.evidence_valid ? 'ok' : 'bad'">{{ row.evidence_valid ? '通过' : '未通过' }}</td>
+                <td><button @click="viewRecorded(row.id)" :disabled="busy">查看记录</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="muted">这是公开数据集上的固定、有限样本评测，不代表生产准确率。真值由 Agent 停止后的独立评分器读取，不进入模型上下文；每例只计一次，不挑选最好结果。</p>
+      </template>
+      <p v-else class="muted">{{ agentReportError || '正在读取固定评测报告…' }}</p>
+    </section>
+
+    <section class="panel">
+      <div class="heading">
+        <div><small class="section-no">02 / LIVE REPLAY</small><h2>选择一例现场演示</h2></div>
+        <span v-if="catalog" class="mono muted">{{ catalog.agent_version }} · {{ catalog.dataset_sha256.slice(0, 16) }}</span>
+      </div>
+      <div class="control-row">
+        <label class="case-select">评测观测窗口
+          <select v-model="selected" :disabled="busy" @change="loadObservation">
+            <option v-for="item in cases" :key="item.id" :value="item.id">{{ item.title }} · {{ item.id }}</option>
+          </select>
+        </label>
+        <button class="primary" :disabled="busy || !observation" @click="run">
+          {{ busy ? (loadingRecord ? '读取已保存轨迹…' : `Agent 排查中 · ${elapsed}s`) : '启动自主排查 Agent' }}
+        </button>
+      </div>
+      <ol class="flow">
+        <li><b>输入</b><span>匿名指标、日志与调用链窗口</span></li>
+        <li><b>规划</b><span>模型按新证据自主选择下一只读工具</span></li>
+        <li><b>治理</b><span>权限、参数、预算、引用和停止条件校验</span></li>
+        <li><b>输出</b><span>候选根因、证据、不确定性和后续核查</span></li>
+        <li><b>评分</b><span>运行结束后独立读取标准答案</span></li>
+      </ol>
+      <p v-if="busy && !loadingRecord" role="status" class="accent">正在调用真实云端模型，最长约 180 秒。离开页面会取消请求，不会回退成规则答案。</p>
     </section>
 
     <section v-if="observation" class="panel">
-      <div class="heading"><h2>01 / 当前观测，不含标准答案</h2><label>仅切换下方数据展示<select v-model="evidenceService" aria-label="查看哪个服务的证据"><option v-for="s in observation.services" :key="s.name" :value="s.name">{{ s.name }}</option></select></label></div>
+      <div class="heading">
+        <div><small class="section-no">03 / OBSERVATION</small><h2>当前观测，不含标准答案</h2></div>
+        <label>查看服务证据
+          <select v-model="evidenceService"><option v-for="item in observation.services" :key="item.name" :value="item.name">{{ item.name }}</option></select>
+        </label>
+      </div>
       <p class="mono muted">{{ time(observation.start) }} → {{ time(observation.end) }}</p>
-      <div class="stats"><article><strong>{{ count(observation.metric_rows) }}</strong><span>指标时间点</span></article><article><strong>{{ count(observation.log_rows) }}</strong><span>原始日志行</span></article><article><strong>{{ count(observation.trace_rows) }}</strong><span>调用链 span 记录</span></article><article><strong>1 / 3</strong><span>最早与最晚三分之一窗口比较</span></article></div>
-      <div class="table-scroll"><table><thead><tr><th>指标（原始单位）</th><th>参考中位数</th><th>当前中位数</th><th>变化倍数</th><th>全窗口趋势 · 12 桶</th></tr></thead><tbody><tr v-for="m in metricRows" :key="m.id"><td>{{ m.column }}</td><td>{{ value(m.reference) }}</td><td>{{ value(m.current) }}</td><td :class="{ accent: m.ratio >= 2 }">{{ m.ratio.toFixed(2) }}×</td><td><svg viewBox="0 0 150 28" role="img" :aria-label="m.column + ' 全窗口趋势'"><polyline :points="spark(m.sparkline)" /></svg></td></tr></tbody></table></div>
-      <details v-if="service"><summary>日志与调用链摘要</summary><div class="two-columns"><div><h3>日志</h3><p>当前 {{ service.logs.current_count || 0 }} 条；错误关键词 {{ service.logs.keyword_matches || 0 }} 条。</p><pre v-for="(line, i) in service.logs.examples || []" :key="i">{{ line.timestamp }} {{ line.message }}</pre></div><div><h3>调用链</h3><p>P95 原始值：{{ value(service.traces.reference_p95) }} → {{ value(service.traces.current_p95) }}</p><p>当前 {{ service.traces.current_spans || 0 }} 个 span，非零状态 {{ service.traces.nonzero_status_count || 0 }} 个（不直接等同于业务错误）。</p><code>样例 span：{{ service.traces.sample_span || '缺失' }}</code><p>{{ service.traces.sample_operation }}</p></div></div></details>
-      <details><summary>数据来源与提取边界</summary><p v-for="w in observation.warnings" :key="w" class="muted">{{ w }}</p><p class="muted">故障来自公开演示系统的注入实验，并非当前 GopherAI 服务器发生了故障。当前只保留有界摘要；CPU 和延迟单位尚未从采集定义独立核实。</p><p v-for="source in observation.sources" :key="source.name" class="mono wrap">{{ source.name }} · SHA256 {{ source.sha256 }}</p></details>
+      <div class="stats">
+        <article><strong>{{ count(observation.metric_rows) }}</strong><span>指标时间点</span></article>
+        <article><strong>{{ count(observation.log_rows) }}</strong><span>日志行</span></article>
+        <article><strong>{{ count(observation.trace_rows) }}</strong><span>Trace span</span></article>
+        <article><strong>{{ observation.services.length }}</strong><span>可观测服务</span></article>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>指标</th><th>参考窗口</th><th>当前窗口</th><th>变化倍数</th><th>12 桶趋势</th></tr></thead>
+          <tbody><tr v-for="metric in metricRows" :key="metric.id"><td>{{ metric.column }}</td><td>{{ value(metric.reference) }}</td><td>{{ value(metric.current) }}</td><td :class="metric.ratio >= 2 ? 'accent' : ''">{{ metric.ratio.toFixed(2) }}×</td><td><svg viewBox="0 0 150 28"><polyline :points="spark(metric.sparkline)" /></svg></td></tr></tbody>
+        </table>
+      </div>
+      <details v-if="service"><summary>日志与调用链摘要</summary><div class="two-columns"><div><h3>日志</h3><p>当前 {{ service.logs.current_count || 0 }} 条；错误关键词 {{ service.logs.keyword_matches || 0 }} 条。</p><pre v-for="(line, index) in service.logs.examples || []" :key="index">{{ line.timestamp }} {{ line.message }}</pre></div><div><h3>调用链</h3><p>P95：{{ value(service.traces.reference_p95) }} → {{ value(service.traces.current_p95) }}</p><p>当前 {{ service.traces.current_spans || 0 }} spans；非零状态 {{ service.traces.nonzero_status_count || 0 }}。</p><code>{{ service.traces.sample_operation || '无样例 operation' }}</code></div></div></details>
+      <details><summary>数据边界与来源承诺</summary><p class="muted">服务/故障/重复次数编码、注入时间与标准答案均未进入该观测；原始 Parquet 只在本地预处理，ECS 仅保存有界摘要。</p><p v-for="source in observation.sources" :key="source.sha256" class="mono wrap">{{ source.name }} · {{ count(source.bytes) }} bytes · SHA256 {{ source.sha256 }}</p></details>
     </section>
 
     <section v-if="result" class="panel result-panel" aria-live="polite">
-      <p v-if="result.recorded" class="warning">正在查看已记录的真实模型轨迹（{{ result.recorded_at }}），不是本次新执行；下方耗时与用量属于记录当时。点击顶部“启动自主排查 Agent”才会重新调用模型。</p>
-      <div class="heading"><h2>02 / 排查结果</h2><span :class="['badge', diagnosis.status === 'matched_hypothesis' ? 'matched' : 'limited']">{{ diagnosis.status === 'matched_hypothesis' ? '已匹配候选 · 待验证' : '证据不足 / 未覆盖' }}</span></div>
+      <div class="heading"><div><small class="section-no">04 / AGENT TRACE</small><h2>{{ result.recorded ? '已保存的真实排查轨迹' : '本次真实排查轨迹' }}</h2></div><span :class="['status-chip', result.evaluation_valid ? 'ok-chip' : 'bad-chip']">{{ result.evaluation_valid ? '执行完成' : '执行未完成' }}</span></div>
+      <p v-if="result.recorded" class="notice">记录时间 {{ result.recorded_at }}。这是固定评测时保存的调用，不是刚刚重新生成。</p>
       <p class="result-summary">{{ diagnosis.summary }}</p>
-      <p class="mono muted">{{ modeName(diagnosis.strategy) }} · {{ result.run.elapsed_ms.toFixed(2) }}ms · {{ result.run.tool_calls.length }} 次只读工具 · LLM {{ diagnosis.model_calls }} 次</p>
-      <div v-if="result.run.agent" class="agent-trace">
-        <div class="heading"><h3>实际排查过程 · 简短假设更新与证据记录</h3><button @click="downloadRun">下载本次轨迹 JSON</button></div>
-        <p class="mono wrap">模型 {{ result.run.agent.model }} · 输入 / 输出 {{ result.run.agent.input_tokens }} / {{ result.run.agent.output_tokens }} tokens · 停止 {{ result.run.agent.stop_reason }}</p>
-        <p v-if="!result.run.agent.completed" class="warning">本次未完成：不能把模型错误、预算用尽或超时算作正确拒答，也没有自动回退成规则答案。</p>
-        <article v-for="step in result.run.agent.steps" :key="step.round" class="candidate">
-          <div class="heading"><h3>第 {{ step.round }} 轮 · {{ step.decision?.action === 'finish' ? '提交结论' : '选择下一步' }}</h3><small class="mono">{{ step.model_ms }}ms · {{ step.validation }}</small></div>
-          <template v-if="step.decision">
-            <p>{{ step.decision.update }}</p>
-            <ul><li v-for="(h, i) in step.decision.hypotheses" :key="i">{{ h.service }} / {{ faultName(h.fault) }} · {{ hypothesisName(h.status) }}<small class="evidence-ref">{{ (h.evidence_ids || []).join(' · ') }}</small></li></ul>
-            <p v-if="step.decision.tool" class="accent">模型选择：{{ toolName(step.decision.tool.name) }} → {{ step.decision.tool.service }} · 执行 {{ step.tool_status }}</p>
-          </template>
-          <details v-if="step.observation?.length"><summary>本轮新返回 {{ step.observation.length }} 项证据（下一轮模型实际可见）</summary><pre v-for="e in step.observation" :key="e.id">{{ e.id }} · {{ e.service }}
-{{ JSON.stringify(e.data, null, 2) }}</pre></details>
-        </article>
-        <p v-for="q in result.run.agent.questions" :key="q" class="amber">需要补充：{{ q }}</p>
-      </div>
-      <div v-if="diagnosis.candidates.length" class="candidate-list">
-        <article v-for="(candidate, index) in diagnosis.candidates" :key="candidate.service + candidate.fault" class="candidate">
-          <div class="heading"><h3><span class="accent">#{{ index + 1 }}</span> {{ candidate.service }} · {{ candidate.cause }}</h3><small v-if="!result.run.agent" class="mono">排序分 {{ candidate.score.toFixed(3) }}，非概率</small><small v-else class="muted">模型候选，非已确认根因</small></div>
-          <div class="two-columns"><div><h4>当前依据</h4><ul><li v-for="e in candidate.evidence" :key="e.id">{{ e.statement }}<small class="evidence-ref">[{{ e.id }}]</small></li></ul></div><div><h4>{{ result.run.agent ? '不确定性与待确认边界' : '历史参考与差异' }}</h4><template v-if="candidate.reference_id || result.run.agent"><p v-if="candidate.reference_id" class="mono">{{ candidate.reference_id }} · 相似度 {{ candidate.similarity.toFixed(3) }}</p><ul><li v-for="difference in candidate.differences" :key="difference">{{ difference }}</li></ul><p class="muted">历史参考是否被模型使用，以实际工具轨迹和引用为准；相似不是根因证明。</p></template><p v-else class="muted">本策略不使用历史案例。</p></div></div>
-          <h4>还需要确认什么 · 以下动作未执行</h4><div class="followups"><article v-for="step in candidate.follow_ups" :key="step.check"><strong>{{ step.check }}</strong><p><span class="accent">支持：</span>{{ step.supports }}</p><p><span class="amber">削弱：</span>{{ step.weakens }}</p></article></div>
+      <div class="run-budget"><span>模型 <b>{{ result.run.agent.model }}</b></span><span>停止原因 <b>{{ result.run.agent.stop_reason }}</b></span><span>模型调用 <b>{{ diagnosis.model_calls }}</b></span><span>工具调用 <b>{{ result.run.tool_calls.length }}</b></span><span>耗时 <b>{{ (result.run.elapsed_ms / 1000).toFixed(2) }}s</b></span></div>
+      <div class="contract-line"><span :class="result.evidence_valid ? 'ok' : 'bad'">引用合同：{{ result.evidence_valid ? '通过' : '未通过' }}</span><span>输入 / 输出 {{ count(result.run.agent.input_tokens) }} / {{ count(result.run.agent.output_tokens) }} tokens</span><button @click="downloadRun">下载轨迹 JSON</button></div>
+      <p v-if="!result.run.agent.completed" class="warning">本次模型错误、超时或预算停止被保留为失败，不会调用规则生成一个看似成功的答案。</p>
+
+      <div class="timeline">
+        <article v-for="step in result.run.agent.steps" :key="step.round" class="step-card">
+          <div class="step-index">{{ String(step.round).padStart(2, '0') }}</div>
+          <div class="step-body">
+            <div class="heading"><h3>{{ step.decision?.action === 'finish' ? '提交最终候选' : '选择下一步检查' }}</h3><small class="mono">{{ step.model_ms }}ms · {{ step.validation }}</small></div>
+            <p v-if="step.decision">{{ step.decision.update }}</p>
+            <p v-if="step.decision?.tool" class="accent">{{ toolName(step.decision.tool.name) }} → {{ step.decision.tool.service }} · {{ step.tool_status }}</p>
+            <details v-if="step.observation?.length"><summary>查看本轮返回的 {{ step.observation.length }} 项新证据</summary><pre v-for="evidence in step.observation" :key="evidence.id">{{ evidence.id }} · {{ evidence.service }}
+{{ JSON.stringify(evidence.data, null, 2) }}</pre></details>
+          </div>
         </article>
       </div>
-      <details open><summary>本次真实工具轨迹</summary><div class="table-scroll"><table><thead><tr><th>工具</th><th>状态</th><th>耗时</th><th>证据引用数</th></tr></thead><tbody><tr v-for="tool in result.run.tool_calls" :key="tool.call_id"><td>{{ tool.tool_name }}</td><td>{{ tool.status }} {{ tool.degraded_reason || '' }}</td><td>{{ tool.latency_ms }}ms</td><td>{{ (tool.evidence_refs || []).length }}</td></tr></tbody></table></div><p class="mono wrap muted">Trace {{ result.run.trace_id }} · 审计 {{ result.run.audit_storage }}</p><p class="muted">只访问当前 benchmark 快照，不访问生产 SSH，不执行修复。自主 Agent 根据实际所选工具返回的信息判断；旧规则对照仅用指标排序。</p></details>
-      <div class="answer-block"><button @click="reveal = !reveal">{{ reveal ? '收起标准答案核对' : '运行已结束，展开标准答案核对' }}</button><div v-if="reveal" class="answer-detail"><p>官方根因服务：<strong>{{ result.score.answer.service }}</strong>；故障类型：<strong>{{ faultName(result.score.answer.fault) }}</strong>。</p><p v-if="result.run.agent && !result.run.agent.completed" class="amber">本次执行未完成，不计为正确诊断或正确拒答。</p><p v-else-if="result.score.answer.supported">服务 Top-1：{{ result.score.service_top1 ? '正确' : '未命中' }}；服务与类型同时正确：{{ result.score.joint_correct ? '是' : '否' }}。</p><p v-else class="amber">该故障未纳入本版支持范围。{{ result.score.false_acceptance ? '本次仍匹配了已知模式：这是误接纳，应继续人工核查。' : '本次没有强行匹配，返回了证据不足。' }}</p><small class="muted">标准答案由运行结束后的独立评分器读取，不进入模型上下文。</small></div></div>
-      <p v-for="w in diagnosis.warnings" :key="w" class="muted">{{ w }}</p>
+
+      <article v-if="diagnosis.candidates.length" class="final-card">
+        <h3>{{ diagnosis.candidates[0].service }} · {{ diagnosis.candidates[0].cause }}</h3>
+        <div class="two-columns"><div><h4>引用证据</h4><ul><li v-for="evidence in diagnosis.candidates[0].evidence" :key="evidence.id">{{ evidence.statement }}<small class="evidence-ref">[{{ evidence.id }}]</small></li></ul></div><div><h4>不确定性</h4><ul><li v-for="item in diagnosis.candidates[0].differences" :key="item">{{ item }}</li></ul></div></div>
+        <h4>建议继续确认（未执行）</h4><ul><li v-for="item in diagnosis.candidates[0].follow_ups" :key="item.check">{{ item.check }}</li></ul>
+      </article>
+      <p v-for="question in result.run.agent.questions" :key="question" class="amber">仍需补充：{{ question }}</p>
+
+      <div class="answer-block"><button @click="reveal = !reveal">{{ reveal ? '收起独立评分' : '展开独立评分并核对答案' }}</button><div v-if="reveal" class="answer-detail"><p>标准答案：<strong>{{ result.score.answer.service }}</strong> / <strong>{{ faultName(result.score.answer.fault) }}</strong></p><p>故障服务 Top-1：<b :class="result.score.service_top1 ? 'ok' : 'bad'">{{ result.score.service_top1 ? '正确' : '错误' }}</b>；服务与类型联合：<b :class="result.score.joint_correct ? 'ok' : 'bad'">{{ result.score.joint_correct ? '正确' : '错误' }}</b></p><small class="muted">评分器在 Agent 完全停止后运行；答案文件未注册为工具，也没有拼入提示词。</small></div></div>
     </section>
 
-    <section class="panel">
-      <div class="heading"><h2>03 / 自主 Agent 真实模型回放</h2><small class="mono">REAL MODEL / 非新盲测</small></div>
-      <template v-if="agentReport">
-        <p>以下从已保存的真实云端模型报告中取窗口 13–18，不重新运行、不使用旧规则成绩。模型：{{ agentReport.cases[0]?.model }}。保留这 6 例中的正确、错误与执行失败；重新运行单例可能产生不同路径和结论。</p>
-        <div class="stats"><article><strong>{{ agentReport.metrics.completed }} / {{ agentReport.metrics.attempted }}</strong><span>已知案例执行完成（不等于答对）</span></article><article><strong>{{ agentReport.metrics.service_top1 }} / {{ agentReport.metrics.attempted }}</strong><span>已知案例：服务定位正确</span></article><article><strong>{{ agentReport.metrics.joint_correct }} / {{ agentReport.metrics.attempted }}</strong><span>已知案例：服务与类型均正确</span></article><article><strong>{{ agentReport.metrics.execution_failed }}</strong><span>本轮范围内执行失败</span></article></div>
-        <p class="muted">仅这 {{ agentReport.metrics.attempted }} 例共 {{ agentReport.metrics.model_calls }} 次模型请求。范围缩减发生在历史回放之后，不是新盲测，也不代表整体准确率提升或具备未知故障识别能力。</p>
-        <details><summary>逐例查看真实执行情况</summary><div class="table-scroll"><table><thead><tr><th>案例</th><th>是否完成</th><th>核对结果</th><th>模型轮数</th><th></th></tr></thead><tbody><tr v-for="row in agentReport.cases" :key="row.id"><td>{{ row.title }}</td><td>{{ row.valid ? '完成' : row.stop_reason }}</td><td>{{ !row.valid ? '执行失败' : row.score.answer.supported ? (row.score.joint_correct ? '服务/类型正确' : '未正确定位') : row.score.false_acceptance ? '误接纳' : '明确拒答' }}</td><td>{{ row.model_calls }}</td><td><button :disabled="busy" @click="viewRecorded(row.id)">查看记录轨迹</button> <button :disabled="busy" @click="openCase(row.id)">选择此例重新运行</button></td></tr></tbody></table></div></details>
-      </template>
-      <p v-else class="muted">{{ agentReportError || '正在读取自主 Agent 报告…' }}</p>
+    <section class="panel method-panel">
+      <div class="heading"><div><small class="section-no">05 / EVALUATION CONTRACT</small><h2>这次评测究竟证明什么</h2></div><span class="mono">RCAEval / RE2-OB / MIT</span></div>
+      <div class="contract-grid">
+        <article><b>参考集 · repetition 1</b><p>6 个历史案例，为 history 工具提供过去的故障模式。</p></article>
+        <article><b>开发集 · repetition 2</b><p>6 个同配方不同运行，用于调试提示词、预算和输出合同。</p></article>
+        <article><b>评测集 · repetition 3</b><p>冻结实现后顺序运行 6 例，失败不剔除，由独立评分器统计。</p></article>
+      </div>
+      <p>它验证的是：系统能够在已知故障范围内，自主选择排查步骤，读取每轮新证据，利用历史案例作为先验，并输出可追踪的辅助排查结论。它不证明未知故障发现、自动修复成功率或生产环境因果确认。</p>
+      <a href="https://huggingface.co/datasets/phamquiluan/RCAEval" target="_blank" rel="noopener noreferrer">公开数据集来源 ↗</a>
     </section>
-    <section class="panel">
-      <div class="heading"><h2>04 / 原规则版冻结评测（不是自主 Agent 成绩）</h2><small class="mono">RULE BASELINE / 零模型调用</small></div>
-      <p class="muted">同样只展示窗口 13–18。标准答案此前已被查看，不能称为新的盲测，也不能借用下表 6/6 作为模型成绩。</p>
-      <template v-if="report"><p class="muted">三种规则使用相同的 6 个已知故障窗口，保留该范围内的错误，不选择最好一次。这里的耗时来自本地离线执行，不代表 ECS 性能。</p><div class="table-scroll"><table><thead><tr><th>策略</th><th>服务 Top-1</th><th>服务+类型正确</th><th>范围内拒答</th><th>执行失败</th></tr></thead><tbody><tr v-for="strategy in strategies" :key="strategy"><td>{{ modeName(strategy) }}</td><td>{{ report.metrics[strategy].top1 }} / {{ report.metrics[strategy].supported }}</td><td>{{ report.metrics[strategy].joint }} / {{ report.metrics[strategy].supported }}</td><td>{{ report.metrics[strategy].in_scope_rejected }}</td><td>{{ report.metrics[strategy].execution_failed }}</td></tr></tbody></table></div><details><summary>逐例结果与失败案例</summary><div class="table-scroll"><table><thead><tr><th>窗口</th><th>官方标签</th><th>案例增强输出</th><th>结果</th><th></th></tr></thead><tbody><tr v-for="row in caseReportRows" :key="row.id"><td class="mono">{{ row.id }}</td><td>{{ row.score.answer.service }} / {{ faultName(row.score.answer.fault) }}</td><td>{{ row.candidates.length ? row.candidates[0].service + ' / ' + faultName(row.candidates[0].fault) : '证据不足' }}</td><td>{{ reportOutcome(row) }}</td><td><button :disabled="busy" @click="openCase(row.id)">重放</button></td></tr></tbody></table></div></details><p v-for="line in report.limitations" :key="line" class="muted">{{ line }}</p><small class="mono wrap">{{ report.matcher_version }} · {{ report.dataset_sha256 }}</small></template>
-      <p v-else class="muted">{{ reportError || '正在读取报告…' }}</p>
-    </section>
-    <footer class="muted">数据来自 RCAEval / RE2-OB（MIT），已知模式范围内的辅助排查实验，不等同于生产根因确认或自动修复。<a href="https://huggingface.co/datasets/phamquiluan/RCAEval" target="_blank" rel="noopener noreferrer">查看来源</a></footer>
-  </div>
+  </main>
 </template>
 
 <script>
-import { computed, nextTick, onMounted, onBeforeUnmount, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import api from '../utils/api'
-import { isActiveCase, projectAgentReport, projectRuleReport } from '../utils/rcaDemoScope.mjs'
+import { evaluationCases, summarizeAgentReport } from '../utils/rcaEvaluation.mjs'
 
 export default {
   name: 'RCAExperiment',
   setup() {
-    const catalog = ref(null), report = ref(null), reportError = ref(''), error = ref('')
-    const agentReport = ref(null), agentReportError = ref('')
-    const split = ref('holdout'), selected = ref(''), evidenceService = ref('checkoutservice')
-    const observation = ref(null), result = ref(null), reveal = ref(false), busy = ref(false), elapsed = ref(0)
-    const loadingRecord = ref(false)
-    let runTimer = null
+    const catalog = ref(null), agentReport = ref(null), agentReportError = ref(''), error = ref('')
+    const selected = ref(''), observation = ref(null), evidenceService = ref(''), result = ref(null)
+    const reveal = ref(false), busy = ref(false), loadingRecord = ref(false), elapsed = ref(0)
+    const endpoint = '/experiments/rca'
     const controller = new AbortController()
     const options = { timeout: 190000, signal: controller.signal }
-    // Axios adds /api; the existing gateway adds /v1 before forwarding to Gin.
-    const endpoint = '/experiments/rca'
-    const strategies = ['legacy', 'feature_only', 'case_based']
-    const visibleCases = computed(() => (catalog.value?.cases || []).filter(c => c.split === split.value && isActiveCase(c)))
-    const service = computed(() => observation.value?.services.find(s => s.name === evidenceService.value))
-    const metricRows = computed(() => ['cpu', 'mem', 'latency-90', 'workload', 'socket'].map(k => service.value?.metrics[k]).filter(Boolean))
-    const diagnosis = computed(() => result.value?.run.diagnosis)
-    const caseReportRows = computed(() => (report.value?.cases || []).filter(row => row.strategy === 'case_based'))
+    let timer = null
+
+    const cases = computed(() => evaluationCases(catalog.value?.cases))
+    const service = computed(() => observation.value?.services.find(item => item.name === evidenceService.value))
+    const metricRows = computed(() => ['cpu', 'mem', 'latency-90', 'workload', 'socket'].map(key => service.value?.metrics[key]).filter(Boolean))
+    const diagnosis = computed(() => result.value?.run?.diagnosis || { candidates: [], summary: '' })
+    const reportMetrics = computed(() => agentReport.value?.metrics || {})
+    const averageElapsed = computed(() => reportMetrics.value.attempted ? (reportMetrics.value.elapsed_ms_total / reportMetrics.value.attempted / 1000).toFixed(2) : '0.00')
+
     const time = stamp => new Date(stamp * 1000).toLocaleString('zh-CN', { timeZone: 'UTC', hour12: false }) + ' UTC'
-    const count = n => Number(n || 0).toLocaleString('zh-CN')
-    const value = n => Number.isFinite(n) ? Number(n.toPrecision(5)).toLocaleString('zh-CN') : '缺失'
-    const faultName = key => ({ cpu: 'CPU 压力', mem: '内存压力', delay: '网络延迟', disk: '磁盘 I/O 压力', loss: '网络丢包', socket: 'Socket 故障' }[key] || key)
-    const modeName = key => ({ legacy: 'A · 原文本规则', feature_only: 'B · 观测特征规则', case_based: 'C · 历史案例增强规则', autonomous: 'D · 自主排查 Agent' }[key] || key)
-    const hypothesisName = key => ({ investigating: '待查假设', supported: '证据支持（待验证）', weakened: '被新证据削弱' }[key] || key)
-    const toolName = key => ({ rca_inspect_overview: '查看服务总览', rca_inspect_metrics: '检查详细指标', rca_inspect_logs: '查询日志', rca_inspect_traces: '查询调用链', rca_inspect_history: '检索历史案例' }[key] || key)
+    const count = value => Number(value || 0).toLocaleString('zh-CN')
+    const number = value => Number.isFinite(value) ? Number(value.toPrecision(5)).toLocaleString('zh-CN') : '缺失'
+    const faultName = key => ({ cpu: 'CPU 压力', mem: '内存压力', delay: '网络延迟' }[key] || key)
+    const toolName = key => ({ rca_inspect_overview: '查看全局概览', rca_inspect_metrics: '检查详细指标', rca_inspect_logs: '查询日志摘要', rca_inspect_traces: '查询调用链摘要', rca_inspect_history: '检索历史案例' }[key] || key)
+    const spark = values => {
+      if (!values?.length) return ''
+      const low = Math.min(...values), high = Math.max(...values), scale = high - low || 1
+      return values.map((item, index) => `${index * 146 / Math.max(1, values.length - 1) + 2},${26 - (item - low) / scale * 24}`).join(' ')
+    }
+    const preferredService = data => data?.services.find(item => catalog.value?.supported_services?.includes(item.name))?.name || data?.services[0]?.name || ''
+    const loadObservation = async () => {
+      if (!selected.value) return
+      const id = selected.value
+      result.value = null; reveal.value = false; observation.value = null; error.value = ''
+      try {
+        const response = await api.get(`${endpoint}/observations/${encodeURIComponent(id)}`, options)
+        if (selected.value === id) { observation.value = response.data; evidenceService.value = preferredService(response.data) }
+      } catch (requestError) {
+        if (!controller.signal.aborted) error.value = requestError.response?.data?.message || '观测读取失败'
+      }
+    }
+    const scrollToResult = async () => { await nextTick(); document.querySelector('.result-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }
+    const openCase = async id => { selected.value = id; await loadObservation() }
+    const viewRecorded = async id => {
+      if (busy.value) return
+      busy.value = true; loadingRecord.value = true; error.value = ''
+      try {
+        await openCase(id)
+        const response = await api.get(`${endpoint}/agent-report/${encodeURIComponent(id)}`, options)
+        result.value = response.data
+        evidenceService.value = diagnosis.value.candidates[0]?.service || preferredService(observation.value)
+        await scrollToResult()
+      } catch (requestError) {
+        if (!controller.signal.aborted) error.value = requestError.response?.data?.message || '已保存轨迹读取失败'
+      } finally { busy.value = false; loadingRecord.value = false }
+    }
+    const run = async () => {
+      if (busy.value || !selected.value) return
+      busy.value = true; error.value = ''; result.value = null; reveal.value = false; elapsed.value = 0
+      timer = window.setInterval(() => { elapsed.value++ }, 1000)
+      try {
+        const response = await api.post(`${endpoint}/diagnose`, { case_id: selected.value, strategy: 'autonomous' }, options)
+        result.value = response.data
+        evidenceService.value = diagnosis.value.candidates[0]?.service || preferredService(observation.value)
+        await scrollToResult()
+      } catch (requestError) {
+        if (!controller.signal.aborted) error.value = requestError.response?.data?.message || requestError.message || '自主排查失败'
+      } finally { busy.value = false; window.clearInterval(timer) }
+    }
     const downloadRun = () => {
       if (!result.value) return
       const url = URL.createObjectURL(new Blob([JSON.stringify(result.value, null, 2)], { type: 'application/json' }))
       const link = document.createElement('a'); link.href = url; link.download = `rca-${result.value.run.trace_id}.json`; link.click(); URL.revokeObjectURL(url)
     }
-    const reportOutcome = row => row.score.answer.supported ? (row.score.joint_correct ? '服务/类型正确' : '未正确定位') : (row.score.false_acceptance ? '范围外误接纳' : row.error ? '执行失败' : '正确拒答')
-    const spark = values => {
-      if (!values?.length) return ''
-      const lo = Math.min(...values), hi = Math.max(...values), scale = hi - lo || 1
-      return values.map((v, i) => `${i * 146 / Math.max(1, values.length - 1) + 2},${26 - (v - lo) / scale * 24}`).join(' ')
-    }
-    const loadObservation = async () => {
-      const id = selected.value
-      if (!id) return
-      result.value = null; reveal.value = false; observation.value = null; error.value = ''
-      try { const response = await api.get(`${endpoint}/observations/${id}`, options); if (selected.value === id) observation.value = response.data } catch (e) { if (!controller.signal.aborted) error.value = e.response?.data?.message || '当前观测读取失败，请重试' }
-    }
-    const changeSplit = async () => { selected.value = visibleCases.value[0]?.id || ''; await loadObservation() }
-    const openCase = async id => { split.value = 'holdout'; selected.value = id; await loadObservation(); window.requestAnimationFrame(() => document.querySelector('.rca-page')?.scrollTo({ top: 0, behavior: 'smooth' })) }
-    const viewRecorded = async id => {
-      if (busy.value) return
-      busy.value = true; loadingRecord.value = true
-      try {
-        await openCase(id)
-        if (!observation.value) return
-        const response = await api.get(`${endpoint}/agent-report/${encodeURIComponent(id)}`, options)
-        if (!response.data.recorded || !response.data.run) throw new Error('记录响应无效')
-        result.value = response.data
-        if (result.value.run.diagnosis.candidates.length) evidenceService.value = result.value.run.diagnosis.candidates[0].service
-        await nextTick()
-        document.querySelector('.result-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      } catch (e) { if (!controller.signal.aborted) error.value = e.response?.data?.message || '记录读取失败' } finally { busy.value = false; loadingRecord.value = false }
-    }
-    const run = async strategy => {
-      if (busy.value || !selected.value) return
-      busy.value = true; error.value = ''; result.value = null; reveal.value = false
-      elapsed.value = 0; runTimer = window.setInterval(() => { elapsed.value++ }, 1000)
-      try {
-        const response = await api.post(`${endpoint}/diagnose`, { case_id: selected.value, strategy }, options)
-        if (!response.data.run) throw new Error('登录状态或诊断响应无效')
-        result.value = response.data
-        if (result.value.run.diagnosis.candidates.length) evidenceService.value = result.value.run.diagnosis.candidates[0].service
-        await nextTick()
-        document.querySelector('.result-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      } catch (e) { if (!controller.signal.aborted) error.value = e.response?.data?.message || e.message || '诊断失败' } finally { busy.value = false; window.clearInterval(runTimer) }
-    }
+
     onMounted(async () => {
-      api.get(`${endpoint}/agent-report`, options).then(r => { if (!r.data.metrics || !r.data.cases) throw new Error('报告无效'); agentReport.value = projectAgentReport(r.data) }).catch(e => { agentReportError.value = e.response?.data?.message || '自主 Agent 报告暂不可用，可直接运行单例' })
-      api.get(`${endpoint}/report`, options).then(r => { if (!r.data.metrics || !r.data.cases) throw new Error('登录状态或报告响应无效'); report.value = projectRuleReport(r.data) }).catch(e => { reportError.value = e.response?.data?.message || '离线报告暂不可用' })
-      try { const response = await api.get(endpoint, options); if (!response.data.cases) throw new Error('请重新登录后进入实验页'); catalog.value = response.data; await changeSplit() } catch (e) { if (!controller.signal.aborted) error.value = e.response?.data?.message || e.message }
+      api.get(`${endpoint}/agent-report`, options).then(response => { agentReport.value = summarizeAgentReport(response.data) }).catch(requestError => { agentReportError.value = requestError.response?.data?.message || '固定评测报告暂不可用' })
+      try {
+        const response = await api.get(endpoint, options)
+        catalog.value = response.data
+        selected.value = cases.value[0]?.id || ''
+        await loadObservation()
+      } catch (requestError) {
+        if (!controller.signal.aborted) error.value = requestError.response?.data?.message || '实验目录读取失败，请重新登录'
+      }
     })
-    onBeforeUnmount(() => { controller.abort(); window.clearInterval(runTimer) })
-    return { catalog, report, reportError, agentReport, agentReportError, error, split, selected, evidenceService, observation, result, reveal, busy, elapsed, loadingRecord, visibleCases, service, metricRows, diagnosis, caseReportRows, strategies, time, count, value, faultName, modeName, hypothesisName, toolName, downloadRun, reportOutcome, spark, loadObservation, changeSplit, openCase, viewRecorded, run }
+    onBeforeUnmount(() => { controller.abort(); window.clearInterval(timer) })
+
+    return { catalog, agentReport, agentReportError, error, selected, observation, evidenceService, result, reveal, busy, loadingRecord, elapsed, cases, service, metricRows, diagnosis, reportMetrics, averageElapsed, time, count, value: number, faultName, toolName, spark, loadObservation, viewRecorded, run, downloadRun }
   }
 }
 </script>
 
 <style scoped>
-.rca-page{height:100%;overflow-y:auto;padding:24px clamp(14px,3vw,38px) 40px;background:var(--g-bg);color:var(--g-text-primary);font-size:14px;line-height:1.7}
-.panel{background:var(--g-panel);border:1px solid var(--g-border);border-radius:2px;padding:22px;margin-bottom:18px;min-width:0}
-.hero{display:flex;justify-content:space-between;gap:28px;border-top:2px solid var(--g-primary)}
-.hero h1{font-size:28px;margin:8px 0}.hero p{max-width:860px;color:var(--g-text-secondary)}
-.eyebrow,.mono{font-family:var(--g-font-mono);font-size:12px}.eyebrow,.accent{color:var(--g-primary)}
-.boundary{display:grid;align-content:center;gap:7px;min-width:240px;padding-left:24px;border-left:1px solid var(--g-border);font-size:12px;color:var(--g-text-secondary)}.boundary strong{color:var(--g-success);font-size:17px}
-.control-row{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px}label{display:grid;gap:6px;color:var(--g-text-secondary);font-size:12px}.case-select{flex:1;min-width:250px}
-select,button{background:#101b25;color:var(--g-text-primary);border:1px solid var(--g-border-strong);border-radius:2px;min-height:38px;padding:7px 12px;font:inherit;max-width:100%}button{cursor:pointer}button:hover,select:focus{border-color:var(--g-primary)}button:disabled,select:disabled{opacity:.45;cursor:not-allowed}button.primary{color:#061216;background:var(--g-primary);font-weight:700}button:focus-visible,summary:focus-visible{outline:2px solid var(--g-primary);outline-offset:3px}
-.heading{display:flex;justify-content:space-between;align-items:center;gap:15px;flex-wrap:wrap;margin-bottom:12px}h2{font-size:19px;margin:0}h3{font-size:16px;margin:4px 0}h4{margin:12px 0 8px;font-size:14px}.muted{color:var(--g-text-secondary);font-size:12px}.wrap{overflow-wrap:anywhere}.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:18px 0}.stats article{display:grid;gap:4px;padding:12px;border:1px solid var(--g-border);background:#101b25}.stats strong{font:22px var(--g-font-mono);color:var(--g-primary)}.stats span{font-size:12px;color:var(--g-text-secondary)}
-.table-scroll{overflow-x:auto}table{width:100%;border-collapse:collapse;text-align:left;font-size:12px}th{background:#101b25;color:var(--g-text-secondary);font-weight:500}td,th{padding:10px 12px;border-bottom:1px solid var(--g-border);white-space:nowrap}td{font-family:var(--g-font-mono)}svg{width:150px;height:28px;display:block}polyline{fill:none;stroke:var(--g-primary);stroke-width:1.8}
-details{margin-top:16px;border-top:1px solid var(--g-border);padding-top:12px}summary{cursor:pointer;color:var(--g-primary);font-size:13px}.two-columns{display:grid;grid-template-columns:1fr 1fr;gap:24px}.two-columns>div{min-width:0}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#0b141c;padding:10px;border:1px solid var(--g-border);font:12px var(--g-font-mono)}code{font-family:var(--g-font-mono);overflow-wrap:anywhere}ul{padding-left:19px;margin:0}li{margin-bottom:9px;font-size:13px;color:var(--g-text-secondary)}.evidence-ref{display:block;font-family:var(--g-font-mono);overflow-wrap:anywhere;color:var(--g-text-muted);font-size:10px}
-.result-panel{border-left:2px solid var(--g-primary)}.result-summary{font-size:17px}.badge{padding:3px 10px;border:1px solid var(--g-border);font-size:12px;background:#112b30}.matched{color:var(--g-success)}.limited,.amber{color:#e4b55d}.candidate{margin-top:16px;padding:18px;background:#101b25;border:1px solid var(--g-border)}.followups{display:grid;grid-template-columns:1fr 1fr;gap:12px}.followups article{padding:12px;border:1px solid var(--g-border);background:#0d1720}.followups p{font-size:12px;color:var(--g-text-secondary);margin:6px 0}.warning{padding:14px;border:1px solid #715528;color:#e4b55d;background:#282216;margin-bottom:16px}.answer-block{margin-top:18px}.answer-detail{background:#14252b;border:1px solid var(--g-border-strong);padding:14px;margin-top:12px}footer a{color:var(--g-primary)}
-@media(max-width:950px){.hero{flex-direction:column}.boundary{border-left:0;padding:12px 0 0;border-top:1px solid var(--g-border)}.two-columns,.followups{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.panel{padding:16px}.hero h1{font-size:23px}}
+.rca-page{height:100%;overflow-y:auto;padding:24px clamp(14px,3vw,38px) 44px;background:var(--g-bg);color:var(--g-text-primary);font-size:14px;line-height:1.65}.panel{background:var(--g-panel);border:1px solid var(--g-border);border-radius:2px;padding:22px;margin-bottom:18px}.hero{display:flex;justify-content:space-between;gap:30px;border-top:2px solid var(--g-primary)}.hero h1{font-size:29px;margin:7px 0}.hero p{max-width:900px;color:var(--g-text-secondary)}.eyebrow,.section-no,.mono{font-family:var(--g-font-mono);font-size:12px}.eyebrow,.section-no,.accent,a{color:var(--g-primary)}.boundary{display:grid;align-content:center;gap:6px;min-width:260px;padding-left:24px;border-left:1px solid var(--g-border);font:12px var(--g-font-mono);color:var(--g-text-secondary)}.boundary strong{color:var(--g-success);font-size:15px}.heading{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px}.heading h2{font-size:20px;margin:3px 0}.heading h3{font-size:15px;margin:0}.status-chip{padding:4px 9px;border:1px solid var(--g-border-strong);background:#0e1b24;font:11px var(--g-font-mono);color:var(--g-text-secondary)}.ok-chip{color:var(--g-success);border-color:#1f5d50}.bad-chip{color:#ef8b7b;border-color:#6a3933}.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:16px 0}.stats.five{grid-template-columns:repeat(5,minmax(0,1fr))}.stats article{display:grid;gap:4px;padding:13px;border:1px solid var(--g-border);background:#101b25}.stats strong{font:21px var(--g-font-mono);color:var(--g-primary)}.stats span{font-size:12px;color:var(--g-text-secondary)}.run-budget{display:flex;flex-wrap:wrap;gap:8px 22px;padding:11px 13px;margin:12px 0;border-left:2px solid var(--g-primary);background:#0d1821;color:var(--g-text-secondary);font:12px var(--g-font-mono)}.run-budget b{color:var(--g-text-primary)}.table-scroll{overflow-x:auto}table{width:100%;border-collapse:collapse;text-align:left;font-size:12px}th{background:#101b25;color:var(--g-text-secondary);font-weight:500}td,th{padding:10px 12px;border-bottom:1px solid var(--g-border);white-space:nowrap}td{font-family:var(--g-font-mono)}.ok{color:var(--g-success)}.bad{color:#ef8b7b}.muted{color:var(--g-text-secondary);font-size:12px}.control-row{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap}.case-select{flex:1;min-width:280px}label{display:grid;gap:6px;color:var(--g-text-secondary);font-size:12px}select,button{min-height:38px;max-width:100%;padding:7px 12px;border:1px solid var(--g-border-strong);border-radius:2px;background:#101b25;color:var(--g-text-primary);font:inherit}button{cursor:pointer}button:hover,select:focus{border-color:var(--g-primary)}button:disabled,select:disabled{opacity:.45;cursor:not-allowed}button.primary{background:var(--g-primary);color:#061216;font-weight:700}.flow{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:1px;padding:0;margin:18px 0;background:var(--g-border)}.flow li{display:grid;gap:5px;padding:12px;background:#0e1821;list-style:none}.flow b{font:12px var(--g-font-mono);color:var(--g-primary)}.flow span{font-size:11px;color:var(--g-text-secondary)}svg{width:150px;height:28px;display:block}polyline{fill:none;stroke:var(--g-primary);stroke-width:1.8}.two-columns{display:grid;grid-template-columns:1fr 1fr;gap:22px}.two-columns>div{min-width:0}details{margin-top:15px;border-top:1px solid var(--g-border);padding-top:11px}summary{cursor:pointer;color:var(--g-primary);font-size:13px}pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:360px;overflow-y:auto;padding:10px;border:1px solid var(--g-border);background:#09131b;font:11px var(--g-font-mono)}code{font-family:var(--g-font-mono);overflow-wrap:anywhere}.wrap{overflow-wrap:anywhere}.result-panel{border-left:2px solid var(--g-primary)}.result-summary{font-size:17px}.notice,.warning{padding:13px;margin-bottom:15px;border:1px solid #715528;background:#282216;color:#e4b55d}.contract-line{display:flex;align-items:center;flex-wrap:wrap;gap:14px;margin:14px 0;color:var(--g-text-secondary);font:12px var(--g-font-mono)}.timeline{display:grid;gap:10px;margin-top:16px}.step-card{display:grid;grid-template-columns:48px 1fr;border:1px solid var(--g-border);background:#101b25}.step-index{display:grid;place-items:center;border-right:1px solid var(--g-border);color:var(--g-primary);font:15px var(--g-font-mono)}.step-body{min-width:0;padding:14px}.final-card{margin-top:17px;padding:17px;border:1px solid var(--g-border-strong);background:#0d1d25}.final-card h3{color:var(--g-primary)}h4{margin:12px 0 7px}ul{margin:0;padding-left:19px}li{margin-bottom:8px;color:var(--g-text-secondary)}.evidence-ref{display:block;color:var(--g-text-muted);font:10px var(--g-font-mono);overflow-wrap:anywhere}.amber{color:#e4b55d}.answer-block{margin-top:18px}.answer-detail{margin-top:10px;padding:14px;border:1px solid var(--g-border-strong);background:#14252b}.contract-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.contract-grid article{padding:14px;border:1px solid var(--g-border);background:#101b25}.contract-grid b{color:var(--g-primary)}.contract-grid p{margin-bottom:0;color:var(--g-text-secondary);font-size:12px}.method-panel a{text-decoration:none;font-family:var(--g-font-mono)}
+.audit-hashes{display:flex;flex-wrap:wrap;gap:8px 18px;margin:-4px 0 12px}
+@media(max-width:1100px){.stats.five{grid-template-columns:repeat(3,minmax(0,1fr))}.flow{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:760px){.hero{flex-direction:column}.boundary{min-width:0;padding:12px 0 0;border-left:0;border-top:1px solid var(--g-border)}.stats,.stats.five,.flow,.two-columns,.contract-grid{grid-template-columns:1fr}.panel{padding:16px}.hero h1{font-size:23px}.step-card{grid-template-columns:36px 1fr}}
 </style>

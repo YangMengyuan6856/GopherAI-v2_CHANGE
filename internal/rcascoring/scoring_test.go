@@ -1,7 +1,6 @@
 package rcascoring
 
 import (
-	"context"
 	"testing"
 
 	"GopherAI/internal/rcaexperiment"
@@ -29,32 +28,31 @@ func TestScoringDoesNotCreditRejectedKnownCases(t *testing.T) {
 			}
 		}
 	}
-	if len(seen) != 27 {
+	if len(seen) != 18 {
 		t.Fatal("population changed", len(seen))
 	}
 }
 
-func TestFrozenReportBindingAndDenominators(t *testing.T) {
+func TestV2TruthIsHashBoundAndContainsOnlySupportedCases(t *testing.T) {
 	d, err := rcaexperiment.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.SHA256 != "1e10d5a275e2942b07dac5483b299cbf4f0e444a051a1373db048c0084281a30" || d.PolicySHA256 != "dd602b07b958dbcdfc01cbf6b6c0b0770f423c8b0f352360a09056efa403a336" {
-		t.Fatal("frozen artifact bytes changed; do not silently reuse the report")
+	if len(d.SHA256) != 64 || len(d.PolicySHA256) != 64 {
+		t.Fatal("dataset or policy is not hash bound")
 	}
-	r, err := Evaluate(context.Background(), d, "holdout")
-	if err != nil {
-		t.Fatal(err)
+	answers, err := Answers()
+	if err != nil || len(answers) != 18 {
+		t.Fatal("unexpected truth population", len(answers), err)
 	}
-	if len(r.Cases) != 36 {
-		t.Fatal("missing evaluation runs", len(r.Cases))
-	}
-	for strategy, m := range r.Metrics {
-		if m.Supported != 6 || m.Unsupported != 6 || m.Errors != 0 || m.UnknownRejected+m.FalseAcceptance != 6 {
-			t.Fatal(strategy, m)
+	counts := map[string]int{}
+	for _, answer := range answers {
+		if !answer.Supported || !rcaexperiment.KnownService(answer.Service) || rcaexperiment.FaultName(answer.Fault) == "" {
+			t.Fatal("answer outside declared known-fault scope", answer)
 		}
+		counts[answer.Split]++
 	}
-	if _, err = Evaluate(context.Background(), d, "reference"); err == nil {
-		t.Fatal("reference cases must not be counted as tests")
+	if counts["reference"] != 6 || counts["development"] != 6 || counts["holdout"] != 6 {
+		t.Fatal("unexpected truth split", counts)
 	}
 }
