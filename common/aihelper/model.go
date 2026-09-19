@@ -35,9 +35,10 @@ func NewOpenAIModel(ctx context.Context) (*OpenAIModel, error) {
 	modelName, baseURL := resolveOpenAISettings(os.Getenv("OPENAI_MODEL_NAME"), os.Getenv("OPENAI_BASE_URL"), config.GetConfig().RagModelConfig)
 
 	llm, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{
-		BaseURL: baseURL,
-		Model:   modelName,
-		APIKey:  key,
+		BaseURL:     baseURL,
+		Model:       modelName,
+		APIKey:      key,
+		ExtraFields: config.GetConfig().RagModelConfig.DeterministicGenerationExtraFields(modelName),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create openai model failed: %v", err)
@@ -173,9 +174,10 @@ func NewAliRAGModel(ctx context.Context, username string) (*AliRAGModel, error) 
 	baseURL := conf.RagModelConfig.RagBaseUrl
 
 	llm, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{
-		BaseURL: baseURL,
-		Model:   modelName,
-		APIKey:  key,
+		BaseURL:     baseURL,
+		Model:       modelName,
+		APIKey:      key,
+		ExtraFields: conf.RagModelConfig.DeterministicGenerationExtraFields(modelName),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create ali rag model failed: %v", err)

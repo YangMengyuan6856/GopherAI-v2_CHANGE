@@ -104,6 +104,7 @@ func run(ctx context.Context, datasetPath string, fixturePath string, jsonPath s
 	chatModelName := configuration.EffectiveDeepChatModelName()
 	chatModel, err := modelOpenAI.NewChatModel(ctx, &modelOpenAI.ChatModelConfig{
 		BaseURL: configuration.RagBaseUrl, APIKey: apiKey, Model: chatModelName,
+		ExtraFields: configuration.DeterministicGenerationExtraFields(chatModelName),
 	})
 	if err != nil {
 		return fmt.Errorf("create parent-context eval chat model: %w", err)

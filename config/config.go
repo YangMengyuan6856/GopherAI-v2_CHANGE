@@ -83,6 +83,18 @@ func ResolveDeprecatedDashScopeModel(name, baseURL, fallback string) string {
 	return name
 }
 
+// DeterministicGenerationExtraFields disables the default thinking mode of
+// current DashScope Qwen3 models for classification, retrieval transforms and
+// grounded answer generation. These bounded tasks need predictable JSON and
+// latency; the separate reasoning and judge tiers intentionally keep their
+// default reasoning behavior.
+func (configuration RagModelConfig) DeterministicGenerationExtraFields(modelName string) map[string]any {
+	if !configuration.usesDashScope() || !strings.HasPrefix(strings.ToLower(strings.TrimSpace(modelName)), "qwen3.") {
+		return nil
+	}
+	return map[string]any{"enable_thinking": false}
+}
+
 func (configuration RagModelConfig) usesDashScope() bool {
 	return strings.Contains(strings.ToLower(configuration.RagBaseUrl), "dashscope")
 }

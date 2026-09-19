@@ -239,7 +239,7 @@ dimension = 1024
 docDir = "data/documents"
 ```
 
-模型采用分层策略：`chatModelName` 服务高频知识问答和意图兜底；`deepChatModelName` 服务深度 RAG 与父块上下文回答；`reasoningModelName` 服务动态多 Agent 与 RCA 自主排查；`judgeModelName` 用作独立评测模型。可选字段缺省时会安全回退，兼容旧配置。运行环境可通过 `OPENAI_MODEL_NAME`、`GOPHERAI_COLLABORATION_MODEL`、`GOPHERAI_RCA_MODEL` 和 `GOPHERAI_JUDGE_MODEL` 分别覆盖关键链路，而无需把模型选择权暴露给浏览器端。
+模型采用分层策略：`chatModelName` 服务高频知识问答和意图兜底；`deepChatModelName` 服务深度 RAG 与父块上下文回答；`reasoningModelName` 服务动态多 Agent 与 RCA 自主排查；`judgeModelName` 用作独立评测模型。意图分类、查询改写、证据重排和带引用回答属于确定性任务，对 DashScope Qwen3 显式关闭思考以控制延迟与 JSON 稳定性；多 Agent、RCA 和 Judge 的低频复杂推理仍保留模型推理能力。可选字段缺省时会安全回退，兼容旧配置。运行环境可通过 `OPENAI_MODEL_NAME`、`GOPHERAI_COLLABORATION_MODEL`、`GOPHERAI_RCA_MODEL` 和 `GOPHERAI_JUDGE_MODEL` 分别覆盖关键链路，而无需把模型选择权暴露给浏览器端。
 
 模型密钥通过环境变量提供：
 

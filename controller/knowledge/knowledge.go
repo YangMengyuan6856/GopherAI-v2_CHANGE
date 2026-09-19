@@ -514,11 +514,14 @@ func newDefaultDeepAnswerApplication() (AnswerApplication, error) {
 	if err != nil {
 		return nil, err
 	}
-	rewriter, err := ragapp.NewConditionalQueryRewriter(chatModel, 4*time.Second)
+	// Qwen3.8 Flash remains the higher-quality deep tier, while thinking is
+	// disabled for deterministic retrieval transforms. Six seconds covers the
+	// observed non-thinking response time and remains within the 45-second route.
+	rewriter, err := ragapp.NewConditionalQueryRewriter(chatModel, 6*time.Second)
 	if err != nil {
 		return nil, err
 	}
-	reranker, err := ragapp.NewConditionalReranker(chatModel, 4*time.Second)
+	reranker, err := ragapp.NewConditionalReranker(chatModel, 6*time.Second)
 	if err != nil {
 		return nil, err
 	}
@@ -558,6 +561,7 @@ func newDefaultKnowledgeChatModelFor(modelName string) (knowledgeagent.ChatModel
 	}
 	chatModel, err := modelOpenAI.NewChatModel(context.Background(), &modelOpenAI.ChatModelConfig{
 		BaseURL: configuration.RagBaseUrl, APIKey: apiKey, Model: strings.TrimSpace(modelName),
+		ExtraFields: configuration.DeterministicGenerationExtraFields(modelName),
 	})
 	if err != nil {
 		return nil, err

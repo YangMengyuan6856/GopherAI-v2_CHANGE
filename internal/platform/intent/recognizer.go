@@ -112,6 +112,7 @@ func newDefaultCascade() (runtimeCascade, error) {
 	}
 	chatModel, err := modelOpenAI.NewChatModel(context.Background(), &modelOpenAI.ChatModelConfig{
 		BaseURL: configuration.RagBaseUrl, APIKey: apiKey, Model: configuration.EffectiveChatModelName(),
+		ExtraFields: configuration.DeterministicGenerationExtraFields(configuration.EffectiveChatModelName()),
 		ResponseFormat: &modelOpenAI.ChatCompletionResponseFormat{
 			Type: modelOpenAI.ChatCompletionResponseFormatTypeJSONObject,
 		},

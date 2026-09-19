@@ -64,6 +64,21 @@ func TestResolveDeprecatedDashScopeModel(t *testing.T) {
 	}
 }
 
+func TestDeterministicGenerationExtraFields(t *testing.T) {
+	dashScope := RagModelConfig{RagBaseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1"}
+	fields := dashScope.DeterministicGenerationExtraFields("qwen3.8-flash")
+	if enabled, exists := fields["enable_thinking"]; !exists || enabled != false {
+		t.Fatalf("Qwen3 deterministic policy = %#v, want enable_thinking=false", fields)
+	}
+	if fields := dashScope.DeterministicGenerationExtraFields("qwen-plus"); fields != nil {
+		t.Fatalf("legacy model must not receive unsupported thinking extension: %#v", fields)
+	}
+	otherProvider := RagModelConfig{RagBaseUrl: "https://example.com/v1"}
+	if fields := otherProvider.DeterministicGenerationExtraFields("qwen3.8-flash"); fields != nil {
+		t.Fatalf("non-DashScope provider must remain untouched: %#v", fields)
+	}
+}
+
 func TestEffectiveReasoningModelName(t *testing.T) {
 	tests := []struct {
 		name          string
