@@ -2,6 +2,7 @@ package config
 
 import (
 	"log"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -50,11 +51,86 @@ type Rabbitmq struct {
 }
 
 type RagModelConfig struct {
-	RagEmbeddingModel string `toml:"embeddingModel"`
-	RagChatModelName  string `toml:"chatModelName"`
-	RagDocDir         string `toml:"docDir"`
-	RagBaseUrl        string `toml:"baseUrl"`
-	RagDimension      int    `toml:"dimension"`
+	RagEmbeddingModel     string `toml:"embeddingModel"`
+	RagChatModelName      string `toml:"chatModelName"`
+	RagDeepChatModelName  string `toml:"deepChatModelName"`
+	RagReasoningModelName string `toml:"reasoningModelName"`
+	RagJudgeModelName     string `toml:"judgeModelName"`
+	RagDocDir             string `toml:"docDir"`
+	RagBaseUrl            string `toml:"baseUrl"`
+	RagDimension          int    `toml:"dimension"`
+}
+
+const (
+	deprecatedDashScopeChatModel = "qwen-turbo"
+	defaultFastChatModel         = "qwen3.7-flash-2026-07-15"
+	defaultDeepChatModel         = "qwen3.8-flash"
+	defaultReasoningModel        = "qwen3.7-plus-2026-05-26"
+)
+
+// ResolveDeprecatedDashScopeModel preserves an explicit current model choice,
+// but prevents a stale runtime override from bypassing the qwen-turbo
+// retirement policy. An empty name resolves to the caller's tier fallback.
+func ResolveDeprecatedDashScopeModel(name, baseURL, fallback string) string {
+	name = strings.TrimSpace(name)
+	fallback = strings.TrimSpace(fallback)
+	if name == "" {
+		return fallback
+	}
+	if strings.Contains(strings.ToLower(baseURL), "dashscope") && name == deprecatedDashScopeChatModel {
+		return fallback
+	}
+	return name
+}
+
+func (configuration RagModelConfig) usesDashScope() bool {
+	return strings.Contains(strings.ToLower(configuration.RagBaseUrl), "dashscope")
+}
+
+// EffectiveChatModelName transparently keeps an older, server-preserved
+// configuration away from qwen-turbo after its announced retirement. Explicit
+// non-deprecated model choices are never rewritten.
+func (configuration RagModelConfig) EffectiveChatModelName() string {
+	name := strings.TrimSpace(configuration.RagChatModelName)
+	if configuration.usesDashScope() && name == deprecatedDashScopeChatModel {
+		return defaultFastChatModel
+	}
+	return name
+}
+
+// EffectiveDeepChatModelName allows the user-facing enhanced RAG paths to use
+// a higher-quality model without making every intent or fast-RAG request pay
+// that price.
+func (configuration RagModelConfig) EffectiveDeepChatModelName() string {
+	if name := strings.TrimSpace(configuration.RagDeepChatModelName); name != "" {
+		return name
+	}
+	if configuration.usesDashScope() && strings.TrimSpace(configuration.RagChatModelName) == deprecatedDashScopeChatModel {
+		return defaultDeepChatModel
+	}
+	return configuration.EffectiveChatModelName()
+}
+
+// EffectiveReasoningModelName keeps older deployments compatible while
+// allowing costly reasoning to use a stronger model than high-volume RAG.
+func (configuration RagModelConfig) EffectiveReasoningModelName() string {
+	if name := strings.TrimSpace(configuration.RagReasoningModelName); name != "" {
+		return name
+	}
+	if configuration.usesDashScope() && strings.TrimSpace(configuration.RagChatModelName) == deprecatedDashScopeChatModel {
+		return defaultReasoningModel
+	}
+	return configuration.EffectiveChatModelName()
+}
+
+// EffectiveJudgeModelName deliberately supports an independent judge tier.
+// If it is not configured, prefer the reasoning model and finally the chat
+// model so existing configuration files remain valid.
+func (configuration RagModelConfig) EffectiveJudgeModelName() string {
+	if name := strings.TrimSpace(configuration.RagJudgeModelName); name != "" {
+		return name
+	}
+	return configuration.EffectiveReasoningModelName()
 }
 
 type VoiceServiceConfig struct {

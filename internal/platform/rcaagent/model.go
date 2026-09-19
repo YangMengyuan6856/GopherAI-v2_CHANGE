@@ -18,15 +18,14 @@ func NewDefaultAgent(ctx context.Context) (*rcaagent.Agent, error) {
 		return nil, errors.New("RCA model is not configured")
 	}
 	cfg := config.GetConfig()
-	modelName := strings.TrimSpace(os.Getenv("GOPHERAI_RCA_MODEL"))
-	if modelName == "" {
-		modelName = cfg.RagChatModelName
-		// This isolated multi-step task needs stronger instruction following
-		// than the legacy lightweight chat default. Other routes are unchanged.
-		if modelName == "qwen-turbo" && strings.Contains(cfg.RagBaseUrl, "dashscope") {
-			modelName = "qwen-plus"
-		}
-	}
+	// The autonomous investigation path intentionally uses the stronger,
+	// low-frequency reasoning tier. A current environment override remains the
+	// emergency/runtime control point; a stale qwen-turbo override is migrated.
+	modelName := config.ResolveDeprecatedDashScopeModel(
+		os.Getenv("GOPHERAI_RCA_MODEL"),
+		cfg.RagBaseUrl,
+		cfg.EffectiveReasoningModelName(),
+	)
 	temperature := float32(0)
 	maxTokens := 1800
 	m, err := modelOpenAI.NewChatModel(ctx, &modelOpenAI.ChatModelConfig{BaseURL: cfg.RagBaseUrl, APIKey: key, Model: modelName, Temperature: &temperature, MaxTokens: &maxTokens,

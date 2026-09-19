@@ -97,8 +97,9 @@ func run(ctx context.Context, datasetPath string, fixturePath string, jsonPath s
 	if err != nil {
 		return fmt.Errorf("create collaboration retriever: %w", err)
 	}
+	chatModelName := configuration.EffectiveChatModelName()
 	chatModel, err := modelOpenAI.NewChatModel(ctx, &modelOpenAI.ChatModelConfig{
-		BaseURL: configuration.RagBaseUrl, APIKey: apiKey, Model: configuration.RagChatModelName,
+		BaseURL: configuration.RagBaseUrl, APIKey: apiKey, Model: chatModelName,
 	})
 	if err != nil {
 		return fmt.Errorf("create collaboration chat model: %w", err)
@@ -134,7 +135,7 @@ func run(ctx context.Context, datasetPath string, fixturePath string, jsonPath s
 	report.Runtime = evaluation.CollaborationRuntime{
 		DatasetSHA256: fileSHA256(datasetPath), FixtureSHA256: fileSHA256(fixturePath),
 		PlannerVersion: orchestration.PlannerVersion, ExecutorVersion: orchestration.ExecutorVersion, SynthesizerVersion: orchestration.SynthesizerVersion,
-		EmbeddingModel: configuration.RagEmbeddingModel, ChatModel: configuration.RagChatModelName,
+		EmbeddingModel: configuration.RagEmbeddingModel, ChatModel: chatModelName,
 		Environment: evalEnvironment, ExternalModelMutable: true,
 	}
 	if err := writeReports(report, jsonPath, markdownPath); err != nil {

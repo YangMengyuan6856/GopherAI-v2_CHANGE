@@ -53,11 +53,16 @@ func run(datasetPath, reportPath string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
 	defer cancel()
-	chatModel, err := modelOpenAI.NewChatModel(ctx, &modelOpenAI.ChatModelConfig{BaseURL: configuration.RagBaseUrl, APIKey: apiKey, Model: configuration.RagChatModelName})
+	judgeModelName := config.ResolveDeprecatedDashScopeModel(
+		os.Getenv("GOPHERAI_JUDGE_MODEL"),
+		configuration.RagBaseUrl,
+		configuration.EffectiveJudgeModelName(),
+	)
+	chatModel, err := modelOpenAI.NewChatModel(ctx, &modelOpenAI.ChatModelConfig{BaseURL: configuration.RagBaseUrl, APIKey: apiKey, Model: judgeModelName})
 	if err != nil {
 		return err
 	}
-	judge, err := evaluation.NewLLMJudge(chatModel, configuration.RagChatModelName, evaluation.JudgeDefaultTimeout)
+	judge, err := evaluation.NewLLMJudge(chatModel, judgeModelName, evaluation.JudgeDefaultTimeout)
 	if err != nil {
 		return err
 	}

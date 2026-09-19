@@ -510,7 +510,7 @@ func newDefaultDeepAnswerApplication() (AnswerApplication, error) {
 	if err != nil {
 		return nil, err
 	}
-	chatModel, err := newDefaultKnowledgeChatModel()
+	chatModel, err := newDefaultKnowledgeChatModelFor(config.GetConfig().EffectiveDeepChatModelName())
 	if err != nil {
 		return nil, err
 	}
@@ -538,7 +538,7 @@ func newDefaultParentAnswerApplication() (AnswerApplication, error) {
 	if err != nil {
 		return nil, err
 	}
-	chatModel, err := newDefaultKnowledgeChatModel()
+	chatModel, err := newDefaultKnowledgeChatModelFor(config.GetConfig().EffectiveDeepChatModelName())
 	if err != nil {
 		return nil, err
 	}
@@ -547,12 +547,17 @@ func newDefaultParentAnswerApplication() (AnswerApplication, error) {
 
 func newDefaultKnowledgeChatModel() (knowledgeagent.ChatModel, error) {
 	configuration := config.GetConfig()
+	return newDefaultKnowledgeChatModelFor(configuration.EffectiveChatModelName())
+}
+
+func newDefaultKnowledgeChatModelFor(modelName string) (knowledgeagent.ChatModel, error) {
+	configuration := config.GetConfig()
 	apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
 	if apiKey == "" {
 		return nil, errors.New("chat model API key is not configured")
 	}
 	chatModel, err := modelOpenAI.NewChatModel(context.Background(), &modelOpenAI.ChatModelConfig{
-		BaseURL: configuration.RagBaseUrl, APIKey: apiKey, Model: configuration.RagChatModelName,
+		BaseURL: configuration.RagBaseUrl, APIKey: apiKey, Model: strings.TrimSpace(modelName),
 	})
 	if err != nil {
 		return nil, err

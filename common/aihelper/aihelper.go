@@ -269,12 +269,12 @@ func modelMetricAlias(model AIModel) string {
 	}
 	switch model.GetModelType() {
 	case "1":
-		if alias := os.Getenv("OPENAI_MODEL_NAME"); alias != "" {
+		if alias, _ := resolveOpenAISettings(os.Getenv("OPENAI_MODEL_NAME"), os.Getenv("OPENAI_BASE_URL"), config.GetConfig().RagModelConfig); alias != "" {
 			return alias
 		}
 		return "openai-compatible"
 	case "2":
-		if alias := config.GetConfig().RagChatModelName; alias != "" {
+		if alias := config.GetConfig().EffectiveChatModelName(); alias != "" {
 			return alias
 		}
 		return "qwen-rag"

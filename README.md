@@ -171,7 +171,7 @@ Rerun Report SHA  6b46cbdd815db0f46b36e42d1b4243df29ae448cc64ce7cc716613402f8ee3
 
 新增的 **自主排查 Agent** 通过 Eino 模型接口执行有界的“决策 → 只读工具 → 新证据 → 更新假设”循环。模型选择工具及目标服务，不接收旧规则答案；Go Harness负责参数、权限、重复调用、预算、超时和引用归属检查。最多8次模型请求、6次工具、180秒；失败不会自动用规则答案替代。每轮仅展示简短可核对的假设更新，不展示模型内部思维链。
 
-原始约278 MB数据本地处理，ECS只保存小型观测摘要，模型在云端调用，不新增数据库或运行完整微服务集群。此入口复用既有模型凭证；原聊天配置为百炼 `qwen-turbo` 时，仅此入口默认采用 `qwen-plus`，可用服务端 `GOPHERAI_RCA_MODEL` 覆盖，普通聊天不变。会产生真实模型调用用量。
+原始约278 MB数据本地处理，ECS只保存小型观测摘要，模型在云端调用，不新增数据库或运行完整微服务集群。此入口复用既有模型凭证并读取服务端推理模型层，默认采用固定版本 `qwen3.7-plus-2026-05-26`；可用 `GOPHERAI_RCA_MODEL` 做运行时覆盖，不接受浏览器传入模型名。会产生真实模型调用用量。
 
 当前12例答案此前已被查看，因此新模型成绩只作为**已有案例回放**单独记录，不称为新盲测。查看 [自主排查实现](internal/rcaagent/agent.go) 和 [实验说明](evals/rcaeval/README.md)。最终标准答案由独立评分器核对，不进入模型上下文；不执行修复。
 
@@ -231,10 +231,15 @@ key = "<long-random-jwt-key>"
 [ragModelConfig]
 embeddingModel = "<embedding-model>"
 chatModelName = "<chat-model>"
+deepChatModelName = "<enhanced-chat-model>"
+reasoningModelName = "<reasoning-model>"
+judgeModelName = "<judge-model>"
 baseUrl = "<openai-compatible-base-url>"
 dimension = 1024
 docDir = "data/documents"
 ```
+
+模型采用分层策略：`chatModelName` 服务高频知识问答和意图兜底；`deepChatModelName` 服务深度 RAG 与父块上下文回答；`reasoningModelName` 服务动态多 Agent 与 RCA 自主排查；`judgeModelName` 用作独立评测模型。可选字段缺省时会安全回退，兼容旧配置。运行环境可通过 `OPENAI_MODEL_NAME`、`GOPHERAI_COLLABORATION_MODEL`、`GOPHERAI_RCA_MODEL` 和 `GOPHERAI_JUDGE_MODEL` 分别覆盖关键链路，而无需把模型选择权暴露给浏览器端。
 
 模型密钥通过环境变量提供：
 

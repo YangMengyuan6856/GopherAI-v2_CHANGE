@@ -32,8 +32,7 @@ type OpenAIModel struct {
 
 func NewOpenAIModel(ctx context.Context) (*OpenAIModel, error) {
 	key := os.Getenv("OPENAI_API_KEY")
-	modelName := os.Getenv("OPENAI_MODEL_NAME")
-	baseURL := os.Getenv("OPENAI_BASE_URL")
+	modelName, baseURL := resolveOpenAISettings(os.Getenv("OPENAI_MODEL_NAME"), os.Getenv("OPENAI_BASE_URL"), config.GetConfig().RagModelConfig)
 
 	llm, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{
 		BaseURL: baseURL,
@@ -44,6 +43,16 @@ func NewOpenAIModel(ctx context.Context) (*OpenAIModel, error) {
 		return nil, fmt.Errorf("create openai model failed: %v", err)
 	}
 	return &OpenAIModel{llm: llm}, nil
+}
+
+func resolveOpenAISettings(modelName, baseURL string, policy config.RagModelConfig) (string, string) {
+	modelName = strings.TrimSpace(modelName)
+	baseURL = strings.TrimSpace(baseURL)
+	if baseURL == "" {
+		baseURL = strings.TrimSpace(policy.RagBaseUrl)
+	}
+	modelName = config.ResolveDeprecatedDashScopeModel(modelName, baseURL, policy.EffectiveDeepChatModelName())
+	return modelName, baseURL
 }
 
 func (o *OpenAIModel) GenerateResponse(ctx context.Context, messages []*schema.Message) (*schema.Message, error) {
@@ -160,7 +169,7 @@ type AliRAGModel struct {
 func NewAliRAGModel(ctx context.Context, username string) (*AliRAGModel, error) {
 	key := os.Getenv("OPENAI_API_KEY")
 	conf := config.GetConfig()
-	modelName := conf.RagModelConfig.RagChatModelName
+	modelName := conf.RagModelConfig.EffectiveChatModelName()
 	baseURL := conf.RagModelConfig.RagBaseUrl
 
 	llm, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{

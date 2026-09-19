@@ -111,13 +111,18 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	judgeModelName := config.ResolveDeprecatedDashScopeModel(
+		os.Getenv("GOPHERAI_JUDGE_MODEL"),
+		configuration.RagBaseUrl,
+		configuration.EffectiveJudgeModelName(),
+	)
 	chatModel, err := modelOpenAI.NewChatModel(ctx, &modelOpenAI.ChatModelConfig{
-		BaseURL: configuration.RagBaseUrl, APIKey: apiKey, Model: configuration.RagChatModelName,
+		BaseURL: configuration.RagBaseUrl, APIKey: apiKey, Model: judgeModelName,
 	})
 	if err != nil {
 		return fmt.Errorf("initialize online evaluation model: %w", err)
 	}
-	judge, err := evaluation.NewLLMJudge(chatModel, configuration.RagChatModelName, evaluation.JudgeDefaultTimeout)
+	judge, err := evaluation.NewLLMJudge(chatModel, judgeModelName, evaluation.JudgeDefaultTimeout)
 	if err != nil {
 		return fmt.Errorf("initialize online evaluation judge: %w", err)
 	}

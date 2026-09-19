@@ -29,13 +29,11 @@ func (*Runner) Run(ctx context.Context, input orchestration.ExecutionInput) (orc
 		return orchestration.CollaborationRun{}, errors.New("collaboration model not configured")
 	}
 	cfg := config.GetConfig()
-	name := strings.TrimSpace(os.Getenv("GOPHERAI_COLLABORATION_MODEL"))
-	if name == "" {
-		name = cfg.RagChatModelName
-		if name == "qwen-turbo" && strings.Contains(cfg.RagBaseUrl, "dashscope") {
-			name = "qwen-plus"
-		}
-	}
+	name := config.ResolveDeprecatedDashScopeModel(
+		os.Getenv("GOPHERAI_COLLABORATION_MODEL"),
+		cfg.RagBaseUrl,
+		cfg.EffectiveReasoningModelName(),
+	)
 	temperature := float32(0)
 	maxTokens := 2000
 	m, err := modelOpenAI.NewChatModel(ctx, &modelOpenAI.ChatModelConfig{BaseURL: cfg.RagBaseUrl, APIKey: key, Model: name, Temperature: &temperature, MaxTokens: &maxTokens, ResponseFormat: &modelOpenAI.ChatCompletionResponseFormat{Type: modelOpenAI.ChatCompletionResponseFormatTypeJSONObject}})
