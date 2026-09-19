@@ -1,5 +1,47 @@
 [
   {
+    "id": "rca-97bf1c72d2",
+    "service": "checkoutservice",
+    "fault": "cpu",
+    "supported": true,
+    "split": "reference"
+  },
+  {
+    "id": "rca-e375de9cb8",
+    "service": "checkoutservice",
+    "fault": "mem",
+    "supported": true,
+    "split": "reference"
+  },
+  {
+    "id": "rca-e425dee775",
+    "service": "checkoutservice",
+    "fault": "delay",
+    "supported": true,
+    "split": "reference"
+  },
+  {
+    "id": "rca-f9278c4f7b",
+    "service": "currencyservice",
+    "fault": "cpu",
+    "supported": true,
+    "split": "reference"
+  },
+  {
+    "id": "rca-e26fc30ca6",
+    "service": "currencyservice",
+    "fault": "mem",
+    "supported": true,
+    "split": "reference"
+  },
+  {
+    "id": "rca-d20ce82152",
+    "service": "currencyservice",
+    "fault": "delay",
+    "supported": true,
+    "split": "reference"
+  },
+  {
     "id": "rca-0abf02c950",
     "service": "emailservice",
     "fault": "cpu",
@@ -42,6 +84,48 @@
     "split": "reference"
   },
   {
+    "id": "rca-3cc10cccb6",
+    "service": "checkoutservice",
+    "fault": "cpu",
+    "supported": true,
+    "split": "development"
+  },
+  {
+    "id": "rca-1d28b06708",
+    "service": "checkoutservice",
+    "fault": "mem",
+    "supported": true,
+    "split": "development"
+  },
+  {
+    "id": "rca-b0f876b48e",
+    "service": "checkoutservice",
+    "fault": "delay",
+    "supported": true,
+    "split": "development"
+  },
+  {
+    "id": "rca-4d387bea1c",
+    "service": "currencyservice",
+    "fault": "cpu",
+    "supported": true,
+    "split": "development"
+  },
+  {
+    "id": "rca-5ad5f3d0de",
+    "service": "currencyservice",
+    "fault": "mem",
+    "supported": true,
+    "split": "development"
+  },
+  {
+    "id": "rca-0db34b4c7e",
+    "service": "currencyservice",
+    "fault": "delay",
+    "supported": true,
+    "split": "development"
+  },
+  {
     "id": "rca-7c907c38ac",
     "service": "emailservice",
     "fault": "cpu",
@@ -82,6 +166,48 @@
     "fault": "delay",
     "supported": true,
     "split": "development"
+  },
+  {
+    "id": "rca-34a5398b52",
+    "service": "checkoutservice",
+    "fault": "cpu",
+    "supported": true,
+    "split": "holdout"
+  },
+  {
+    "id": "rca-0ae1ec693f",
+    "service": "checkoutservice",
+    "fault": "mem",
+    "supported": true,
+    "split": "holdout"
+  },
+  {
+    "id": "rca-ce14e33b0b",
+    "service": "checkoutservice",
+    "fault": "delay",
+    "supported": true,
+    "split": "holdout"
+  },
+  {
+    "id": "rca-e5abfe8ebd",
+    "service": "currencyservice",
+    "fault": "cpu",
+    "supported": true,
+    "split": "holdout"
+  },
+  {
+    "id": "rca-e39c7bb9d6",
+    "service": "currencyservice",
+    "fault": "mem",
+    "supported": true,
+    "split": "holdout"
+  },
+  {
+    "id": "rca-c91fd2df9f",
+    "service": "currencyservice",
+    "fault": "delay",
+    "supported": true,
+    "split": "holdout"
   },
   {
     "id": "rca-a0cadd712c",

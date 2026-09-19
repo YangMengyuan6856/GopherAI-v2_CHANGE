@@ -122,10 +122,12 @@ func Load() (*Dataset, error) {
 	if err = json.Unmarshal(refs, &d.References); err != nil {
 		return nil, err
 	}
-	// The compact v2 benchmark is deliberately small enough to inspect and run
+	// The bounded v3 benchmark is deliberately small enough to inspect and run
 	// serially on a developer machine: one reference, development and evaluation
 	// repetition for every supported service/fault pair.
-	if len(d.Catalog) != 18 || len(d.Observations) != 18 || len(d.References) != 6 {
+	casesPerSplit := len(supportedServices) * 3
+	expectedTotal := casesPerSplit * 3
+	if len(d.Catalog) != expectedTotal || len(d.Observations) != expectedTotal || len(d.References) != casesPerSplit {
 		return nil, fmt.Errorf("unexpected experiment population")
 	}
 	splits := map[string]int{}
@@ -149,7 +151,7 @@ func Load() (*Dataset, error) {
 		}
 		splits[c.Split]++
 	}
-	if splits["reference"] != 6 || splits["development"] != 6 || splits["holdout"] != 6 || len(splits) != 3 {
+	if splits["reference"] != casesPerSplit || splits["development"] != casesPerSplit || splits["holdout"] != casesPerSplit || len(splits) != 3 {
 		return nil, fmt.Errorf("unexpected experiment split")
 	}
 	for i, r := range d.References {
@@ -201,7 +203,7 @@ func FindService(o Observation, name string) (Service, bool) {
 	return Service{}, false
 }
 
-var supportedServices = []string{"emailservice", "productcatalogservice"}
+var supportedServices = []string{"checkoutservice", "currencyservice", "emailservice", "productcatalogservice"}
 
 func SupportedServices() []string { return append([]string(nil), supportedServices...) }
 func KnownService(s string) bool {

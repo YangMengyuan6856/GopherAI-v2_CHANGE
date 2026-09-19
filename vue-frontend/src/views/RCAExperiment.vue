@@ -8,8 +8,8 @@
       </div>
       <div class="boundary">
         <strong>只读 · 不执行修复</strong>
-        <span>18 例：参考 / 开发 / 评测各 6 例</span>
-        <span>2 个服务 × 3 类已知故障</span>
+        <span>{{ catalog?.cases?.length || 36 }} 例：参考 / 开发 / 评测各 {{ splitCount('holdout') }} 例</span>
+        <span>{{ catalog?.supported_services?.length || 4 }} 个根因服务 × 3 类已知故障</span>
         <span>单 Agent · 单并发 · 有界预算</span>
       </div>
     </header>
@@ -145,9 +145,9 @@
     <section class="panel method-panel">
       <div class="heading"><div><small class="section-no">05 / EVALUATION CONTRACT</small><h2>这次评测究竟证明什么</h2></div><span class="mono">RCAEval / RE2-OB / MIT</span></div>
       <div class="contract-grid">
-        <article><b>参考集 · repetition 1</b><p>6 个历史案例，为 history 工具提供过去的故障模式。</p></article>
-        <article><b>开发集 · repetition 2</b><p>6 个同配方不同运行，用于调试提示词、预算和输出合同。</p></article>
-        <article><b>评测集 · repetition 3</b><p>冻结实现后顺序运行 6 例，失败不剔除，由独立评分器统计。</p></article>
+        <article><b>参考集 · repetition 1</b><p>{{ splitCount('reference') }} 个历史案例，为 history 工具提供过去的故障模式。</p></article>
+        <article><b>开发集 · repetition 2</b><p>{{ splitCount('development') }} 个同配方不同运行，用于调试提示词、预算和输出合同。</p></article>
+        <article><b>评测集 · repetition 3</b><p>冻结实现后顺序运行 {{ splitCount('holdout') }} 例，失败不剔除，由独立评分器统计。</p></article>
       </div>
       <p>它验证的是：系统能够在已知故障范围内，自主选择排查步骤，读取每轮新证据，利用历史案例作为先验，并输出可追踪的辅助排查结论。它不证明未知故障发现、自动修复成功率或生产环境因果确认。</p>
       <a href="https://huggingface.co/datasets/phamquiluan/RCAEval" target="_blank" rel="noopener noreferrer">公开数据集来源 ↗</a>
@@ -177,6 +177,7 @@ export default {
     const diagnosis = computed(() => result.value?.run?.diagnosis || { candidates: [], summary: '' })
     const reportMetrics = computed(() => agentReport.value?.metrics || {})
     const averageElapsed = computed(() => reportMetrics.value.attempted ? (reportMetrics.value.elapsed_ms_total / reportMetrics.value.attempted / 1000).toFixed(2) : '0.00')
+    const splitCount = name => Number(catalog.value?.split_counts?.[name] || 0)
 
     const time = stamp => new Date(stamp * 1000).toLocaleString('zh-CN', { timeZone: 'UTC', hour12: false }) + ' UTC'
     const count = value => Number(value || 0).toLocaleString('zh-CN')
@@ -247,7 +248,7 @@ export default {
     })
     onBeforeUnmount(() => { controller.abort(); window.clearInterval(timer) })
 
-    return { catalog, agentReport, agentReportError, error, selected, observation, evidenceService, result, reveal, busy, loadingRecord, elapsed, cases, service, metricRows, diagnosis, reportMetrics, averageElapsed, time, count, value: number, faultName, toolName, spark, loadObservation, viewRecorded, run, downloadRun }
+    return { catalog, agentReport, agentReportError, error, selected, observation, evidenceService, result, reveal, busy, loadingRecord, elapsed, cases, service, metricRows, diagnosis, reportMetrics, averageElapsed, splitCount, time, count, value: number, faultName, toolName, spark, loadObservation, viewRecorded, run, downloadRun }
   }
 }
 </script>

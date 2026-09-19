@@ -28,12 +28,12 @@ func TestScoringDoesNotCreditRejectedKnownCases(t *testing.T) {
 			}
 		}
 	}
-	if len(seen) != 18 {
+	if len(seen) != 36 {
 		t.Fatal("population changed", len(seen))
 	}
 }
 
-func TestV2TruthIsHashBoundAndContainsOnlySupportedCases(t *testing.T) {
+func TestV3TruthIsHashBoundAndContainsOnlySupportedCases(t *testing.T) {
 	d, err := rcaexperiment.Load()
 	if err != nil {
 		t.Fatal(err)
@@ -42,7 +42,7 @@ func TestV2TruthIsHashBoundAndContainsOnlySupportedCases(t *testing.T) {
 		t.Fatal("dataset or policy is not hash bound")
 	}
 	answers, err := Answers()
-	if err != nil || len(answers) != 18 {
+	if err != nil || len(answers) != 36 {
 		t.Fatal("unexpected truth population", len(answers), err)
 	}
 	counts := map[string]int{}
@@ -52,7 +52,7 @@ func TestV2TruthIsHashBoundAndContainsOnlySupportedCases(t *testing.T) {
 		}
 		counts[answer.Split]++
 	}
-	if counts["reference"] != 6 || counts["development"] != 6 || counts["holdout"] != 6 {
+	if counts["reference"] != 12 || counts["development"] != 12 || counts["holdout"] != 12 {
 		t.Fatal("unexpected truth split", counts)
 	}
 }

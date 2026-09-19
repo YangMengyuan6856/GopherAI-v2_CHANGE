@@ -1,6 +1,6 @@
 export const evaluationCases = catalog => (catalog || []).filter(row => row.split === 'holdout')
 
-// Recompute the public summary from the six recorded rows. A stale or forged
+// Recompute the public summary from the recorded rows. A stale or forged
 // aggregate cannot make a failed run disappear from the denominator.
 export function summarizeAgentReport(report) {
   const cases = Array.isArray(report?.cases) ? report.cases : []

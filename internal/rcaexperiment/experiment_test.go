@@ -43,7 +43,7 @@ func TestDatasetBoundaries(t *testing.T) {
 			}
 		}
 	}
-	if !reflect.DeepEqual(counts, map[string]int{"reference": 6, "development": 6, "holdout": 6}) {
+	if !reflect.DeepEqual(counts, map[string]int{"reference": 12, "development": 12, "holdout": 12}) {
 		t.Fatal(counts)
 	}
 }

@@ -18,14 +18,15 @@ import requests
 
 REVISION = 'afeacb11bcc94dadfd1c8f483ee4377b2b8b614e'
 REPOSITORY = 'phamquiluan/RCAEval'
-# v2 is deliberately a compact, known-fault slice.  It replaces the earlier
-# mixed 27-case artifact (which included unsupported disk/loss/socket cases)
-# while keeping the raw Parquet files local to the preparation workstation.
-VERSION = 'rcaeval-ob-known-v2'
+# v3 widens the proven v2 contract by service, not by ambiguous fault type. It
+# still excludes the earlier unsupported disk/loss/socket cases and keeps raw
+# Parquet files local to the preparation workstation.
+VERSION = 'rcaeval-ob-known-v3'
 EXTRACTOR = 'window-thirds-v2'
 KINDS = ('cpu', 'mem', 'delay')
-SERVICES = ('emailservice', 'productcatalogservice')
-EXPECTED_SPLITS = {'reference': 6, 'development': 6, 'holdout': 6}
+SERVICES = ('checkoutservice', 'currencyservice', 'emailservice', 'productcatalogservice')
+CASES_PER_SPLIT = len(SERVICES) * len(KINDS)
+EXPECTED_SPLITS = {name: CASES_PER_SPLIT for name in ('reference', 'development', 'holdout')}
 
 
 def digest(path):
@@ -59,12 +60,13 @@ def selection():
 
 
 def validate_selection(items):
-    """Fail closed if the compact v2 selection is accidentally widened."""
-    if len(items) != 18:
-        raise ValueError(f'v2 selection must contain 18 cases, got {len(items)}')
+    """Fail closed if the bounded v3 selection is accidentally widened."""
+    expected_total = CASES_PER_SPLIT * len(EXPECTED_SPLITS)
+    if len(items) != expected_total:
+        raise ValueError(f'v3 selection must contain {expected_total} cases, got {len(items)}')
     split_counts = Counter(split for _, split, _, _ in items)
     if dict(split_counts) != EXPECTED_SPLITS:
-        raise ValueError(f'v2 split counts mismatch: {dict(split_counts)}')
+        raise ValueError(f'v3 split counts mismatch: {dict(split_counts)}')
     expected = {
         (split, service, fault)
         for split, repetition in (('reference', 1), ('development', 2), ('holdout', 3))
@@ -73,7 +75,7 @@ def validate_selection(items):
     }
     actual = {(split, service, fault) for _, split, service, fault in items}
     if actual != expected:
-        raise ValueError('v2 selection must cover every service/fault pair exactly once per split')
+        raise ValueError('v3 selection must cover every service/fault pair exactly once per split')
 
 
 def number(x):
@@ -211,7 +213,7 @@ def main():
         'internal/rcaexperiment/data/references.json': references,
         'internal/rcascoring/data/answers.json': answers,
         'evals/rcaeval/sources.json': {
-            'schema_version': 'rcaeval-source-manifest-v2',
+            'schema_version': 'rcaeval-source-manifest-v3',
             'dataset_version': VERSION,
             'repository': REPOSITORY,
             'revision': REVISION,

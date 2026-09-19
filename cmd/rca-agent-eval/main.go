@@ -84,9 +84,9 @@ func run(split string, limit int, path string) error {
 		return err
 	}
 	defer checkpoints.Close()
-	kind := reportKind(split)
+	kind := reportKind(split, d.SHA256, "evals/rcaeval/agent-evaluation.json")
 	r := report{Version: rcaagent.Version, DatasetSHA256: d.SHA256, PromptSHA256: rcaagent.PromptHash(), ImplementationSHA256: rcaagent.ImplementationHash(), Split: split, EvaluationKind: kind, GeneratedAt: time.Now().UTC(), Cases: []row{},
-		Limitations: []string{"公开 RCAEval RE2-OB 的固定案例评测；标准答案与模型工具隔离，但不宣称生产准确率或绝对盲测。", "仅覆盖2个服务和CPU、内存、延迟3类已知故障；不评价未知故障、跨系统泛化或修复成功率。", "每个案例只运行一次，模型错误、超时和预算停止都保留在分母。", "模型自主选工具只证明有界排查流程可运行；引用有效仍不等于因果已经确认。"}}
+		Limitations: []string{"公开 RCAEval RE2-OB 的固定案例评测；标准答案与模型工具隔离，但不宣称生产准确率或绝对盲测。", "仅覆盖4个服务和CPU、内存、延迟3类已知故障；不评价未知故障、跨系统泛化或修复成功率。", "每个案例只运行一次，模型错误、超时和预算停止都保留在分母。", "模型自主选工具只证明有界排查流程可运行；引用有效仍不等于因果已经确认。"}}
 	for _, c := range d.Catalog {
 		if c.Split != split {
 			continue
@@ -148,9 +148,21 @@ func run(split string, limit int, path string) error {
 	return f.Sync()
 }
 
-func reportKind(split string) string {
-	if split == "holdout" {
-		return "previously_exposed_case_replay"
+func reportKind(split, datasetSHA, publishedPath string) string {
+	if split != "holdout" {
+		return "development_iteration"
 	}
-	return "development_iteration"
+	// A changed, expanded dataset may publish one new fixed report. Once the
+	// canonical report already names this exact dataset, every later run is an
+	// exposed replay and cannot silently replace the published evidence.
+	b, err := os.ReadFile(publishedPath)
+	if err == nil {
+		var existing struct {
+			DatasetSHA256 string `json:"dataset_sha256"`
+		}
+		if json.Unmarshal(b, &existing) == nil && existing.DatasetSHA256 == datasetSHA {
+			return "previously_exposed_case_replay"
+		}
+	}
+	return "fixed_known_fault_evaluation"
 }

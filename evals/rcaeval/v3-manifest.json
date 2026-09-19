@@ -1,19 +1,20 @@
 {
-  "schema_version": "rcaeval-known-manifest-v2",
-  "dataset_version": "rcaeval-ob-known-v2",
+  "schema_version": "rcaeval-known-manifest-v3",
+  "dataset_version": "rcaeval-ob-known-v3",
   "repository": "phamquiluan/RCAEval",
   "revision": "afeacb11bcc94dadfd1c8f483ee4377b2b8b614e",
   "benchmark_family": "RE2-OB",
   "selection": {
-    "services": ["emailservice", "productcatalogservice"],
+    "services": ["checkoutservice", "currencyservice", "emailservice", "productcatalogservice"],
     "faults": ["cpu", "mem", "delay"],
     "repetitions": {
       "1": "reference",
       "2": "development",
       "3": "holdout"
     },
-    "case_count": 18,
-    "cases_per_split": 6,
+    "case_count": 36,
+    "cases_per_split": 12,
+    "raw_parquet_bytes": 366842864,
     "raw_parquet_in_repository": false,
     "raw_parquet_processing": "local_only"
   },
@@ -30,23 +31,23 @@
   "artifacts": {
     "observations": {
       "path": "internal/rcaexperiment/data/observations.json",
-      "sha256": "84bb2595846089533d73a0de41597e3f91489f0b1e4c5b8cb3129a79ee9c0d8a",
-      "bytes": 1343786
+      "sha256": "723943b7c44d1c05ec97b913d56b1a56a179ddf2bf0ec3a54eceeef1896c01e3",
+      "bytes": 2713869
     },
     "references": {
       "path": "internal/rcaexperiment/data/references.json",
-      "sha256": "61588b4f50ea21b15ae88140397ffbfb48464f6b009a53b991f9dfb4e4c7f894",
-      "bytes": 1110
+      "sha256": "877aa4ca74ce84bc54abd51caf2d04ebf9dbd8a6be385083034508691a56efb8",
+      "bytes": 2206
     },
     "answers": {
       "path": "internal/rcascoring/data/answers.json",
-      "sha256": "24a7cc334d2cfcda8bf4d25487259f031612f0344400989c61ccb8330a9eb119",
-      "bytes": 2672
+      "sha256": "f50be1279f7988dbc435080bcaacabef3d36ca0a7613e948718e4e05164d51d1",
+      "bytes": 5312
     },
     "sources": {
       "path": "evals/rcaeval/sources.json",
-      "sha256": "0a2a1f9a9ff0a3e120bde95886ee3cbd5b95e58fc52abc6ef73c05783e249ed6",
-      "bytes": 12962
+      "sha256": "2563a27b39ce06b6404841f32c7b645b004cc9b0c4e6aa886fe6cc0ef52bef6c",
+      "bytes": 25384
     }
   },
   "extractor": {

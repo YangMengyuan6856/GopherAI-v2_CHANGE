@@ -53,8 +53,12 @@ func (h *Handler) Catalog(c *gin.Context) {
 	if !h.ready(c) {
 		return
 	}
+	splitCounts := map[string]int{}
+	for _, item := range h.dataset.Catalog {
+		splitCounts[item.Split]++
+	}
 	c.JSON(http.StatusOK, gin.H{"version": h.dataset.Version, "revision": h.dataset.Revision, "dataset_sha256": h.dataset.SHA256, "cases": h.dataset.Catalog, "references": h.dataset.References, "supported_services": rcaexperiment.SupportedServices(), "supported_faults": []string{"cpu", "mem", "delay"}, "extractor": h.dataset.Extractor, "max_concurrency": 1,
-		"evaluation_contract": "known_fault_autonomous_investigation_v2", "split_counts": gin.H{"reference": 6, "development": 6, "holdout": 6},
+		"evaluation_contract": "known_fault_autonomous_investigation_v3", "split_counts": splitCounts,
 		"agent_version": rcaagent.Version, "agent_max_model_calls": rcaagent.MaxRounds, "agent_max_tool_calls": rcaagent.MaxToolCalls, "agent_timeout_seconds": int(rcaagent.TotalTimeout.Seconds())})
 }
 func (h *Handler) Observation(c *gin.Context) {
@@ -156,7 +160,7 @@ func (h *Handler) AgentReport(c *gin.Context) {
 			EvidenceValid bool             `json:"evidence_valid"`
 		} `json:"cases"`
 	}
-	if json.NewDecoder(io.LimitReader(f, 16<<20)).Decode(&report) != nil || report.Version != rcaagent.Version || report.DatasetSHA256 != h.dataset.SHA256 || report.PromptSHA256 != rcaagent.PromptHash() || report.ImplementationSHA256 != rcaagent.ImplementationHash() || report.Split != "holdout" || report.EvaluationKind != "fixed_known_fault_evaluation" || len(report.Cases) != 6 {
+	if json.NewDecoder(io.LimitReader(f, 32<<20)).Decode(&report) != nil || report.Version != rcaagent.Version || report.DatasetSHA256 != h.dataset.SHA256 || report.PromptSHA256 != rcaagent.PromptHash() || report.ImplementationSHA256 != rcaagent.ImplementationHash() || report.Split != "holdout" || report.EvaluationKind != "fixed_known_fault_evaluation" {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"message": "自主 Agent 报告与当前版本不一致，不展示旧成绩"})
 		return
 	}
@@ -180,7 +184,7 @@ func (h *Handler) AgentReport(c *gin.Context) {
 		"output_tokens":    0,
 		"elapsed_ms_total": 0,
 	}
-	validReport := len(holdout) == 6
+	validReport := len(holdout) > 0 && len(report.Cases) == len(holdout)
 	for _, entry := range report.Cases {
 		_, expectedID := holdout[entry.ID]
 		_, duplicateID := seen[entry.ID]

@@ -63,7 +63,7 @@ func TestCatalogUsesTheSameSplitNamesAsTheDataset(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.SplitCounts["reference"] != 6 || body.SplitCounts["development"] != 6 || body.SplitCounts["holdout"] != 6 {
+	if body.SplitCounts["reference"] != 12 || body.SplitCounts["development"] != 12 || body.SplitCounts["holdout"] != 12 {
 		t.Fatalf("unexpected split counts: %#v", body.SplitCounts)
 	}
 	if _, exists := body.SplitCounts["evaluation"]; exists {
@@ -126,7 +126,7 @@ func TestFrozenAgentReplayAndRecordedTraceAreVersionBound(t *testing.T) {
 	for _, tt := range []struct {
 		id   string
 		want int
-	}{{"", 200}, {d.Catalog[12].ID, 200}, {"not-in-report", 404}} {
+	}{{"", 200}, {d.Catalog[24].ID, 200}, {"not-in-report", 404}} {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 		c.Set("userName", "tester")
@@ -145,7 +145,7 @@ func TestFrozenAgentReplayAndRecordedTraceAreVersionBound(t *testing.T) {
 		}
 		if tt.id == "" {
 			var rows []json.RawMessage
-			if json.Unmarshal(body["cases"], &rows) != nil || len(rows) != 6 {
+			if json.Unmarshal(body["cases"], &rows) != nil || len(rows) != 12 {
 				t.Fatal("incomplete replay")
 			}
 			if len(body["prompt_sha256"]) == 0 || len(body["implementation_sha256"]) == 0 || string(body["split"]) != `"holdout"` {
