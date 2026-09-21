@@ -20,22 +20,26 @@ func TestEffectiveDeepChatModelName(t *testing.T) {
 	}
 }
 
-func TestDeprecatedDashScopeModelGetsTieredFallbacks(t *testing.T) {
-	configuration := RagModelConfig{
-		RagBaseUrl:       "https://dashscope.aliyuncs.com/compatible-mode/v1",
-		RagChatModelName: "qwen-turbo",
-	}
-	if got := configuration.EffectiveChatModelName(); got != "qwen3.7-flash-2026-07-15" {
-		t.Fatalf("EffectiveChatModelName() = %q", got)
-	}
-	if got := configuration.EffectiveDeepChatModelName(); got != "qwen3.8-flash" {
-		t.Fatalf("EffectiveDeepChatModelName() = %q", got)
-	}
-	if got := configuration.EffectiveReasoningModelName(); got != "qwen3.7-plus-2026-05-26" {
-		t.Fatalf("EffectiveReasoningModelName() = %q", got)
-	}
-	if got := configuration.EffectiveJudgeModelName(); got != "qwen3.7-plus-2026-05-26" {
-		t.Fatalf("EffectiveJudgeModelName() = %q", got)
+func TestDeprecatedBailianModelGetsTieredFallbacks(t *testing.T) {
+	for _, baseURL := range []string{
+		"https://dashscope.aliyuncs.com/compatible-mode/v1",
+		"https://llm-example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+	} {
+		t.Run(baseURL, func(t *testing.T) {
+			configuration := RagModelConfig{RagBaseUrl: baseURL, RagChatModelName: "qwen-turbo"}
+			if got := configuration.EffectiveChatModelName(); got != "qwen3.7-flash-2026-07-15" {
+				t.Fatalf("EffectiveChatModelName() = %q", got)
+			}
+			if got := configuration.EffectiveDeepChatModelName(); got != "qwen3.8-flash" {
+				t.Fatalf("EffectiveDeepChatModelName() = %q", got)
+			}
+			if got := configuration.EffectiveReasoningModelName(); got != "qwen3.7-plus-2026-05-26" {
+				t.Fatalf("EffectiveReasoningModelName() = %q", got)
+			}
+			if got := configuration.EffectiveJudgeModelName(); got != "qwen3.7-plus-2026-05-26" {
+				t.Fatalf("EffectiveJudgeModelName() = %q", got)
+			}
+		})
 	}
 }
 
@@ -52,8 +56,10 @@ func TestResolveDeprecatedDashScopeModel(t *testing.T) {
 	}{
 		{name: "blank uses tier fallback", baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", fallback: "plus", want: "plus"},
 		{name: "deprecated override uses tier fallback", model: "qwen-turbo", baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", fallback: "plus", want: "plus"},
+		{name: "workspace endpoint uses tier fallback", model: "qwen-turbo", baseURL: "https://llm-example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1", fallback: "plus", want: "plus"},
 		{name: "current override is preserved", model: "qwen3.8-flash", baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", fallback: "plus", want: "qwen3.8-flash"},
 		{name: "other provider is untouched", model: "qwen-turbo", baseURL: "https://example.com/v1", fallback: "plus", want: "qwen-turbo"},
+		{name: "lookalike provider is untouched", model: "qwen-turbo", baseURL: "https://maas.aliyuncs.com.example.com/v1", fallback: "plus", want: "qwen-turbo"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -65,13 +71,18 @@ func TestResolveDeprecatedDashScopeModel(t *testing.T) {
 }
 
 func TestDeterministicGenerationExtraFields(t *testing.T) {
-	dashScope := RagModelConfig{RagBaseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1"}
-	fields := dashScope.DeterministicGenerationExtraFields("qwen3.8-flash")
-	if enabled, exists := fields["enable_thinking"]; !exists || enabled != false {
-		t.Fatalf("Qwen3 deterministic policy = %#v, want enable_thinking=false", fields)
-	}
-	if fields := dashScope.DeterministicGenerationExtraFields("qwen-plus"); fields != nil {
-		t.Fatalf("legacy model must not receive unsupported thinking extension: %#v", fields)
+	for _, baseURL := range []string{
+		"https://dashscope.aliyuncs.com/compatible-mode/v1",
+		"https://llm-example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+	} {
+		provider := RagModelConfig{RagBaseUrl: baseURL}
+		fields := provider.DeterministicGenerationExtraFields("qwen3.8-flash")
+		if enabled, exists := fields["enable_thinking"]; !exists || enabled != false {
+			t.Fatalf("Qwen3 deterministic policy for %s = %#v, want enable_thinking=false", baseURL, fields)
+		}
+		if fields := provider.DeterministicGenerationExtraFields("qwen-plus"); fields != nil {
+			t.Fatalf("legacy model must not receive unsupported thinking extension for %s: %#v", baseURL, fields)
+		}
 	}
 	otherProvider := RagModelConfig{RagBaseUrl: "https://example.com/v1"}
 	if fields := otherProvider.DeterministicGenerationExtraFields("qwen3.8-flash"); fields != nil {

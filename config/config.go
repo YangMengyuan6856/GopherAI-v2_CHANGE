@@ -2,6 +2,7 @@ package config
 
 import (
 	"log"
+	"net/url"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -77,7 +78,7 @@ func ResolveDeprecatedDashScopeModel(name, baseURL, fallback string) string {
 	if name == "" {
 		return fallback
 	}
-	if strings.Contains(strings.ToLower(baseURL), "dashscope") && name == deprecatedDashScopeChatModel {
+	if isBailianBaseURL(baseURL) && name == deprecatedDashScopeChatModel {
 		return fallback
 	}
 	return name
@@ -89,14 +90,33 @@ func ResolveDeprecatedDashScopeModel(name, baseURL, fallback string) string {
 // latency; the separate reasoning and judge tiers intentionally keep their
 // default reasoning behavior.
 func (configuration RagModelConfig) DeterministicGenerationExtraFields(modelName string) map[string]any {
-	if !configuration.usesDashScope() || !strings.HasPrefix(strings.ToLower(strings.TrimSpace(modelName)), "qwen3.") {
+	if !configuration.usesBailian() || !strings.HasPrefix(strings.ToLower(strings.TrimSpace(modelName)), "qwen3.") {
 		return nil
 	}
 	return map[string]any{"enable_thinking": false}
 }
 
-func (configuration RagModelConfig) usesDashScope() bool {
-	return strings.Contains(strings.ToLower(configuration.RagBaseUrl), "dashscope")
+func (configuration RagModelConfig) usesBailian() bool {
+	return isBailianBaseURL(configuration.RagBaseUrl)
+}
+
+// isBailianBaseURL recognizes both the legacy DashScope shared endpoints and
+// the workspace-dedicated Model Studio endpoints. Inspect the parsed hostname
+// instead of using a raw substring so a lookalike third-party URL cannot turn
+// on Qwen-specific request fields or model migration behavior.
+func isBailianBaseURL(rawURL string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return false
+	}
+	host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
+	if host == "dashscope.aliyuncs.com" || strings.HasSuffix(host, ".dashscope.aliyuncs.com") {
+		return true
+	}
+	if strings.HasPrefix(host, "dashscope-") && strings.HasSuffix(host, ".aliyuncs.com") {
+		return true
+	}
+	return strings.HasSuffix(host, ".maas.aliyuncs.com")
 }
 
 // EffectiveChatModelName transparently keeps an older, server-preserved
@@ -104,7 +124,7 @@ func (configuration RagModelConfig) usesDashScope() bool {
 // non-deprecated model choices are never rewritten.
 func (configuration RagModelConfig) EffectiveChatModelName() string {
 	name := strings.TrimSpace(configuration.RagChatModelName)
-	if configuration.usesDashScope() && name == deprecatedDashScopeChatModel {
+	if configuration.usesBailian() && name == deprecatedDashScopeChatModel {
 		return defaultFastChatModel
 	}
 	return name
@@ -117,7 +137,7 @@ func (configuration RagModelConfig) EffectiveDeepChatModelName() string {
 	if name := strings.TrimSpace(configuration.RagDeepChatModelName); name != "" {
 		return name
 	}
-	if configuration.usesDashScope() && strings.TrimSpace(configuration.RagChatModelName) == deprecatedDashScopeChatModel {
+	if configuration.usesBailian() && strings.TrimSpace(configuration.RagChatModelName) == deprecatedDashScopeChatModel {
 		return defaultDeepChatModel
 	}
 	return configuration.EffectiveChatModelName()
@@ -129,7 +149,7 @@ func (configuration RagModelConfig) EffectiveReasoningModelName() string {
 	if name := strings.TrimSpace(configuration.RagReasoningModelName); name != "" {
 		return name
 	}
-	if configuration.usesDashScope() && strings.TrimSpace(configuration.RagChatModelName) == deprecatedDashScopeChatModel {
+	if configuration.usesBailian() && strings.TrimSpace(configuration.RagChatModelName) == deprecatedDashScopeChatModel {
 		return defaultReasoningModel
 	}
 	return configuration.EffectiveChatModelName()

@@ -46,7 +46,8 @@ charset =  "utf8mb4"
   # Judge 独立配置；当前用 Plus 质量档评测 Flash/Deep RAG 输出。
   judgeModelName="qwen3.7-plus-2026-05-26"
   docDir = "./docs"
-  baseUrl="https://dashscope.aliyuncs.com/compatible-mode/v1"
+  # 华北2（北京）默认业务空间专属域名；Chat、Embedding、Judge 与 Agent 共用此 OpenAI 兼容入口。
+  baseUrl="https://llm-cy81nchxihq6bp4e.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
   dimension=1024
 
   [voiceServiceConfig]
