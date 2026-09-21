@@ -54,7 +54,18 @@
 
 ## 结果
 
-部署结果、发布版本和线上健康证据在完成原子发布后补充。
+- Git commit：`dd97cf5af597777ff0ee7e057fc5ea8d1eb6dce7`；
+- 活跃 release：`20260921204327-dd97cf5af597`；
+- 发布包 SHA-256：`99b8853874541a3898a048a66c5ac2d771ffee86682f4b4b92a505963a35d600`；
+- 本地 `go test -p 1 ./...`、`go vet -p 1 ./...` 与 MCP 子模块测试通过；
+- Vue 生产构建成功，仅保留既有 bundle 体积告警；
+- 容器内 backend、index worker、Prometheus、Grafana、MCP 与静态前端网关全部启动；
+- backend live/ready、index worker live/ready、Prometheus 2/2 targets、Grafana dashboard 与公网首页/工作台/健康接口均通过；
+- 发布后再次从运行容器请求专属入口，Chat HTTP 200、Embedding HTTP 200；
+- 远端配置确认仍是专属域名，证明正常发布时的远端配置保留逻辑没有把它还原为共享域名；
+- cleanup evidence 封存成功，`eligible_to_delete=0`、`blocked=0`。
+
+远端旧配置备份为 `/root/GopherAI-/config/config.toml.before-maas-20260921`。若专属入口发生不可预期的区域或密钥问题，可从该备份恢复 Base URL 后重启；本次验证未触发回滚。
 
 ## 官方依据
 
